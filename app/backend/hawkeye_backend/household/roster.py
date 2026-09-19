@@ -1,0 +1,108 @@
+"""The roster: who the house is not surprised by.
+
+Talks to `Store` and to nothing else. No HTTP, no FastAPI, no hub imports, so
+this moves into `agents/intruder` as an import change.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Iterable
+
+from hawkeye_backend.models.common import utc_now
+from hawkeye_backend.models.household import (
+    HouseholdMember,
+    KnownDevice,
+    ObservedDevice,
+    RememberRequest,
+)
+from hawkeye_backend.store import Store
+
+
+class UnknownDevice(LookupError):
+    """Asked to bind a device nobody has observed.
+
+    Refused rather than tolerated: a member bound to a device that was never
+    seen can never match anything, so the roster would look populated and
+    recognise nobody.
+    """
+
+
+class Roster:
+    """Household membership, and matching observed devices against it."""
+
+    def __init__(self, store: Store, *, salt: str) -> None:
+        self._store = store
+        self._salt = salt
+
+    async def members(self) -> list[HouseholdMember]:
+        return await self._store.list_members()
+
+    async def observe(self, device: ObservedDevice) -> None:
+        """Record a device seen on the network. Deduplicated by hash."""
+        await self._store.put_observed_device(device)
+
+    async def _claimed_hashes(self) -> set[str]:
+        return {
+            device.identifier_hash
+            for member in await self._store.list_members()
+            for device in member.devices
+        }
+
+    async def unclaimed_devices(self) -> list[ObservedDevice]:
+        """Observed devices no member claims. The candidates for a binding."""
+        claimed = await self._claimed_hashes()
+        return [
+            d for d in await self._store.list_observed_devices()
+            if d.identifier_hash not in claimed
+        ]
+
+    async def remember(self, request: RememberRequest) -> HouseholdMember:
+        """Create a member, optionally binding one observed device.
+
+        One operation rather than create-then-bind. The two halves are
+        meaningless apart, and a partial failure would leave a named member with
+        no device, which is the state that looks like a working roster and
+        silently recognises nobody.
+        """
+        device: KnownDevice | None = None
+        if request.device_id is not None:
+            observed = next(
+                (d for d in await self._store.list_observed_devices()
+                 if d.device_id == request.device_id),
+                None,
+            )
+            if observed is None:
+                raise UnknownDevice(request.device_id)
+            device = KnownDevice(
+                device_id=observed.device_id,
+                identifier_hash=observed.identifier_hash,
+                fingerprint=observed.fingerprint,
+                added_at=utc_now(),
+                last_seen_at=observed.first_seen_at,
+            )
+
+        member = HouseholdMember(
+            member_id=f"mem-{uuid.uuid4().hex[:8]}",
+            name=request.name,
+            kind=request.kind,
+            devices=[device] if device is not None else [],
+            added_at=utc_now(),
+            added_by="approval",
+        )
+        await self._store.put_member(member)
+        return member
+
+    async def forget(self, member_id: str) -> bool:
+        """Remove a member. Their devices become unclaimed again rather than
+        staying bound to nobody."""
+        return await self._store.delete_member(member_id)
+
+    async def known_devices_present(self, present: Iterable[ObservedDevice]) -> int:
+        """How many of the devices currently present belong to the roster.
+
+        Counts distinct hashes, so one phone reported twice in a frame does not
+        account for two people.
+        """
+        claimed = await self._claimed_hashes()
+        return len({d.identifier_hash for d in present if d.identifier_hash in claimed})
