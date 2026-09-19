@@ -178,8 +178,8 @@ final class MockHubBrowser: HubBrowsing {
             try? await Task.sleep(for: .milliseconds(1400))
             guard !Task.isCancelled else { return }
             self.hubs.append(
-                Hub(id: "hawkeye-garage", name: "Garage", endpoint: "Wi-Fi",
-                    signal: 0.41, paired: false, ansName: "garage.hub.hawkeye.ai")
+                Hub(id: "hawkeye-studio", name: "Studio", endpoint: "Wi-Fi",
+                    signal: 0.41, paired: false, ansName: "studio.hub.hawkeye.ai")
             )
         }
     }

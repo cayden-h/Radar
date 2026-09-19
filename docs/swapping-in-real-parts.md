@@ -65,7 +65,7 @@ This switch is mock-only and has no effect when `useMocks = false`, where the hu
 2. Start the backend somewhere the phone can reach, on the same network.
 3. Make sure something actually advertises `_hawkeye._tcp`. See the gap below.
 
-**Verify it flipped:** the Connect screen sits on "Looking for your home" instead of instantly listing "Home" and "Garage". If hubs appear instantly, you are still on mocks.
+**Verify it flipped:** the Connect screen sits on "Looking for your home" instead of instantly listing "Home" and "Studio". If hubs appear instantly, you are still on mocks.
 
 **The gap that will bite you:** nothing advertises Bonjour yet.
 The backend does not register a `_hawkeye._tcp` service, so with `useMocks = false` the Connect screen will wait forever and show no error, because that is what "no hub found" correctly looks like.

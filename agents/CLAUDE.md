@@ -260,7 +260,7 @@ Talks to the 911 operator by phone, through ElevenLabs. The only agent that acts
 **Outbound.** Reports the incident in plain English. Every claim it speaks has a verified source or it does not get spoken.
 
 **Inbound.** The operator talks back, mid-call, in English.
-"Is the child still breathing?" "Anyone in the garage?" "How long since they went down?"
+"Is the child still breathing?" "Anyone outside the front door?" "How long since they went down?"
 `caller` parses each question, fans it out through `master` as ANS-verified queries, and speaks the result.
 
 Rules for the inbound path:
