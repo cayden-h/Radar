@@ -1706,3 +1706,18 @@ Expected: no output. `Palette.inkFaint` is a greyscale ink token and is excluded
 git add -A
 git commit -m "Final sweep: no fall detection remains"
 ```
+
+---
+
+## Known gap, deferred 2026-09-19
+
+**The app no longer distinguishes still-and-breathing.**
+
+`agents/agents/master/classify.py` ranks it as a Fire signal at confidence 0.65, and `app/CLAUDE.md` calls that state the one the whole system exists for.
+But `PresenceState.derive` in `app/ios/HawkEye/Models/InteriorState.swift` now folds it into `.personMoving`, because the alternative was labelling an audibly-breathing person "No breathing signature".
+
+The server path is unaffected: `derive` is only the fallback for a frame that omits `state`, and the hub is authoritative.
+The gap shows only when a frame arrives without the field.
+
+Closing it needs a distinct presence state and label for "still, breathing" - roughly one iOS task.
+Deferred by the user pending a decision on how the app should name and render it.
