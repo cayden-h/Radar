@@ -89,8 +89,9 @@ The resident is on the left of the apartment and the intruder crosses the whole 
 The unexpected person is violet with tracking brackets; the residents are the calm blue; the curtain is still a dashed grey lozenge in the laundry.
 That last contrast is the argument, and it is why the curtain was kept rather than replaced.
 
-**`.faint`.** The child goes down in the second bedroom, a six second debounce runs, and `still_down_s` starts climbing and does not reset.
-The long lie, which is the clinical outcome the product moves.
+**`.fire`.** The child's breathing signature in the second bedroom stops being resolvable, a six second debounce runs, and `respiration_lost_s` counts from the last signature and does not reset while carbon monoxide climbs.
+Whether a dispatcher should expect an answer from that room is the outcome the product moves.
+The claim is that a signature we had is gone, never that anyone has stopped breathing: shallow breathing, breath-holding and range limits all read the same way, and every string in the app says so.
 
 Per-scenario timings live next to the selector in `Config.swift` and nowhere else.
 
@@ -105,7 +106,7 @@ The project has an explicit honesty rule, so here is the line, drawn plainly.
 - **The data model.** Every `Codable` type in `Models/` is matched field for field against the generated example payloads in `app/backend/schema/`, which are produced from the live Pydantic models. All eighteen example files plus a 1,661-frame capture from a running hub decode without error. See "Wire format" below.
 - **The verification feed.** `verification` events are modelled in full: the claim, the agent, its ANSName and version-bound certificate, the Trust Index with its unimplemented dimensions named rather than zeroed, the decision, and every check with its reason. The incident screen renders refusals as refusals.
 - **The unexpected person.** `Presence.expected` is an orthogonal axis to `PresenceState`, not a fourth state, and it is rendered as one: a confirmed person the system did not expect turns violet and gains tracking brackets on the floorplan, and takes a violet headline, border and row tint in the roster, whichever of the two person states they are in. `nil` means expected, so a frame that omits the field does not turn the household into intruders. The words are factual, "Unexpected person" and "Not accounted for", because the claim `agents/intruder` makes is that the presence is unaccounted for and not that it knows who anyone is.
-- **The presence states.** The hub decides `presence.state` and the client trusts it. `PresenceState.derive` remains as the fallback for a frame that omits the field, and it follows `agents/people`: respiration carries the verdict, a recorded collapse outranks a marginal respiration estimate, and absence of respiration is never treated as absence of a person.
+- **The presence states.** The hub decides `presence.state` and the client trusts it. `PresenceState.derive` remains as the fallback for a frame that omits the field, and it follows `agents/people`: respiration carries the verdict, a signature that was resolvable and is not any more outranks a marginal respiration estimate, and absence of respiration is never treated as absence of a person.
 - **The interior view.** Everything drawn is computed from the frame that just arrived. Confidence drives blur radius, opacity, jitter and drift, so a 0.4 presence genuinely looks uncertain. No baked animation, no asset files.
 - **The simulated-CO label.** The app reads `environment.provenance.simulated`, which the hub computes from `source` rather than accepting from a producer, and renders a `SIM` chip off it. A simulated reading cannot reach the screen dressed as a measured one.
 - **Gap detection.** Every frame carries a monotonic `seq`. A hole in the sequence sets `missedFrames`, and the home screen says the view may be behind rather than quietly drawing a stale house.
@@ -118,7 +119,7 @@ The project has an explicit honesty rule, so here is the line, drawn plainly.
 - **Standing an incident down.** The backend exposes no stand-down endpoint, so the app does not offer one. An incident closes when `master` sends a `resolved` incident event. Do not add a button that posts to a route that does not exist.
 - **The replay record.** `GET /v1/incident/{id}/replay` is not called by the app, so `ReplayRecord` is not modelled. The verification payloads inside it are the same types and do decode.
 - **Push notifications.** `remote-notification` is declared in the Info.plist because `app/CLAUDE.md` requires background delivery, but no `UNUserNotificationCenter` registration is wired up. The resident will not be alerted with the app backgrounded.
-- **First aid text.** The app contains none, deliberately. Every instruction shown comes from `agents/caller`, specifically `agents/caller/guidance.py`, which is the one component reviewed against the safety rules in `agents/CLAUDE.md`. The strings in `MockHawkEyeClient` are stand-ins for that agent's output, and they stay inside well-established public guidance: do not move a fall victim, defer to the dispatcher, wait for responders. Do not add medical copy to the client.
+- **First aid text.** The app contains none, deliberately. Every instruction shown comes from `agents/caller`, specifically `agents/caller/guidance.py`, which is the one component reviewed against the safety rules in `agents/CLAUDE.md`. The strings in `MockHawkEyeClient` are stand-ins for that agent's output, and they stay inside well-established public guidance: get out and stay out of a fire, do not go to look during a burglary, defer to the dispatcher, wait for responders. Do not add medical copy to the client.
 
 ## Layout
 
@@ -194,7 +195,7 @@ The two frames the hub sends on connect, the `hello` and the replayed last state
 |---|---|---|
 | `GET` | `/v1/hub` | The Connect handshake. Returns `hub_ansname`, checked against what Bonjour advertised. |
 | `GET` | `/v1/state` | The first interior state, so the house is drawn before the first tick. |
-| `POST` | `/v1/incident` | `{"incident_type": "faint"}`. 202, and what happens next arrives on the stream. |
+| `POST` | `/v1/incident` | `{"incident_type": "fire"}`. 202, and what happens next arrives on the stream. |
 | `POST` | `/v1/incident/{id}/context` | The "what is happening" box. |
 
 There is no stand-down route on the backend, so there is no stand-down button in the app.

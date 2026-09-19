@@ -207,7 +207,7 @@ private struct PresenceRow: View {
 
     /// The unexpected row carries its colour in the headline as well as the
     /// border, because the headline is the part read across a table. The
-    /// unresponsive row keeps white type: it is already the loudest thing on
+    /// lost-signature row keeps white type: it is already the loudest thing on
     /// the screen and does not need to compete with itself.
     private var headlineTint: Color {
         if presence.isUnexpected { return Palette.personUnexpected }
@@ -255,14 +255,16 @@ private struct PresenceRow: View {
                     .accessibilityHidden(true)
             }
 
-            if let down = presence.stillDownS, down > 0 {
-                // `still_down_s` is the clinical variable, not a diagnostic
-                // detail, so it gets the largest number on this row.
+            if let lost = presence.respirationLostS, lost > 0 {
+                // How long since the last resolvable signature is the number a
+                // dispatcher acts on, not a diagnostic detail, so it gets the
+                // largest type on this row. The caption says what the clock is
+                // measuring: a signature we no longer have, never a body.
                 VStack(alignment: .trailing, spacing: 1) {
-                    Text(Self.duration(down))
+                    Text(Self.duration(lost))
                         .font(.system(size: 15, weight: .semibold, design: .monospaced))
                         .foregroundStyle(Palette.personUnresponsive)
-                    Text("down")
+                    Text("no signature")
                         .eyebrowStyle(Palette.inkFaint)
                 }
             }
@@ -306,7 +308,7 @@ private struct PresenceRow: View {
 
 // MARK: - Incident bar
 
-/// Three buttons. One tap raises an incident.
+/// Two buttons. One tap raises an incident.
 private struct IncidentBar: View {
     var raise: (IncidentType) -> Void
 

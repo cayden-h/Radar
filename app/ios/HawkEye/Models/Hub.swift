@@ -79,8 +79,9 @@ struct HubStatus: Codable, Sendable, Hashable {
     ///
     /// `frameRateHz` against `minUsefulFrameRateHz` is what catches the quiet
     /// failure named in `sensor/CLAUDE.md`: without a traffic generator you get
-    /// beacons at roughly 10 Hz, which never resolves a fall transient, with
-    /// every component reporting healthy.
+    /// beacons at roughly 10 Hz, which barely resolves breathing and so cannot
+    /// tell a lost signature from a starved capture, with every component
+    /// reporting healthy.
     struct SensorLiveness: Codable, Sendable, Hashable {
         var source: Provenance.Source
         /// Derived by the hub from `source`. Mirrors `Provenance.simulated`.
