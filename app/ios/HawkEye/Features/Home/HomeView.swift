@@ -9,6 +9,8 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     var hubName: String
 
+    @State private var showAddFamilyMember = false
+
     private var client: any HawkEyeClienting { model.client }
 
     var body: some View {
@@ -50,6 +52,9 @@ struct HomeView: View {
             IncidentView(incident: incident)
                 .environment(model)
         }
+        .fullScreenCover(isPresented: $showAddFamilyMember) {
+            AddFamilyMemberView { showAddFamilyMember = false }
+        }
     }
 
     // MARK: Header
@@ -68,6 +73,15 @@ struct HomeView: View {
                     .font(TypeScale.caption)
                     .foregroundStyle(Palette.inkMuted)
             }
+
+            Button { showAddFamilyMember = true } label: {
+                Image(systemName: "person.badge.plus")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Palette.inkMuted)
+                    .frame(width: Hit.min - 20, height: Hit.min - 20)
+            }
+            .buttonStyle(.pressable)
+            .accessibilityLabel("Add family member")
         }
         .padding(.top, Space.sm)
         .overlay(alignment: .bottom) {
