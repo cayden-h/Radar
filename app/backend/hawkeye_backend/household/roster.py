@@ -28,6 +28,16 @@ class UnknownDevice(LookupError):
     """
 
 
+class DeviceAlreadyClaimed(LookupError):
+    """That device already belongs to someone on the roster.
+
+    Refused because one device must have exactly one owner. Two members holding
+    one phone would each be counted as present when it appears, so the surplus
+    would fall by two for one human, and an intruder would read as accounted
+    for.
+    """
+
+
 class Roster:
     """Household membership, and matching observed devices against it.
 
@@ -85,6 +95,8 @@ class Roster:
             )
             if observed is None:
                 raise UnknownDevice(request.device_id)
+            if observed.identifier_hash in await self._claimed_hashes():
+                raise DeviceAlreadyClaimed(request.device_id)
             device = KnownDevice(
                 device_id=observed.device_id,
                 identifier_hash=observed.identifier_hash,
@@ -110,10 +122,17 @@ class Roster:
         return await self._store.delete_member(member_id)
 
     async def known_devices_present(self, present: Iterable[ObservedDevice]) -> int:
-        """How many of the devices currently present belong to the roster.
+        """How many roster MEMBERS have at least one device present.
 
-        Counts distinct hashes, so one phone reported twice in a frame does not
-        account for two people.
+        Counts people, not devices, because this number is subtracted from a
+        count of people. One human carrying a phone and a watch is one human,
+        and counting two would let them account for two presences: an intruder
+        standing beside them would read as accounted for, which is the failure
+        this feature exists to prevent.
         """
-        claimed = await self._claimed_hashes()
-        return len({d.identifier_hash for d in present if d.identifier_hash in claimed})
+        present_hashes = {d.identifier_hash for d in present}
+        return sum(
+            1
+            for member in await self._store.list_members()
+            if any(d.identifier_hash in present_hashes for d in member.devices)
+        )

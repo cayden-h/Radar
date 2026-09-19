@@ -11,9 +11,10 @@ from hawkeye_backend.household.identity import (
     fingerprint,
     hash_identifier,
 )
-from hawkeye_backend.household.roster import Roster, UnknownDevice
+from hawkeye_backend.household.roster import DeviceAlreadyClaimed, Roster, UnknownDevice
 
 __all__ = [
+    "DeviceAlreadyClaimed",
     "MalformedAddress",
     "Roster",
     "UnknownDevice",
