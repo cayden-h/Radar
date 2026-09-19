@@ -37,7 +37,7 @@ from hawkeye_backend.verification.b64 import b64u_encode, key_thumbprint
 from hawkeye_backend.verification.canonical import canonicalize
 from hawkeye_backend.verification.card import AddressCommitment, card_fingerprint, sign_card
 
-from agents.core.identity import VERSION, AgentIdentity, Role
+from agents.core.identity import DOMAIN, VERSION, AgentIdentity, Role
 
 A2A_CARD_PATH = "/.well-known/agent-card.json"
 A2A_CARD_ALIAS = "/.well-known/agent.json"
@@ -117,7 +117,7 @@ def build_a2a_card(
         "preferredTransport": "JSONRPC",
         "provider": {
             "organization": "Hawk Eye",
-            "url": "https://hawkeye.invalid",
+            "url": f"https://{DOMAIN}",
         },
         "capabilities": {
             "streaming": False,
@@ -141,7 +141,7 @@ def build_a2a_card(
             # observation rather than as a compliment.
             "guardrailCertification": {
                 "standard": "CUSTOM",
-                "standardUri": "https://hawkeye.invalid/docs/threat-landscape",
+                "standardUri": f"https://{DOMAIN}/docs/threat-landscape",
             },
             # No TEE exists. Scoring zero here is correct, and saying why is the
             # behaviour the Trust Vector's five independent scores ask for.

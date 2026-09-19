@@ -23,13 +23,15 @@ from enum import StrEnum
 
 from hawkeye_backend.models.verification import TrustProfile
 
-# TODO(ans): `.invalid` is reserved by RFC 2606 precisely so it can never
-# resolve, which keeps these from being mistaken for real registrations. Swap
-# for the domain registered through GoDaddy Registry the moment `ans/` has one.
-# The naming convention is the open question: is an agent
-# `people.hawkeye.example` or `hawkeye.example/agents/people`? Check
-# agent.webmesh.ai's /.well-known/agents-index.json and match it.
-DOMAIN = "hawkeye.invalid"
+# Registered 2026-09-19. `.club` is a GoDaddy Registry TLD, so this also stacks
+# the MLH Best Domain Name prize. The registrar is Porkbun, which is where the
+# DNS records below get published.
+#
+# Subdomain per agent, settled by the shape of the registration rather than by
+# preference: ANS publishes `_ans.<host>` and `_ans-badge.<host>` TXT records
+# per registration, so five agents sharing one host would collide on them.
+# `people.batradar.club`, not `batradar.club/agents/people`.
+DOMAIN = "batradar.club"
 
 # The version is inside the ANSName: `ans://v0.1.0.people.hawkeye.invalid`,
 # and the same string goes in the certificate SAN. That is what "version-bound"

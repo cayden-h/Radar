@@ -43,38 +43,91 @@ laptop Sunday morning.
 
 **Blocks:** items 2, 3, 4, 10. **Blocked by:** nothing.
 
-## 2. Register the domain, then the agents
+## 2. ~~Register the domain, then the agents~~ DONE 2026-09-19
 
-ANS is domain-anchored; nothing registers without it, and DNS propagation is not
-instant. Register through **GoDaddy Registry**, which also stacks the MLH Best
-Domain Name prize for free.
+**All five are ACTIVE in ANS production.** `batradar.club`, registered at
+Porkbun; `.club` is a GoDaddy Registry TLD, so the MLH Best Domain Name stack
+survives the registrar.
 
-Then, in order:
+| Agent | ANSName | Agent ID |
+|---|---|---|
+| people | `ans://v0.1.0.people.batradar.club` | `45a25803-d61d-44e2-a75f-f06f8f0a0ec3` |
+| intruder | `ans://v0.1.0.intruder.batradar.club` | `98662238-c1e3-4be8-9b62-ac12a9d2eb6c` |
+| master | `ans://v0.1.0.master.batradar.club` | `b5359778-1e03-4901-b261-5a0915ef7271` |
+| caller | `ans://v0.1.0.caller.batradar.club` | `52470f49-0c31-44e6-85b1-4ffdd1a62f55` |
+| replay | `ans://v0.1.0.replay.batradar.club` | `55d9935f-d496-491c-8639-c9e35b8ffca2` |
 
-- ~~Replace `DOMAIN` in `agents/core/identity.py`.~~ **Done.**
-  `batradar.club`, registered at Porkbun 2026-09-19. `.club` is a GoDaddy
-  Registry TLD, so the MLH Best Domain Name stack survives the registrar.
-- ~~Settle the ANSName shape.~~ **Done, and it was not a preference.** ANS
-  publishes `_ans.<host>` and `_ans-badge.<host>` TXT records *per
-  registration*, so five agents on one host collide on them. Subdomain per
-  agent: `ans://v0.1.0.people.batradar.club`.
-- ~~CSRs for all five.~~ **Done.** `ans-cli generate-csr`, EC P-256 identity
-  and RSA-2048 server, under `agents/.ans/<slug>/`. **Gitignored, and they must
-  stay that way**: the identity key *is* the agent.
-- **Register the five.** `scripts/register-agents.sh` does it in one command
-  and `scripts/verify-agents.sh` drives them to ACTIVE. **Blocked on a
-  production API key.** The key in hand is an OTE key: it authenticates against
-  `api.ote-godaddy.com` and returns a bare `Unauthorized` against
-  `api.godaddy.com`, with nothing in the error naming the environment. Re-issue
-  at https://classic-developer.godaddy.com/keys with type **Production**,
-  completing the mobile-PIN prompt. The whole flow is already rehearsed against
-  OTE and reached `PENDING_VALIDATION` with an ACME challenge, so nothing else
-  is unknown.
-- **DNSSEC on at Porkbun.** Chain validity is a scored integrity signal,
-  `verify_agent` checks it by name, and the CLI skips TLSA entirely without it -
-  which means **no DNSSEC, no DANE, no Silver tier.** Free, and easy to forget.
+Each cleared DOMAIN_VALIDATION, CERTIFICATE_ISSUANCE and DNS_PROVISIONING.
+`scripts/register-agents.sh` and `scripts/verify-agents.sh` reproduce it; both
+are idempotent, so re-running is the way to check rather than a risk.
 
-**Blocks:** 3, 4, 5. **Blocked by:** 1 (they need somewhere to resolve to).
+Held locally under `agents/.ans/<slug>/`, **gitignored and they must stay that
+way** - the identity key *is* the agent:
+
+- `identity.key` / `server.key`, and the CSRs they came from
+- `identity-certs.json`, `server-certs.json` - issued off those CSRs
+- `badge.json` - the **SCITT transparency-log receipt**, with a real Merkle
+  inclusion proof and a signed checkpoint from
+  `transparency.ans.godaddy.com`. This is the artifact that makes Gold tier
+  possible; see item 3.
+
+### The ANSName shape was not a preference
+
+ANS publishes `_ans.<host>` and `_ans-badge.<host>` **per registration**, so
+five agents on one host would collide on them. Subdomain per agent, decided by
+the protocol rather than by taste.
+
+### Three things that cost time, recorded so they cost nobody else any
+
+- **An OTE API key fails production with a bare `Unauthorized`.** Nothing in the
+  error names the environment. The key must be created as type **Production**,
+  completing the mobile-PIN prompt, at
+  https://classic-developer.godaddy.com/keys. Test with
+  `curl -H "Authorization: sso-key $ANS_API_KEY" https://api.godaddy.com/v1/domains`:
+  401 is the wrong key, 403 is the right key on a gated endpoint.
+- **The wildcard `CNAME *.batradar.club` shadows every unpublished name.** A
+  resolver that queried `_ans.<agent>` before the record existed caches
+  `pixie.porkbun.com` for the wildcard's TTL and keeps answering with it - the
+  registry's own resolver does this, which is why `verify-dns` reports records
+  as missing minutes after they are live. Retrying clears it. **Check the
+  authoritative nameservers, not a public resolver**, when deciding whether a
+  record is really published. The wildcard also has to go before the agents
+  deploy, or it will answer for hosts that should be theirs.
+- **Porkbun's minimum TTL is 600**, not the 300 the CLI suggests.
+
+### DNSSEC and DANE
+
+**DNSSEC is on** (Porkbun DNSSEC toggle, 2026-09-19). The zone is signed - two
+DNSKEYs, a 257 KSK and a 256 ZSK, algorithm 13 - and Porkbun submitted the DS
+to the `.club` registry automatically, being the registrar as well.
+
+**All five TLSA records are published** at `_443._tcp.<host>`, `3 0 1` over the
+real server-certificate hash ANS issued, verified identical on all four
+authoritative nameservers. `verify-dns` now returns clean for every agent with
+nothing missing.
+
+**The DS landed at the `.club` registry** the same evening, on all three parent
+nameservers:
+
+    DS batradar.club 2371 13 2 677C73444892311DF145630754361DDD93A8534FAE99A1BF5511E6F7923D1ABD
+
+**The chain validates end to end.** All five TLSA records answer with the `ad`
+flag set on independent validating resolvers (Quad9, OpenDNS, Verisign), which
+is the real test - a published TLSA under an unvalidated chain proves nothing.
+**DANE is live and Silver is claimable**, honestly, as of 2026-09-19.
+
+Verify it the way a judge would:
+
+    dig +dnssec TLSA _443._tcp.master.batradar.club @9.9.9.9 | grep flags
+
+**Demo caution: use 9.9.9.9, not 8.8.8.8.** Google and Cloudflare cached the
+zone as *insecure* during the window between DNSSEC going on and the DS
+propagating, so they answered `ad=0` for `people` and `intruder` for a while
+afterwards. The records are correct; the caches were stale. This is a good thing
+to know before running the command in front of someone.
+
+- The optional `HTTPS 1 . alpn=h2` record per agent is still unpublished.
+  Discovery-purpose only; it costs nothing and can wait for deployment.
 
 ## 3. Real certificates, and the chain nobody validates yet
 

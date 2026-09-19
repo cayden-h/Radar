@@ -174,13 +174,13 @@ def test_an_unregistered_agent_is_refused_entirely(people_app, people_key):
 
 
 def test_a_lookalike_ansname_is_caught(people_app, people_key):
-    """`people.hawkeye-secure.invalid` answering for `people.hawkeye.invalid`.
+    """`people.batradar-secure.club` answering for `people.batradar.club`.
 
     The demo's refusal beat. Caught twice on purpose: the trust store does not
     hold the lookalike name, and the transport separately refuses a peer that
     answers under a name master did not register it with.
     """
-    lookalike = "ans://v0.1.0.people.hawkeye-secure.invalid"
+    lookalike = "ans://v0.1.0.people.batradar-secure.club"
     source = source_over(people_app, store_with(people_key, ansname=lookalike), ansname=lookalike)
     fetched = source.fetch("people")
 

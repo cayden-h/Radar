@@ -24,3 +24,8 @@ agents/build/
 # worktrees - full checkouts of this repo - so committing it would nest the
 # repo inside itself.
 .claude/
+
+# ANS registration material. Private keys for the five agents' identity and
+# server certificates, issued 2026-09-19. Never commit these: the identity key
+# IS the agent, and anything holding it can speak as a verified Hawk Eye agent.
+agents/.ans/
