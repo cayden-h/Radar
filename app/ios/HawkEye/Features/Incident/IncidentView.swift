@@ -487,11 +487,30 @@ private struct TranscriptRow: View {
         }
     }
 
+    /// The operator's label is bold and highlighted red so the one voice the
+    /// resident did not choose to be on this call stands out from the other
+    /// three speakers, which keep the plain eyebrow treatment.
+    @ViewBuilder
+    private var speakerLabel: some View {
+        if line.speaker == .operatorVoice {
+            Text(line.speaker.label)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.0)
+                .textCase(.uppercase)
+                .foregroundStyle(Palette.ink)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Palette.personUnresponsive))
+        } else {
+            Text(line.speaker.label)
+                .eyebrowStyle(rail.opacity(0.9))
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(line.speaker.label)
-                    .eyebrowStyle(rail.opacity(0.9))
+                speakerLabel
                 Text(line.at, style: .time)
                     .font(.system(size: 10, weight: .regular, design: .monospaced))
                     .foregroundStyle(Palette.inkFaint)
