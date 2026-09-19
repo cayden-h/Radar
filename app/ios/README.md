@@ -111,6 +111,10 @@ The project has an explicit honesty rule, so here is the line, drawn plainly.
 - **Gap detection.** Every frame carries a monotonic `seq`. A hole in the sequence sets `missedFrames`, and the home screen says the view may be behind rather than quietly drawing a stale house.
 - **The notice banner.** An unexpected presence that holds for five seconds raises a `notice` event, and the app draws a dismissible violet banner above the interior view carrying the same words and colour as the roster row: "Unexpected person," "Not accounted for." Dismissing it is local to the device; the notice itself stays in the sealed log regardless. It does not raise an incident and the three buttons below it still need a human hold. `MockHawkEyeClient` scripts the notice off `Config.mockNoticeHoldSeconds` rather than re-deriving the hold rule in Swift, because two copies of a rule is how they drift.
 
+  **The banner carries the time it was raised, and that is load-bearing rather than decoration.** A notice records where a person was when it fired, and the presence keeps moving afterwards, so a banner reading "Living room" can sit directly above a roster row reading "Kitchen". Both are correct: the banner is history and the roster is live. Without the timestamp the pair reads as a contradiction and a viewer calls it a bug. The SMS already stated the time for the same reason, and two renderings of one notice should not disagree about what kind of thing it is.
+
+  The banner is visual only. No haptic, no sound, now or later: a burglary defaults to silent mode precisely because a phone that buzzes gives away someone hiding, and `app/CLAUDE.md` is explicit that a silent mode which still buzzes is not silent.
+
 ### Not real yet
 
 - **The hub.** Nothing answers at `_hawkeye._tcp` today. With `useMocks = false` the Connect screen will sit on "Looking for your home" until something does.
@@ -209,4 +213,10 @@ Built and run against Xcode 27.0.
 - Every example payload in `app/backend/schema/` decodes through these `Codable` types, plus a 1,661-frame capture taken from a running hub in simulated mode with `POST /v1/demo/run`: 0 decode failures, 0 sequence gaps.
 - Every closed enum in `schema/enums.json` is compared set-for-set against its Swift counterpart, and every `event_kind` the backend can send has a `HubEvent` case.
 
-What has not been verified: behaviour against a real hub on real hardware, because no hub answers at `_hawkeye._tcp` yet, and push notifications, which are not wired up.
+- Three UI tours run on an iPhone 17 simulator and all pass. `ScreenshotTour` walks Connect through to an open incident and writes a PNG per screen. `VerificationTour` covers the refusal path, which is the submission. `NoticeTour` covers the unexpected-presence banner: that it appears, that dismissing it makes it stay gone, and that the roster row survives the dismissal because the person is still in the building.
+
+`NoticeTour` earns its place rather than padding the count. The first implementation gated re-raising on `notices.isEmpty`, and dismissing empties that array, so the banner came back within one sensor tick of being swiped away. The test was confirmed to fail with that guard restored, so it catches the bug rather than merely passing alongside the fix.
+
+What has not been verified: behaviour against a real hub on real hardware, because no hub answers at `_hawkeye._tcp` yet, and the Twilio SMS against a real account, which has only ever been exercised against a mocked transport.
+
+**There are no push notifications and there is no local notification, by decision rather than by omission.** A notice reaches a closed app by SMS. APNs is a third sink behind `NoticeSink` and is not implemented. A `UNUserNotificationCenter` local notification was considered and rejected: it only fires while the app holds the socket, which is exactly the case the resident does not need help with, and on stage it is indistinguishable from a real push.

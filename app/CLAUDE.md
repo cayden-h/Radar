@@ -244,7 +244,8 @@ Two sources, and the UI should not distinguish them because the user does not ca
 
 See the safety rules in `agents/CLAUDE.md` before writing any of the first-aid path. Bad first-aid instructions are a real-world harm, not a demo bug.
 
-Notifications must arrive when the app is backgrounded. The resident will not be staring at the screen.
+Something must reach the resident when the app is backgrounded, because they will not be staring at the screen.
+**That is an SMS, not a push.** See the notices paragraph under "Raising an incident": APNs is a sink behind `NoticeSink` and is not implemented, and a local notification was considered and rejected because it only fires while the app holds the socket, which is exactly the case this requirement is about.
 
 ## What this app is not
 
@@ -283,7 +284,9 @@ Target Best UI/UX Hack while you are here. It is stackable and this view is the 
 
 ## Platform note
 
-Native iOS is now justified, where it was not before: push notifications, background delivery, and live transcription are the core of the experience, and a home-screen web app does them badly.
+Native iOS is justified by live transcription, the interior view, and an audio path the app controls precisely enough to keep a phone silent while someone is hiding. A home-screen web app does all three badly.
+
+**Push notifications are not part of that justification, because we did not ship them.** They were the original argument and it did not survive contact: APNs needs a paid developer account and a push server, a local notification only fires while the app already holds the socket, and what actually reaches a locked phone with the app closed is an SMS, which needs no iOS capability at all. Stated here rather than left as a claim nobody checked, since a reader who takes this paragraph at face value and then greps for `UNUserNotificationCenter` finds nothing.
 
 Budget for it. If iOS becomes a time sink, the fallback is a web app on the home screen with polling instead of push, and the demo video narrates over the gap.
 

@@ -200,11 +200,20 @@ to actually arrive, so a mode gate here would defeat the purpose.
 ## iOS components
 
 - `Models/Notice.swift` - mirrors the Pydantic model.
-- `AppModel` gains `notices: [Notice]`, appended on the `notice` event.
+- `HawkEyeClienting` gains `notices: [Notice]` and `dismissNotice(_:)`, implemented by both clients.
+  It sits on the client protocol rather than on `AppModel`, so nothing downstream can tell whether
+  it is talking to the live hub or the mock, which is the rule the whole mock path rests on.
 - `Features/Home/NoticeBanner.swift` - a dismissible violet banner above the interior view, in
   `Palette.personUnexpected`, matching the language already used in the roster.
+  It carries the time the notice was raised, which is load-bearing: a notice records where a person
+  was when it fired and the presence keeps moving, so the banner can read "Living room" directly
+  above a roster row reading "Kitchen". Both are correct, one is history and one is live, and
+  without the timestamp the pair reads as a contradiction.
 - `MockHawkEyeClient` emits a `notice` five seconds after the burglary scenario's fourth presence
   acquires respiration, so the mock path exercises the same code the live path does.
+  Re-raising is gated on a `hasRaisedNotice` flag rather than on the notices array being empty:
+  dismissing empties that array, so the array-based guard made the banner reappear within one
+  sensor tick of being swiped away.
 
 Silent-mode rules still apply to the banner: during an active burglary incident it is visual only,
 with no sound and no haptics. A phone that buzzes while someone is hiding is the failure this
@@ -219,6 +228,17 @@ product exists to prevent.
 - The Twilio sink is tested against a stubbed HTTP client. No test sends a real message.
 - `app/backend/schema/` gains `event-notice.json`, emitted by `tools/gen_schema.py` from the live
   Pydantic model like every other example, and the iOS decode harness covers it.
+- `tests/test_notice_wiring.py` covers the seam in `build_runtime` where settings become a live
+  sink. Everything below it is unit-tested in isolation, so a mistake there would pass every other
+  test and surface only as "the banner appears and no text arrives", which is also the signature of
+  a half-configured Twilio account and therefore indistinguishable from it.
+- `HawkEyeUITests/NoticeTour.swift` drives the built app on a simulator: the banner appears,
+  dismissing it makes it stay gone, and the roster row survives the dismissal because the person is
+  still in the building.
+
+Two of these were confirmed by mutation rather than by passing. The dismissal test was re-run with
+the array-based guard restored and the wiring test with `.get_secret_value()` removed; both failed
+with the expected message, so they catch the bug rather than merely passing alongside the fix.
 
 ## Honesty rule
 

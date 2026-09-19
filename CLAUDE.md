@@ -8,9 +8,11 @@ The idea is locked as of 2026-09-18; the agent roster and demo format were settl
 
 Written as of 2026-09-19:
 
-- **`app/ios/`** - the full iOS app. Generate with `cd app/ios && xcodegen generate`. Every file passes `swiftc -parse -swift-version 6`.
-  Xcode 27.0 is installed as of 2026-09-19, so the app can now be built and run on the simulator and on a device; see the environment section below for the one-time `xcode-select` step.
+- **`app/ios/`** - the full iOS app. Generate with `cd app/ios && xcodegen generate`.
+  **Built and run on the simulator as of 2026-09-19**, against Xcode 27.0. `xcodebuild ... build` succeeds and all three UI tours pass on an iPhone 17 simulator: `ScreenshotTour` walks Connect to an open incident, `VerificationTour` covers the refusal path, and `NoticeTour` covers the unexpected-presence banner and its dismissal.
+  `swiftc -parse -swift-version 6` over every file remains the fast check; the tours are the real one.
 - **`app/backend/`** - the app-facing edge service.
+- **The unexpected-presence notice** - shipped 2026-09-19. When `agents/intruder` cannot account for a confirmed person, the resident gets a dismissible banner in the app and an SMS through Twilio, which is the only path that reaches a phone that is locked with the app closed. It never raises an incident and never dials. Trigger rule in `app/backend/hawkeye_backend/notices/detector.py`, seams in `docs/swapping-in-real-parts.md`.
 - **`docs/hardware/`** - step-by-step guides for every hardware item and a bring-up checklist.
 - **`docs/research/`**, `docs/fraud-13.md`, `docs/geo.md`, `docs/threat-landscape.md` - the three assigned research deliverables, plus the incident data.
 
@@ -163,7 +165,7 @@ That keeps the ANS-verified agent mesh on one side of a line and the human surfa
 
 - **`app/ios/`** is the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. There is no `.xcodeproj` in the repo; `app/ios/project.yml` is an XcodeGen spec. Two stages: a Connect screen listing Hawk Eye hubs found over Bonjour, then the main screen. It is not a WiFi picker and cannot be, because enumerating SSIDs needs the `NEHotspotHelper` entitlement. See `app/CLAUDE.md`.
 - **`app/backend/`** is the edge service the app talks to. See `app/backend/README.md`.
-  It also holds **`hawkeye_backend/verification/`**, the claim-envelope defence: the thirteen `fraud.webmesh.ai` shapes, agent-card signing and drift, and the dispatch-address commitment. Standalone package, no FastAPI imports, so it moves into `agents/master` as an import change. `cd app/backend && python -m pytest -q` is 37 security tests.
+  It also holds **`hawkeye_backend/verification/`**, the claim-envelope defence: the thirteen `fraud.webmesh.ai` shapes, agent-card signing and drift, and the dispatch-address commitment. Standalone package, no FastAPI imports, so it moves into `agents/master` as an import change. `cd app/backend && .venv/bin/python -m pytest -q` is 83 tests: the 37 security tests, plus the unexpected-presence notice path added 2026-09-19.
 
 One flag, `app/ios/HawkEye/Config.swift`, runs the entire app with no hardware and no agents up.
 **The demo must never depend on hardware being alive**, so the mock path is a first-class implementation rather than a branch inside a view.
@@ -417,12 +419,15 @@ See `media/CLAUDE.md`.
 
 Headless invocation: `blender --background --python script.py`
 
-`xcode-select` may still point at `/Library/Developer/CommandLineTools`, in which case `xcodebuild` refuses to run with a message about the active developer directory rather than anything about the project.
-Point it at the full install once, which needs sudo and so is a human step:
+`xcode-select` was pointed at the full install on 2026-09-19 and `xcodebuild -version` reports Xcode 27.0, so the app builds and its UI tours run.
+If a fresh machine or a reinstall leaves it on `/Library/Developer/CommandLineTools`, `xcodebuild` refuses with a message about the active developer directory rather than anything about the project.
+Repointing needs sudo and so is a human step:
 
 ```sh
 sudo xcode-select -s /Applications/Xcode.app
 ```
+
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in front of a single command does the same thing without sudo and without changing anything system-wide, which is the better option on a shared machine.
 
 ## Working agreements
 

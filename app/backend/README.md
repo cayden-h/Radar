@@ -47,8 +47,23 @@ uv pip install -e '.[dev]'
 .venv/bin/python -m pytest -q
 ```
 
-37 tests, all of them security. `tests/test_battery.py` is the local reimplementation of the
-`fraud.webmesh.ai` attack battery; `tests/test_card.py` covers agent-card hardening.
+83 tests.
+
+The original 37 are security: `tests/test_battery.py` is the local reimplementation of the
+`fraud.webmesh.ai` attack battery, and `tests/test_card.py` covers agent-card hardening.
+
+The rest cover the unexpected-presence notice, added 2026-09-19.
+`test_notice_detector.py` is the trigger rule and is the one to read first, because the rule is
+what decides whether the feature can be trusted.
+`test_notice_sinks.py` covers delivery and its failure isolation, `test_notice_models.py` the wire
+shape, `test_notice_runtime.py` the hook at `HubRuntime.emit`, `test_notice_config.py` the Twilio
+settings, and `test_notice_wiring.py` the seam in `build_runtime` where those settings become a
+live sink.
+
+That last file is worth its own sentence. Everything below it is unit-tested in isolation, so a
+mistake in the wiring itself would pass every other test and surface only in production as "the
+banner appears and no text ever arrives" - which is also the signature of a half-configured Twilio
+account, and therefore indistinguishable from it.
 
 ## `hawkeye_backend/verification/`
 

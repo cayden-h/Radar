@@ -71,7 +71,10 @@ This switch is mock-only and has no effect when `useMocks = false`, where the hu
 The backend does not register a `_hawkeye._tcp` service, so with `useMocks = false` the Connect screen will wait forever and show no error, because that is what "no hub found" correctly looks like.
 Until Bonjour advertisement exists, point `Config.fallbackBaseURL` at the hub directly.
 
-**Also not real yet on this side:** push notifications. `remote-notification` is declared in the Info.plist but no `UNUserNotificationCenter` registration is wired up, so a backgrounded app will not alert the resident.
+**Push notifications on this side: not implemented, and not the plan.**
+`remote-notification` is declared in the Info.plist but nothing registers with `UNUserNotificationCenter`, and nothing will.
+A backgrounded or closed app is still reached, by SMS rather than by push. See "The unexpected-presence notice" below for the seam and its half-flipped states.
+The Info.plist declaration is now misleading on its own and should be removed when someone is next in that file; it costs nothing but it reads as a capability that exists.
 
 ## Hub backend
 
