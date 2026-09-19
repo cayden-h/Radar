@@ -12,7 +12,8 @@ The table is from `docs/research/agent-briefs.md`:
 |-------------------------------------------------------|------------------------------------------|
 | Elevated CO + a lost breathing signature              | Fire, with someone who may not respond   |
 | Elevated CO + a still, breathing presence             | Fire, with someone who is not moving     |
-| Elevated CO + everyone up and breathing               | Fire, everyone on their feet             |
+| Elevated CO + every resolved presence up and breathing | Fire, everyone on their feet             |
+| Elevated CO + no presence resolved at all             | Fire, occupancy unknown                  |
 | Unexpected presence + resident in a different room    | Burglary in progress with occupants home |
 | Unexpected presence + house registered empty          | Burglary, no occupants at risk           |
 
@@ -71,8 +72,53 @@ def _claim(claims: list[AdmittedClaim], field: str) -> AdmittedClaim | None:
 
 
 def _elapsed(seconds: str) -> str:
+    """Seconds as a phrase a dispatcher hears, pluralised correctly.
+
+    This goes straight into a spoken sentence, so "1 minutes" is not a
+    cosmetic defect: it is the system sounding like a machine reading a
+    template at the moment it most needs to sound like it knows what it is
+    saying.
+    """
     value = float(seconds)
-    return f"{value / 60.0:.0f} minutes" if value >= 60.0 else f"{value:.0f} seconds"
+    if value < 60.0:
+        count = round(value)
+        unit = "second"
+    else:
+        count = round(value / 60.0)
+        unit = "minute"
+    return f"{count} {unit}" if count == 1 else f"{count} {unit}s"
+
+
+def _zones_with(claims: list[AdmittedClaim], field: str, value: str) -> set[str]:
+    """Zone scopes where `field` was admitted carrying `value`.
+
+    One scan shared by every question of the form "which rooms said X", so
+    that a new question is a new call rather than a fourth near-copy of the
+    same loop drifting away from the others.
+    """
+    return {
+        c.assertion.zone_scope
+        for c in claims
+        if c.assertion.field == field and c.assertion.value == value
+    }
+
+
+def _resolved_presences(claims: list[AdmittedClaim]) -> set[str]:
+    """Zones where a presence was actually resolved as a living body.
+
+    `people.personhood` is the right field to read and the others are not.
+    The respiration reader asserts it only where a periodicity peak cleared
+    the personhood threshold, and asserts `people.respiration`,
+    `people.breathing_bpm` and `people.moving` from that same branch - so
+    personhood is present exactly when a body was resolved, and absent when
+    the radio found nothing.
+
+    An empty set is the honest answer to "who is inside" in two very
+    different situations - the house is empty, or the sensing layer told us
+    nothing - and the classifier must never render either of them as a
+    statement about the occupants.
+    """
+    return _zones_with(claims, "people.personhood", "living_body")
 
 
 def _still_and_breathing(claims: list[AdmittedClaim]) -> AdmittedClaim | None:
@@ -88,11 +134,7 @@ def _still_and_breathing(claims: list[AdmittedClaim]) -> AdmittedClaim | None:
     and sitting quietly too - so this classifies but never on its own terms
     and never with high confidence.
     """
-    breathing = {
-        c.assertion.zone_scope
-        for c in claims
-        if c.assertion.field == "people.respiration" and c.assertion.value == "breathing"
-    }
+    breathing = _zones_with(claims, "people.respiration", "breathing")
     for claim in claims:
         if (
             claim.assertion.field == "people.moving"
@@ -159,9 +201,9 @@ def classify(
                     f"Carbon monoxide at {co} ppm, and a presence in "
                     f"{still.assertion.zone_scope} that is breathing and not moving. Two "
                     "independent modalities: CSI resolved the breathing, a separate gas "
-                    "sensor read the air. They are alive and they have not moved, so do not "
-                    "count on them getting themselves out. This does not distinguish "
-                    "unconsciousness from sleep, and the radio cannot."
+                    "sensor read the air. The radio resolves breathing there and no movement "
+                    "with it, so do not count on them getting themselves out. This does not "
+                    "distinguish unconsciousness from sleep, and the radio cannot."
                 ),
                 confidence=0.65,
                 contributing_fields=(
@@ -172,15 +214,48 @@ def classify(
                 ),
             )
 
+        # The third row, and it is two rows rather than one. "Every presence
+        # the radio resolves is breathing and moving" is vacuously true over an
+        # empty set, and an empty set is exactly what a compromised or
+        # unreachable `people` produces - claims discarded at the gate look the
+        # same here as a house with nobody in it. A dispatcher hearing the
+        # affirmative sentence in that state would take it as a statement about
+        # the occupants of a building nothing has told us anything about.
         co = _value(claims, "master.co_ppm") or "elevated"
+        resolved = _resolved_presences(claims)
+        if resolved:
+            return Classification(
+                incident_type=IncidentType.FIRE,
+                reasoning=(
+                    f"Carbon monoxide at {co} ppm. Every presence the radio resolves "
+                    f"({', '.join(sorted(resolved))}) is breathing and moving, which is the "
+                    "moment to leave."
+                ),
+                confidence=0.6,
+                contributing_fields=(
+                    "people.personhood",
+                    "people.moving",
+                    "master.co_elevated",
+                    "master.co_ppm",
+                ),
+            )
+
+        # Elevated CO and nothing else. It still classifies - a person tapped
+        # the button and the air is bad - but the reasoning says what it does
+        # not know rather than filling the silence with reassurance. Lower
+        # confidence than either corroborated row, because it has no
+        # corroboration at all.
         return Classification(
             incident_type=IncidentType.FIRE,
             reasoning=(
-                f"Carbon monoxide at {co} ppm. Every presence the radio resolves is breathing "
-                "and moving, which is the moment to leave."
+                f"Carbon monoxide at {co} ppm, and no presence resolved anywhere in the "
+                "building. That is not a finding that the house is empty: it is what an "
+                "unreachable sensing agent looks like, and it is what it looks like when "
+                "every claim one made was discarded as unverifiable. Occupancy here is "
+                "unknown, and nothing in this verdict is evidence about who is inside."
             ),
-            confidence=0.6,
-            contributing_fields=("master.co_ppm",),
+            confidence=0.45,
+            contributing_fields=("master.co_elevated", "master.co_ppm"),
         )
 
     # Burglary next. The dangerous case is the minority where someone is home

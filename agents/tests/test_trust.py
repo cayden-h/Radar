@@ -298,3 +298,65 @@ def test_an_unverifiable_claim_answers_i_dont_know(mesh, feed, roster):
 
     assert value is None
     assert "not cryptographically verified" in why
+
+
+def test_co_with_no_resolved_presence_says_it_has_no_occupant_data(verified_mesh):
+    """Elevated CO and an empty mesh must not imply everybody is fine.
+
+    This is the state produced when `people` is unreachable, or when the gate
+    discards every claim it made - the compromised-sensor case the whole
+    project is built around. "Every presence the radio resolves is breathing"
+    is vacuously true over an empty set, and a dispatcher hearing it would take
+    it as an affirmative statement about the building. The air is still bad and
+    a person still tapped, so it classifies; what it must not do is claim
+    knowledge of the occupants it does not have.
+    """
+    sensor = SimulatedCoSensor(ramp_ppm_per_s=200.0)
+    sensor.trigger()
+    sensor.advance(2.0)
+    master = MasterAgent(verified_mesh, gas=sensor)
+    master.run_once()
+    observation = master.run_once()
+
+    verdicts = [a for a in observation.assertions if a.field == "master.incident_type"]
+    assert [a.value for a in verdicts] == [IncidentType.FIRE.value]
+    basis = verdicts[0].basis
+    assert "Every presence" not in basis
+    assert "breathing and moving" not in basis
+    assert "no presence" in basis.lower()
+    assert "unknown" in basis.lower()
+    # Weaker than either corroborated row, and the number has to say so.
+    assert verdicts[0].confidence < 0.6
+
+
+def test_co_with_a_resolved_moving_presence_is_the_moment_to_leave(verified_mesh):
+    """Elevated CO, a presence resolved, and it is up and moving.
+
+    The claims are staged rather than driven through `SyntheticCsiFeed`,
+    because the fixture cannot produce this combination: `occupy(moving=True)`
+    makes respiration unrecoverable by design, so a moving presence in the
+    feed never establishes a breathing signature at all. Staging them here is
+    the same test-double move the gate tests above make.
+    """
+    verified_mesh.publish(
+        _observation(
+            "agents/people",
+            "ans://v0.1.0.people.batradar.club",
+            [
+                _assertion("people.personhood", "living_body"),
+                _assertion("people.respiration", "breathing"),
+                _assertion("people.moving", "true", ceiling=Severity.CORROBORATING),
+            ],
+        )
+    )
+    sensor = SimulatedCoSensor(ramp_ppm_per_s=200.0)
+    sensor.trigger()
+    sensor.advance(2.0)
+    master = MasterAgent(verified_mesh, gas=sensor)
+    master.run_once()
+    observation = master.run_once()
+
+    verdicts = [a for a in observation.assertions if a.field == "master.incident_type"]
+    assert [a.value for a in verdicts] == [IncidentType.FIRE.value]
+    assert "moment to leave" in verdicts[0].basis
+    assert "main_bedroom" in verdicts[0].basis

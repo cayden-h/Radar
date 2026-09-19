@@ -272,10 +272,21 @@ class MasterAgent(Agent):
         So the claim is manufactured here with a verification result that says
         so in its checks, and its severity is capped at CORROBORATING no matter
         how high the number climbs. A simulated reading from an unverified local
-        input must never be able to move anybody on its own, and it never
-        becomes the sole basis for a classification - the Fire rows in
-        `classify` all require a CSI-derived lost breathing signature
-        alongside it.
+        input must never be able to move anybody on its own: it is never
+        speakable to an operator, and it is marked simulated in its provenance
+        wherever it is rendered.
+
+        Be exact about how far that goes, because it is less than it once was.
+        Elevated CO on its own *does* classify, as the weakest Fire row in
+        `classify`: a person tapped the button and the air is bad, which is a
+        fire whatever the radio can see. What it cannot do is say anything
+        about the occupants. That row carries the lowest confidence of the four
+        and its reasoning states plainly that no presence was resolved and
+        occupancy is unknown. Every row that makes a claim about people
+        requires a CSI-derived claim alongside this reading - a lost breathing
+        signature, a still breathing presence, or a resolved presence that is
+        up and moving. Nothing built on this number alone asserts something
+        only the radio could know.
         """
         if self._gas is None:
             return []
