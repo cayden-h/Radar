@@ -130,13 +130,14 @@ enum HubEvent: Sendable, Hashable {
     case instruction(Instruction)
     case verification(VerificationResult)
     case context(ContextNote)
+    case notice(Notice)
     case error(code: String, message: String)
 }
 
 extension HubEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
         case kind
-        case state, phase, incident, line, instruction, result, note, code, message
+        case state, phase, incident, line, instruction, result, note, notice, code, message
     }
 
     init(from decoder: any Decoder) throws {
@@ -161,6 +162,8 @@ extension HubEvent: Decodable {
             self = .verification(try c.decode(VerificationResult.self, forKey: .result))
         case "context":
             self = .context(try c.decode(ContextNote.self, forKey: .note))
+        case "notice":
+            self = .notice(try c.decode(Notice.self, forKey: .notice))
         case "error":
             self = .error(
                 code: try c.decode(String.self, forKey: .code),
