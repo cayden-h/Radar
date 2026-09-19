@@ -1,0 +1,30 @@
+{
+  "$note": "One instruction from agents/guidance.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 1210,
+    "at": "2026-09-20T04:13:31Z",
+    "incident_id": "inc-0001",
+    "payload": {
+      "kind": "instruction",
+      "instruction": {
+        "instruction_id": "ins-002",
+        "incident_id": "inc-0001",
+        "text": "Fire and an ambulance are on the way, about four minutes out.",
+        "origin": "relayed_operator",
+        "at": "2026-09-20T04:13:31Z",
+        "urgent": true,
+        "supersedes_instruction_id": null,
+        "defers_to_operator": false,
+        "provenance": {
+          "source": "agent-inference",
+          "producer": "agents/guidance",
+          "ansname": "guidance.hawkeye.invalid",
+          "detail": null,
+          "source_class": "derived",
+          "simulated": false
+        }
+      }
+    }
+  }
+}

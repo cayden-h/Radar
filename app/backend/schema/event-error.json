@@ -1,0 +1,14 @@
+{
+  "$note": "Something went wrong. Never a silently dropped frame.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 1212,
+    "at": "2026-09-20T04:12:33Z",
+    "incident_id": null,
+    "payload": {
+      "kind": "error",
+      "code": "master_unavailable",
+      "message": "agents/master stopped answering. The hub is not inventing state."
+    }
+  }
+}

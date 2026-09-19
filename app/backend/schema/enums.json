@@ -1,0 +1,109 @@
+{
+  "$note": "Every closed enum on the API, in one place, so the Swift side can mirror them exactly. Any value not in these lists is a bug, not something to tolerate.",
+  "$generated_by": "tools/gen_schema.py",
+  "source": [
+    "nexmon-csi",
+    "replay-csi",
+    "ruview-sim",
+    "mq7-gpio",
+    "demo-trigger",
+    "user-input",
+    "operator-audio",
+    "agent-inference"
+  ],
+  "source_class": [
+    "measured-live",
+    "measured-replay",
+    "simulated",
+    "human",
+    "derived"
+  ],
+  "presence_state": [
+    "confirmed_moving",
+    "confirmed_still",
+    "unconfirmed",
+    "unknown"
+  ],
+  "respiration_status": [
+    "breathing",
+    "no_signature",
+    "unknown"
+  ],
+  "presence_class": [
+    "adult",
+    "child",
+    "pet",
+    "unknown"
+  ],
+  "incident_type": [
+    "burglary",
+    "fire",
+    "faint"
+  ],
+  "incident_status": [
+    "raised",
+    "classified",
+    "calling",
+    "on_call",
+    "dispatched",
+    "resolved",
+    "refused"
+  ],
+  "incident_phase": [
+    "raised",
+    "classified",
+    "updated",
+    "resolved",
+    "refused"
+  ],
+  "raised_by": [
+    "user",
+    "system"
+  ],
+  "call_state": [
+    "not_started",
+    "dialing",
+    "connected",
+    "ended",
+    "not_placed"
+  ],
+  "transcript_speaker": [
+    "caller",
+    "operator",
+    "resident",
+    "system"
+  ],
+  "instruction_origin": [
+    "relayed_operator",
+    "first_aid",
+    "system_status"
+  ],
+  "trust_profile": [
+    "UNTRUSTED",
+    "READ_ONLY",
+    "TRANSACTIONAL",
+    "FIDUCIARY"
+  ],
+  "verification_decision": [
+    "ASSERTED",
+    "ATTRIBUTED",
+    "CORROBORATION_ONLY",
+    "DISCARDED"
+  ],
+  "reachability": [
+    "reachable",
+    "unreachable",
+    "degraded",
+    "simulated"
+  ],
+  "event_kind": [
+    "hello",
+    "state",
+    "incident",
+    "transcript",
+    "instruction",
+    "verification",
+    "context",
+    "error"
+  ]
+}

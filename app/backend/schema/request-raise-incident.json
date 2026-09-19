@@ -1,0 +1,8 @@
+{
+  "$note": "POST /v1/incident request body.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "incident_type": "burglary",
+    "note": "Someone is in the kitchen."
+  }
+}

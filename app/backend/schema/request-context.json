@@ -1,0 +1,7 @@
+{
+  "$note": "POST /v1/incident/{id}/context request body.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "text": "My mother has COPD and there is a space heater in that bedroom."
+  }
+}

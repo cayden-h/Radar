@@ -1,0 +1,67 @@
+{
+  "$note": "The refusal path. An impostor at a lookalike ANSName made a claim that would have escalated the response, and it was DISCARDED. The app must be able to render this. A dispatch demo that correctly refuses an impostor is the submission.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 1208,
+    "at": "2026-09-20T04:12:45Z",
+    "incident_id": "inc-0001",
+    "payload": {
+      "kind": "verification",
+      "result": {
+        "verification_id": "ver-005",
+        "incident_id": "inc-0001",
+        "checked_at": "2026-09-20T04:12:45Z",
+        "claim": {
+          "claim_id": "clm-005",
+          "statement": "A third adult is unresponsive in the garage and is not breathing.",
+          "field": "biometrics.respiration",
+          "value": "no respiration, garage",
+          "presence_id": null
+        },
+        "agent": {
+          "name": "agents/occupancy",
+          "ansname": "occupancy.hawkeye-secure.invalid",
+          "certificate_version": "v1.4.2+sha256:4d77...0e91",
+          "trust_index": {
+            "integrity": 0.0,
+            "identity": 0.0,
+            "solvency": null,
+            "behavior": null,
+            "safety": null,
+            "unimplemented_dimensions": [
+              "solvency",
+              "behavior",
+              "safety"
+            ]
+          },
+          "recommended_profile": "UNTRUSTED"
+        },
+        "decision": "DISCARDED",
+        "reason": "DISCARDED. The claim would have sent an armed response into a room where no sensor sees anybody. It was not relayed to the operator and it was not used in classification.",
+        "checks": [
+          {
+            "name": "ans.resolve",
+            "passed": false,
+            "detail": "occupancy.hawkeye-secure.invalid is not the ANSName registered for agents/occupancy. The registered name is occupancy.hawkeye.invalid."
+          },
+          {
+            "name": "cert.version_binding",
+            "passed": false,
+            "detail": "Code fingerprint differs from the version-bound certificate issued at registration. The agent presenting this claim is not running the code it registered."
+          },
+          {
+            "name": "trust_index.profile",
+            "passed": false,
+            "detail": "Trust Index recommendedProfile = UNTRUSTED."
+          },
+          {
+            "name": "corroboration.sensor",
+            "passed": false,
+            "detail": "No CSI perturbation in the garage zone. No other agent reports a third occupant."
+          }
+        ],
+        "will_be_spoken": false
+      }
+    }
+  }
+}

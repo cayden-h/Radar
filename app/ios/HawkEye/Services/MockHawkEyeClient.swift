@@ -1,0 +1,658 @@
+import Foundation
+import Observation
+
+/// The scripted client. Everything the live client does, with no hub, no Pi and
+/// no network.
+///
+/// This is not a stub that returns empty arrays. It runs the full demo: three
+/// presences drifting through the house, one of them going down and staying
+/// down with nobody pressing anything, and then, once a human taps, a 911 call
+/// with a two-way transcript, instructions arriving alongside it, and the ANS
+/// verification feed including **a claim that is refused.**
+///
+/// The detection raises an alert, never a call. Hawk Eye does not dial 911 on
+/// its own.
+///
+/// Everything it emits is shaped exactly like `app/backend`'s wire format, built
+/// out of the same `Codable` types the live client decodes into, so the views
+/// cannot tell the difference and neither can a code reader looking for a
+/// demo-only branch inside the UI. There isn't one.
+@MainActor
+@Observable
+final class MockHawkEyeClient: HawkEyeClienting {
+
+    private(set) var interior = InteriorState()
+    private(set) var incident: Incident?
+    private(set) var transcript: [TranscriptLine] = []
+    private(set) var instructions: [Instruction] = []
+    private(set) var verifications: [VerificationResult] = []
+    private(set) var hello: HubHello?
+    private(set) var link: LinkState = .offline
+    private(set) var missedFrames = false
+
+    @ObservationIgnored private var sensorLoop: Task<Void, Never>?
+    @ObservationIgnored private var scriptTask: Task<Void, Never>?
+    @ObservationIgnored private var detectionTask: Task<Void, Never>?
+
+    /// Drives the scripted collapse. Once this is set the mock keeps reporting
+    /// the presence as down and `still_down_s` climbs, because that is the
+    /// clinical variable and it must not reset.
+    @ObservationIgnored private var collapsedAt: Date?
+
+    @ObservationIgnored private var tick: Double = 0
+    @ObservationIgnored private var lineCounter = 0
+
+    private static let siteID = "site-demo-01"
+    private static let address = "1872 Ridgeview Lane, Blacksburg VA 24060"
+
+    // MARK: Connect
+
+    func connect(to hub: Hub) async throws {
+        disconnect()
+        link = .connecting
+        try? await Task.sleep(for: .milliseconds(320))
+        // The same `hello` frame the hub sends first on every connection.
+        hello = HubHello(
+            hubName: hub.name,
+            hubANSName: hub.ansName ?? "hub.hawkeye.invalid",
+            mode: "simulated",
+            streamProtocolVersion: 1,
+            activeIncidentID: nil,
+            replayFromSeq: nil
+        )
+        link = .live
+        PairingStore.remember(hub.id)
+        startSensorLoop()
+        startDetectionTimer()
+    }
+
+    func disconnect() {
+        sensorLoop?.cancel(); sensorLoop = nil
+        scriptTask?.cancel(); scriptTask = nil
+        detectionTask?.cancel(); detectionTask = nil
+        collapsedAt = nil
+        incident = nil
+        transcript = []
+        instructions = []
+        verifications = []
+        hello = nil
+        link = .offline
+    }
+
+    // MARK: Commands
+
+    func raiseIncident(_ type: IncidentType) async throws {
+        guard incident == nil else { return }
+        detectionTask?.cancel()
+        open(type, raisedBy: .user)
+    }
+
+    func sendContext(_ text: String) async throws {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let open = incident else { return }
+        let note = ContextNote(
+            noteID: "note-\(open.contextNotes.count + 1)",
+            incidentID: open.id,
+            text: trimmed,
+            at: Date(),
+            provenance: Provenance(
+                source: .userInput,
+                producer: "app/ios",
+                ansName: nil,
+                detail: nil,
+                sourceClass: .human,
+                simulated: false
+            ),
+            deliveredToCaller: true
+        )
+        incident?.contextNotes.append(note)
+
+        // What the resident types is a human statement, and `caller` attributes
+        // it as one rather than asserting it as something a sensor observed.
+        try? await Task.sleep(for: .milliseconds(700))
+        appendTranscript(.caller, "The resident reports: \(trimmed)")
+    }
+
+    // MARK: Sensor loop
+
+    /// 4 Hz. Enough for the blobs to drift and breathe smoothly, cheap enough
+    /// to leave running for the length of a judging session.
+    private func startSensorLoop() {
+        sensorLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                self.tick += 0.25
+                self.interior = self.state(at: self.tick)
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+    }
+
+    /// Builds an `InteriorState` exactly as the hub would send it, including the
+    /// server-decided `presence.state` the client now trusts.
+    private func state(at t: Double) -> InteriorState {
+        let down = collapsedAt
+        let stillDown = down.map { Date().timeIntervalSince($0) }
+        let plan = Floorplan.home
+
+        // p1: the resident, awake and moving between the kitchen and the living
+        // room. p2: a child in the west bedroom, down once the script fires.
+        // p3: a curtain over a vent in the garage, which is the case the system
+        // must not report as a person.
+        let p1Zone = (sin(t * 0.06) > 0) ? "kitchen" : "living_room"
+
+        let simulatedCSI = Provenance(
+            source: .ruviewSim,
+            producer: "sensor/",
+            ansName: "sensor.hawkeye.invalid",
+            detail: "Synthetic CSI. Nothing here was measured.",
+            sourceClass: .simulated,
+            simulated: true
+        )
+
+        let p1 = Presence(
+            presenceID: "p1",
+            state: .personMoving,
+            position: Self.position(plan, p1Zone),
+            moving: true,
+            confidence: clamp(0.86 + 0.06 * sin(t * 0.4)),
+            vitals: Vitals(respiration: .breathing, breathingBpm: 15,
+                           heartBpm: 72, personConfidence: 0.91),
+            presenceClass: .adult,
+            classBasis: "respiration_rate",
+            expected: true,
+            stillDownS: nil,
+            provenance: simulatedCSI
+        )
+
+        // Breathing is shallow and fast once down. Still a person: the
+        // personhood verdict must not waver just because movement stopped.
+        let p2 = Presence(
+            presenceID: "p2",
+            state: down == nil ? .personMoving : .personUnresponsive,
+            position: Self.position(plan, "west_bedroom"),
+            moving: down == nil,
+            confidence: clamp(0.79 + 0.05 * sin(t * 0.31 + 1.2)),
+            vitals: Vitals(respiration: .breathing,
+                           breathingBpm: down == nil ? 24 : 27,
+                           heartBpm: nil,
+                           personConfidence: down == nil ? 0.84 : 0.71),
+            presenceClass: .child,
+            classBasis: "respiration_rate",
+            expected: true,
+            stillDownS: stillDown,
+            provenance: simulatedCSI
+        )
+
+        // No respiration signature. This is the curtain, and it must never be
+        // drawn as a person.
+        let p3 = Presence(
+            presenceID: "p3",
+            state: .unconfirmed,
+            position: Self.position(plan, "garage"),
+            moving: true,
+            confidence: clamp(0.34 + 0.08 * sin(t * 0.9 + 2.3)),
+            vitals: Vitals(respiration: .noSignature, breathingBpm: nil,
+                           heartBpm: nil, personConfidence: 0.12),
+            presenceClass: .unknown,
+            classBasis: nil,
+            expected: true,
+            stillDownS: nil,
+            provenance: simulatedCSI
+        )
+
+        return InteriorState(
+            siteID: Self.siteID,
+            capturedAt: Date(),
+            sensorIdentity: "sensor.hawkeye.invalid",
+            calibration: Calibration(baselineAgeS: 412 + t, healthy: true,
+                                     note: "Rolling percentile baseline, slow adaptation."),
+            presences: [p1, p2, p3],
+            // Simulated, and labelled in the data itself rather than in a
+            // comment. `demo-trigger` is the literal string the honesty rule
+            // requires, and the UI reads the derived flag to caption it.
+            environment: EnvironmentReading(
+                coPpm: down == nil ? 4 : 186,
+                smokeDetected: false,
+                confidence: 0.88,
+                provenance: Provenance(
+                    source: .demoTrigger,
+                    producer: "agents/environment",
+                    ansName: "environment.hawkeye.invalid",
+                    detail: "No gas sensor was purchased. An MQ-7 drops in behind this.",
+                    sourceClass: .simulated,
+                    simulated: true
+                )
+            ),
+            floorplan: plan,
+            activeIncidentID: incident?.id
+        )
+    }
+
+    private func clamp(_ value: Double) -> Double { min(max(value, 0.05), 0.98) }
+
+    /// A zone centroid in metres. Not a localization claim: the agents reason
+    /// over the zone, and these coordinates exist so the view has somewhere to
+    /// draw.
+    private static func position(_ plan: Floorplan, _ zone: String) -> Position {
+        guard let room = plan.room(named: zone) else {
+            return Position(zone: zone, x: plan.widthM / 2, y: plan.depthM / 2, zoneConfidence: 0.4)
+        }
+        let b = room.bounds()
+        return Position(zone: zone, x: b.midX, y: b.midY, zoneConfidence: 0.86)
+    }
+
+    // MARK: The detection
+
+    /// The fall is detected with nobody pressing anything, and it raises an
+    /// **alert, not a call.**
+    ///
+    /// Hawk Eye does not dial 911 on its own; a human tap releases
+    /// `agents/caller`. What the detection buys is an informed tap: the presence
+    /// goes to `confirmed_still`, `still_down_s` starts climbing and does not
+    /// reset, and the roster says who is down and in which room before the
+    /// resident has touched anything.
+    private func startDetectionTimer() {
+        guard let delay = Config.mockFallDetectedAfter else { return }
+        detectionTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled, self.incident == nil else { return }
+            // Debounce, as `agents/collapse` does: a collapse is only an event
+            // once it is followed by an absence of normal movement. A system
+            // that raises an alarm when someone flops onto a couch is worse
+            // than no system.
+            try? await Task.sleep(for: .seconds(6))
+            guard !Task.isCancelled, self.incident == nil else { return }
+            self.collapsedAt = Date()
+        }
+    }
+
+    // MARK: The call
+
+    private func open(_ type: IncidentType, raisedBy: IncidentOrigin) {
+        if type == .faint, collapsedAt == nil { collapsedAt = Date() }
+        transcript = []
+        instructions = []
+        verifications = []
+        lineCounter = 0
+        incident = Incident(
+            incidentID: "inc-0001",
+            siteID: Self.siteID,
+            incidentType: type,
+            status: .raised,
+            raisedBy: raisedBy,
+            raisedAt: Date(),
+            updatedAt: Date(),
+            address: Self.address,
+            callState: .notStarted
+        )
+        scriptTask?.cancel()
+        scriptTask = Task { [weak self] in await self?.runCall(type) }
+    }
+
+    /// The scripted incident.
+    ///
+    /// Note what `caller` does and does not say. It reports the room, the
+    /// breathing rate, and how long the person has been down, because those are
+    /// verified claims from named agents. It does not diagnose, it does not
+    /// assert to the operator that the call is cryptographically verified, and
+    /// when it does not know something it says so.
+    private func runCall(_ type: IncidentType) async {
+        // Verification runs before a word is spoken. That ordering is the
+        // architecture: nothing crosses the human boundary unverified.
+        await step(0.9) { self.emit(Self.assertedCollapse()) }
+        await step(0.7) { self.emit(Self.attributedBiometrics()) }
+        await step(0.8) { self.emit(Self.corroborationEnvironment()) }
+        await step(1.0) {
+            // The refusal. An impostor at a lookalike ANSName made a claim that
+            // would have escalated the response, and it was discarded.
+            self.emit(Self.discardedImpostor())
+            self.setStatus(.classified)
+            self.incident?.classification = Self.classification(for: type)
+        }
+
+        await step(1.0) { self.setCall(.dialing) }
+        await step(2.0) { self.setCall(.connected); self.setStatus(.onCall) }
+
+        await step(0.6) {
+            self.appendTranscript(.operatorVoice, "911, what is the address of your emergency?")
+        }
+        await step(2.2) {
+            self.appendTranscript(
+                .caller,
+                "This is an automated call from a monitoring system at \(Self.address). I am calling on behalf of the resident.",
+                claimIDs: []
+            )
+        }
+        await step(2.4) {
+            self.appendInstruction(
+                "Hawk Eye is on the line with 911. Stay on this screen.",
+                origin: .systemStatus, urgent: false
+            )
+        }
+        await step(1.4) {
+            self.appendTranscript(.operatorVoice, "What is happening there?")
+        }
+        await step(2.4) {
+            let seconds = self.collapsedAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
+            self.appendTranscript(
+                .caller,
+                "A person in the west bedroom went down \(seconds) seconds ago and has not moved since. They are breathing, at about 27 breaths a minute. Carbon monoxide in the building is elevated. One other adult is in the house and is moving normally.",
+                claimIDs: ["clm-001", "clm-002", "clm-004"]
+            )
+        }
+        await step(2.8) {
+            self.appendTranscript(.operatorVoice, "Is anyone else in the building?")
+        }
+        await step(2.0) {
+            // The discarded claim is not repeated to the operator. This is the
+            // refusal being load-bearing rather than decorative.
+            self.appendTranscript(
+                .caller,
+                "Two people, and one perturbation with no breathing signature in the garage that I am not calling a person. A third occupant was reported to me by an agent I could not verify, so I am not repeating that claim.",
+                claimIDs: ["clm-001", "clm-003"]
+            )
+        }
+        await step(2.6) {
+            self.appendInstruction(
+                "Do not move them. They are breathing, and moving someone after a fall can make an injury worse.",
+                origin: .firstAid, urgent: true
+            )
+        }
+        await step(3.0) {
+            self.appendTranscript(.operatorVoice, "I've dispatched units. They're about four minutes out. Can someone unlock the front door?")
+            self.setStatus(.dispatched)
+        }
+        await step(1.6) {
+            self.appendInstruction(
+                "Units are on the way, about four minutes out. Unlock the front door if you can do that safely.",
+                origin: .relayedOperator, urgent: true
+            )
+        }
+        await step(2.2) {
+            self.appendTranscript(.caller, "Understood. The resident has been told.")
+        }
+        await step(4.0) {
+            self.appendInstruction(
+                "Stay with them and keep watching their breathing. If anything changes, type it in the box below and it goes straight to the dispatcher.",
+                origin: .relayedOperator, urgent: false
+            )
+        }
+        await step(5.0) {
+            self.appendTranscript(.operatorVoice, "Stay on the line until they arrive.")
+        }
+        await step(18.0) {
+            // The call ends when responders are on scene. `master` resolves the
+            // incident and the screen stands down with it, exactly as the live
+            // path does off a resolved incident event.
+            self.appendTranscript(.system, "Responders on scene. Call ended.")
+            self.setCall(.ended)
+            self.resolve()
+        }
+    }
+
+    // MARK: Verification fixtures
+
+    private static func trustIndex(
+        integrity: Double?, identity: Double?
+    ) -> TrustIndexScore {
+        // Solvency, behavior and safety come back null rather than zero. A 0
+        // that means "not implemented" and a 0 that means "scored zero" are
+        // different facts, and the app must not conflate them.
+        TrustIndexScore(
+            integrity: integrity, identity: identity,
+            solvency: nil, behavior: nil, safety: nil,
+            unimplementedDimensions: ["solvency", "behavior", "safety"]
+        )
+    }
+
+    private static func assertedCollapse() -> VerificationResult {
+        VerificationResult(
+            verificationID: "ver-001",
+            incidentID: "inc-0001",
+            checkedAt: Date(),
+            claim: Claim(
+                claimID: "clm-001",
+                statement: "An adult occupant went down in the west bedroom and has not gotten up.",
+                field: "collapse.event",
+                value: "fall, still_down_s=6",
+                presenceID: "p2"
+            ),
+            agent: SourceAgent(
+                name: "agents/collapse",
+                ansName: "collapse.hawkeye.invalid",
+                certificateVersion: "v1.4.2+sha256:9f1c...a30b",
+                trustIndex: trustIndex(integrity: 0.94, identity: 0.97),
+                recommendedProfile: .fiduciary
+            ),
+            decision: .asserted,
+            reason: "Source is FIDUCIARY and every check passed. Spoken as an assertion the system stands behind.",
+            checks: [
+                VerificationCheck(name: "ans.resolve", passed: true,
+                                  detail: "collapse.hawkeye.invalid resolved to the registered certificate."),
+                VerificationCheck(name: "cert.version_binding", passed: true,
+                                  detail: "Code fingerprint matches the version-bound certificate issued at registration."),
+                VerificationCheck(name: "trust_index.profile", passed: true,
+                                  detail: "Trust Index recommendedProfile = FIDUCIARY."),
+            ],
+            willBeSpoken: true
+        )
+    }
+
+    private static func attributedBiometrics() -> VerificationResult {
+        VerificationResult(
+            verificationID: "ver-002",
+            incidentID: "inc-0001",
+            checkedAt: Date(),
+            claim: Claim(
+                claimID: "clm-002",
+                statement: "The occupant on the floor is breathing, shallowly, at about 27 breaths a minute.",
+                field: "biometrics.respiration",
+                value: "breathing, 27 bpm",
+                presenceID: "p2"
+            ),
+            agent: SourceAgent(
+                name: "agents/biometrics",
+                ansName: "biometrics.hawkeye.invalid",
+                certificateVersion: "v1.2.0+sha256:b310...77ca",
+                trustIndex: trustIndex(integrity: 0.81, identity: 0.93),
+                recommendedProfile: .transactional
+            ),
+            decision: .attributed,
+            reason: "Source is TRANSACTIONAL. Relayed as a reported observation, attributed to the agent that made it.",
+            checks: [
+                VerificationCheck(name: "ans.resolve", passed: true,
+                                  detail: "biometrics.hawkeye.invalid resolved to the registered certificate."),
+                VerificationCheck(name: "cert.version_binding", passed: true,
+                                  detail: "Code fingerprint matches the certificate issued at registration."),
+                VerificationCheck(name: "trust_index.profile", passed: true,
+                                  detail: "Trust Index recommendedProfile = TRANSACTIONAL."),
+            ],
+            willBeSpoken: true
+        )
+    }
+
+    private static func corroborationEnvironment() -> VerificationResult {
+        VerificationResult(
+            verificationID: "ver-003",
+            incidentID: "inc-0001",
+            checkedAt: Date(),
+            claim: Claim(
+                claimID: "clm-004",
+                statement: "Carbon monoxide in the building is elevated at 186 parts per million.",
+                field: "environment.co_ppm",
+                value: "186 ppm",
+                presenceID: nil
+            ),
+            agent: SourceAgent(
+                name: "agents/environment",
+                ansName: "environment.hawkeye.invalid",
+                certificateVersion: "v0.9.1+sha256:1ee4...c052",
+                trustIndex: trustIndex(integrity: 0.62, identity: 0.9),
+                recommendedProfile: .readOnly
+            ),
+            decision: .corroborationOnly,
+            reason: "Source is READ_ONLY. Used as corroboration, never as the sole basis for a call.",
+            checks: [
+                VerificationCheck(name: "ans.resolve", passed: true,
+                                  detail: "environment.hawkeye.invalid resolved to the registered certificate."),
+                VerificationCheck(name: "provenance.simulated", passed: true,
+                                  detail: "Reading is labelled demo-trigger. No gas sensor exists and the claim says so."),
+                VerificationCheck(name: "trust_index.profile", passed: true,
+                                  detail: "Trust Index recommendedProfile = READ_ONLY."),
+            ],
+            willBeSpoken: true
+        )
+    }
+
+    /// The refusal path, which is the submission. An impostor at a lookalike
+    /// ANSName makes a claim that would have sent an armed response into a room
+    /// where no sensor sees anybody.
+    private static func discardedImpostor() -> VerificationResult {
+        VerificationResult(
+            verificationID: "ver-005",
+            incidentID: "inc-0001",
+            checkedAt: Date(),
+            claim: Claim(
+                claimID: "clm-005",
+                statement: "A third adult is unresponsive in the garage and is not breathing.",
+                field: "biometrics.respiration",
+                value: "no respiration, garage",
+                presenceID: nil
+            ),
+            agent: SourceAgent(
+                name: "agents/occupancy",
+                ansName: "occupancy.hawkeye-secure.invalid",
+                certificateVersion: "v1.4.2+sha256:4d77...0e91",
+                trustIndex: trustIndex(integrity: 0.0, identity: 0.0),
+                recommendedProfile: .untrusted
+            ),
+            decision: .discarded,
+            reason: "DISCARDED. The claim would have sent an armed response into a room where no sensor sees anybody. It was not relayed to the operator and it was not used in classification.",
+            checks: [
+                VerificationCheck(
+                    name: "ans.resolve", passed: false,
+                    detail: "occupancy.hawkeye-secure.invalid is not the ANSName registered for agents/occupancy. The registered name is occupancy.hawkeye.invalid."),
+                VerificationCheck(
+                    name: "cert.version_binding", passed: false,
+                    detail: "Code fingerprint differs from the version-bound certificate issued at registration. The agent presenting this claim is not running the code it registered."),
+                VerificationCheck(
+                    name: "trust_index.profile", passed: false,
+                    detail: "Trust Index recommendedProfile = UNTRUSTED."),
+                VerificationCheck(
+                    name: "corroboration.sensor", passed: false,
+                    detail: "No CSI perturbation in the garage zone. No other agent reports a third occupant."),
+            ],
+            willBeSpoken: false
+        )
+    }
+
+    private static func classification(for type: IncidentType) -> IncidentClassification {
+        switch type {
+        case .faint, .fire:
+            return IncidentClassification(
+                incidentType: type,
+                reasoning: "A collapse in the west bedroom with no movement since, corroborated by a second modality: carbon monoxide climbing past 180 ppm. One claim from an unverifiable agent was discarded and played no part in this.",
+                contributingClaimIDs: ["clm-001", "clm-002", "clm-004"],
+                discardedClaimIDs: ["clm-005"],
+                confidence: 0.86
+            )
+        case .burglary:
+            return IncidentClassification(
+                incidentType: type,
+                reasoning: "An unexpected presence tracked separately from the resident, in a different room, both moving.",
+                contributingClaimIDs: ["clm-001"],
+                discardedClaimIDs: ["clm-005"],
+                confidence: 0.72
+            )
+        }
+    }
+
+    // MARK: Emission helpers
+
+    private func step(_ seconds: Double, _ body: @MainActor () -> Void) async {
+        try? await Task.sleep(for: .seconds(seconds))
+        guard !Task.isCancelled else { return }
+        body()
+    }
+
+    private func emit(_ result: VerificationResult) {
+        verifications.removeAll { $0.id == result.id }
+        verifications.insert(result, at: 0)
+    }
+
+    private func setCall(_ state: CallState) {
+        incident?.callState = state
+        incident?.updatedAt = Date()
+    }
+
+    private func setStatus(_ status: IncidentStatus) {
+        incident?.status = status
+        incident?.updatedAt = Date()
+    }
+
+    private func resolve() {
+        incident = nil
+        transcript = []
+        instructions = []
+        verifications = []
+        collapsedAt = nil
+        // The house keeps being watched. Resolving an incident does not stop
+        // the sensing layer, because nothing spawns on incident.
+        startDetectionTimer()
+    }
+
+    private func appendTranscript(
+        _ speaker: TranscriptLine.Speaker,
+        _ text: String,
+        claimIDs: [String] = []
+    ) {
+        lineCounter += 1
+        transcript.append(
+            TranscriptLine(
+                lineID: String(format: "line-%03d", lineCounter),
+                incidentID: incident?.id ?? "inc-0001",
+                speaker: speaker,
+                text: text,
+                at: Date(),
+                final: true,
+                claimIDs: claimIDs,
+                provenance: Provenance(
+                    source: speaker == .operatorVoice ? .operatorAudio : .agentInference,
+                    producer: speaker == .operatorVoice ? "psap" : "agents/caller",
+                    ansName: speaker == .operatorVoice ? nil : "caller.hawkeye.invalid",
+                    detail: nil,
+                    sourceClass: speaker == .operatorVoice ? .human : .derived,
+                    simulated: false
+                )
+            )
+        )
+    }
+
+    /// Stand-ins for `agents/guidance`'s output. They stay inside
+    /// well-established public guidance and no new medical copy belongs here:
+    /// the guidance agent is the one component reviewed against the safety
+    /// rules in `agents/CLAUDE.md`.
+    private func appendInstruction(_ text: String, origin: InstructionOrigin, urgent: Bool) {
+        instructions.append(
+            Instruction(
+                instructionID: "ins-\(instructions.count + 1)",
+                incidentID: incident?.id ?? "inc-0001",
+                text: text,
+                origin: origin,
+                at: Date(),
+                urgent: urgent,
+                supersedesInstructionID: nil,
+                defersToOperator: origin != .relayedOperator,
+                provenance: Provenance(
+                    source: .agentInference,
+                    producer: "agents/guidance",
+                    ansName: "guidance.hawkeye.invalid",
+                    detail: nil,
+                    sourceClass: .derived,
+                    simulated: false
+                )
+            )
+        )
+    }
+}

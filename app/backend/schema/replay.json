@@ -1,0 +1,147 @@
+{
+  "$note": "GET /v1/incident/{id}/replay response.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "incident_id": "inc-0001",
+    "sealed": true,
+    "sealed_at": "2026-09-20T04:15:33Z",
+    "caller_ansname": "caller.hawkeye.invalid",
+    "site_address": "1872 Ridgeview Lane, Blacksburg VA 24060",
+    "entries": [
+      {
+        "seq": 1,
+        "at": "2026-09-20T04:12:33Z",
+        "kind": "incident",
+        "summary": "fire raised by system",
+        "detail": {
+          "incident_id": "inc-0001",
+          "incident_type": "fire"
+        },
+        "entry_hash": "9a1e26430b4002eb059215c2a1e0a0f0f6d8f3bbd4c6a5f0b2e9a7c1d3f5e7a9",
+        "prev_hash": null
+      },
+      {
+        "seq": 2,
+        "at": "2026-09-20T04:12:39Z",
+        "kind": "verification",
+        "summary": "ASSERTED: An adult occupant went down in the west bedroom (collapse.hawkeye.invalid)",
+        "detail": {
+          "verification_id": "ver-001",
+          "decision": "ASSERTED"
+        },
+        "entry_hash": "6192e3c8d12e7d7a90181d14c0b7e2d9a4f81c6b0e3d5a7f9c1b3d5f7a9c1e3d",
+        "prev_hash": "9a1e26430b4002eb059215c2a1e0a0f0f6d8f3bbd4c6a5f0b2e9a7c1d3f5e7a9"
+      }
+    ],
+    "verifications": [
+      {
+        "verification_id": "ver-001",
+        "incident_id": "inc-0001",
+        "checked_at": "2026-09-20T04:12:39Z",
+        "claim": {
+          "claim_id": "clm-001",
+          "statement": "An adult occupant went down in the west bedroom and has not gotten up.",
+          "field": "collapse.event",
+          "value": "fall, still_down_s=6",
+          "presence_id": "p1"
+        },
+        "agent": {
+          "name": "agents/collapse",
+          "ansname": "collapse.hawkeye.invalid",
+          "certificate_version": "v1.4.2+sha256:9f1c...a30b",
+          "trust_index": {
+            "integrity": 0.94,
+            "identity": 0.97,
+            "solvency": null,
+            "behavior": null,
+            "safety": null,
+            "unimplemented_dimensions": [
+              "solvency",
+              "behavior",
+              "safety"
+            ]
+          },
+          "recommended_profile": "FIDUCIARY"
+        },
+        "decision": "ASSERTED",
+        "reason": "Source is FIDUCIARY and every check passed. Spoken as an assertion the system stands behind.",
+        "checks": [
+          {
+            "name": "ans.resolve",
+            "passed": true,
+            "detail": "collapse.hawkeye.invalid resolved to the registered certificate."
+          },
+          {
+            "name": "cert.version_binding",
+            "passed": true,
+            "detail": "Code fingerprint matches the version-bound certificate issued at registration."
+          },
+          {
+            "name": "trust_index.profile",
+            "passed": true,
+            "detail": "Trust Index recommendedProfile = FIDUCIARY."
+          }
+        ],
+        "will_be_spoken": true
+      },
+      {
+        "verification_id": "ver-005",
+        "incident_id": "inc-0001",
+        "checked_at": "2026-09-20T04:12:45Z",
+        "claim": {
+          "claim_id": "clm-005",
+          "statement": "A third adult is unresponsive in the garage and is not breathing.",
+          "field": "biometrics.respiration",
+          "value": "no respiration, garage",
+          "presence_id": null
+        },
+        "agent": {
+          "name": "agents/occupancy",
+          "ansname": "occupancy.hawkeye-secure.invalid",
+          "certificate_version": "v1.4.2+sha256:4d77...0e91",
+          "trust_index": {
+            "integrity": 0.0,
+            "identity": 0.0,
+            "solvency": null,
+            "behavior": null,
+            "safety": null,
+            "unimplemented_dimensions": [
+              "solvency",
+              "behavior",
+              "safety"
+            ]
+          },
+          "recommended_profile": "UNTRUSTED"
+        },
+        "decision": "DISCARDED",
+        "reason": "DISCARDED. The claim would have sent an armed response into a room where no sensor sees anybody. It was not relayed to the operator and it was not used in classification.",
+        "checks": [
+          {
+            "name": "ans.resolve",
+            "passed": false,
+            "detail": "occupancy.hawkeye-secure.invalid is not the ANSName registered for agents/occupancy. The registered name is occupancy.hawkeye.invalid."
+          },
+          {
+            "name": "cert.version_binding",
+            "passed": false,
+            "detail": "Code fingerprint differs from the version-bound certificate issued at registration. The agent presenting this claim is not running the code it registered."
+          },
+          {
+            "name": "trust_index.profile",
+            "passed": false,
+            "detail": "Trust Index recommendedProfile = UNTRUSTED."
+          },
+          {
+            "name": "corroboration.sensor",
+            "passed": false,
+            "detail": "No CSI perturbation in the garage zone. No other agent reports a third occupant."
+          }
+        ],
+        "will_be_spoken": false
+      }
+    ],
+    "root_hash": "eaf7ca3e574f961b00140de7931ca09fbfad04e0727a0ccd4462019bc5223227",
+    "scitt_receipt": null,
+    "hash_algorithm": "sha256"
+  }
+}

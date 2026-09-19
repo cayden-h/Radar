@@ -1,0 +1,19 @@
+{
+  "$note": "POST /v1/incident/{id}/context 202 response body.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "note_id": "note-001",
+    "incident_id": "inc-0001",
+    "text": "My mother has COPD and there is a space heater in that bedroom.",
+    "at": "2026-09-20T04:13:04Z",
+    "provenance": {
+      "source": "user-input",
+      "producer": "app/ios",
+      "ansname": null,
+      "detail": null,
+      "source_class": "human",
+      "simulated": false
+    },
+    "delivered_to_caller": true
+  }
+}

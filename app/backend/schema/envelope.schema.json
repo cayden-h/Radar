@@ -1,0 +1,1438 @@
+{
+  "$note": "JSON Schema for WS /v1/stream frames. Tagged union discriminated on payload.kind. Generated from the Pydantic Envelope model.",
+  "$generated_by": "tools/gen_schema.py",
+  "schema": {
+    "$defs": {
+      "Calibration": {
+        "description": "Rolling-baseline health.\n\n`healthy` going false must propagate and must suppress escalation. A stale\nbaseline produces confident nonsense.",
+        "properties": {
+          "baseline_age_s": {
+            "title": "Baseline Age S",
+            "type": "number"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          }
+        },
+        "required": [
+          "baseline_age_s",
+          "healthy"
+        ],
+        "title": "Calibration",
+        "type": "object"
+      },
+      "CallState": {
+        "description": "State of the phone call to the 911 operator.",
+        "enum": [
+          "not_started",
+          "dialing",
+          "connected",
+          "ended",
+          "not_placed"
+        ],
+        "title": "CallState",
+        "type": "string"
+      },
+      "Claim": {
+        "description": "One assertion a sensing agent made about the building.",
+        "properties": {
+          "claim_id": {
+            "title": "Claim Id",
+            "type": "string"
+          },
+          "statement": {
+            "description": "Plain English, as caller would say it out loud.",
+            "title": "Statement",
+            "type": "string"
+          },
+          "field": {
+            "description": "Which part of interior state it asserts, e.g. 'biometrics.respiration'.",
+            "title": "Field",
+            "type": "string"
+          },
+          "value": {
+            "description": "The asserted value, rendered as a string for display.",
+            "title": "Value",
+            "type": "string"
+          },
+          "presence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Presence Id"
+          }
+        },
+        "required": [
+          "claim_id",
+          "statement",
+          "field",
+          "value"
+        ],
+        "title": "Claim",
+        "type": "object"
+      },
+      "ContextEvent": {
+        "description": "The resident's \"what is happening\" note, echoed back so the app can confirm delivery.",
+        "properties": {
+          "kind": {
+            "const": "context",
+            "default": "context",
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "$ref": "#/$defs/ContextNote"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "ContextEvent",
+        "type": "object"
+      },
+      "ContextNote": {
+        "description": "One line the resident typed into the \"what is happening\" box.\n\nGoes to master and becomes available to caller for the rest of the call.\nProvenance is `user-input`: it is a human statement, not a measurement, and\ncaller must attribute it as such rather than asserting it as sensed fact.",
+        "properties": {
+          "note_id": {
+            "title": "Note Id",
+            "type": "string"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "delivered_to_caller": {
+            "default": false,
+            "title": "Delivered To Caller",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "note_id",
+          "incident_id",
+          "text",
+          "provenance"
+        ],
+        "title": "ContextNote",
+        "type": "object"
+      },
+      "EnvironmentReading": {
+        "description": "Air quality. Carbon monoxide, and not from CSI.\n\nCSI cannot sense gas composition at 2.4/5 GHz. This reading comes from a\nseparate modality, which is what makes it real corroboration rather than two\nviews of one stream. No gas sensor was purchased, so in practice\n`provenance.source` is `demo-trigger` and `provenance.simulated` is true.",
+        "properties": {
+          "co_ppm": {
+            "minimum": 0.0,
+            "title": "Co Ppm",
+            "type": "number"
+          },
+          "smoke_detected": {
+            "default": false,
+            "title": "Smoke Detected",
+            "type": "boolean"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "provenance": {
+            "$ref": "#/$defs/Provenance",
+            "description": "Required. Carries demo-trigger when simulated."
+          }
+        },
+        "required": [
+          "co_ppm",
+          "confidence",
+          "provenance"
+        ],
+        "title": "EnvironmentReading",
+        "type": "object"
+      },
+      "ErrorEvent": {
+        "description": "Something went wrong. Never silently drops a frame.",
+        "properties": {
+          "kind": {
+            "const": "error",
+            "default": "error",
+            "title": "Kind",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorEvent",
+        "type": "object"
+      },
+      "Floorplan": {
+        "description": "Static building geometry the 3D view draws. One resident, hardcoded.",
+        "properties": {
+          "site_id": {
+            "title": "Site Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "units": {
+            "default": "m",
+            "title": "Units",
+            "type": "string"
+          },
+          "width_m": {
+            "title": "Width M",
+            "type": "number"
+          },
+          "depth_m": {
+            "title": "Depth M",
+            "type": "number"
+          },
+          "wall_height_m": {
+            "default": 2.5,
+            "title": "Wall Height M",
+            "type": "number"
+          },
+          "rooms": {
+            "items": {
+              "$ref": "#/$defs/Room"
+            },
+            "title": "Rooms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "site_id",
+          "name",
+          "width_m",
+          "depth_m",
+          "rooms"
+        ],
+        "title": "Floorplan",
+        "type": "object"
+      },
+      "HelloEvent": {
+        "description": "First frame on every connection. Tells the client what it just joined.",
+        "properties": {
+          "kind": {
+            "const": "hello",
+            "default": "hello",
+            "title": "Kind",
+            "type": "string"
+          },
+          "hub_name": {
+            "title": "Hub Name",
+            "type": "string"
+          },
+          "hub_ansname": {
+            "title": "Hub Ansname",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "stream_protocol_version": {
+            "default": 1,
+            "title": "Stream Protocol Version",
+            "type": "integer"
+          },
+          "active_incident_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Active Incident Id"
+          },
+          "replay_from_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Sequence of the oldest event still buffered, for gap recovery.",
+            "title": "Replay From Seq"
+          }
+        },
+        "required": [
+          "hub_name",
+          "hub_ansname",
+          "mode"
+        ],
+        "title": "HelloEvent",
+        "type": "object"
+      },
+      "Incident": {
+        "description": "One incident, from raised to resolved.",
+        "properties": {
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "string"
+          },
+          "site_id": {
+            "title": "Site Id",
+            "type": "string"
+          },
+          "incident_type": {
+            "$ref": "#/$defs/IncidentType"
+          },
+          "status": {
+            "$ref": "#/$defs/IncidentStatus"
+          },
+          "raised_by": {
+            "$ref": "#/$defs/RaisedBy"
+          },
+          "raised_at": {
+            "format": "date-time",
+            "title": "Raised At",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resolved At"
+          },
+          "address": {
+            "description": "What the caller will read to the dispatcher.",
+            "title": "Address",
+            "type": "string"
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/IncidentClassification"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "call_state": {
+            "$ref": "#/$defs/CallState",
+            "default": "not_started"
+          },
+          "context_notes": {
+            "items": {
+              "$ref": "#/$defs/ContextNote"
+            },
+            "title": "Context Notes",
+            "type": "array"
+          },
+          "refusal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Set when status is REFUSED: why the system declined to escalate.",
+            "title": "Refusal Reason"
+          }
+        },
+        "required": [
+          "incident_id",
+          "site_id",
+          "incident_type",
+          "status",
+          "raised_by",
+          "address"
+        ],
+        "title": "Incident",
+        "type": "object"
+      },
+      "IncidentClassification": {
+        "description": "Why master called it what it called it.\n\nClassification is the interesting part and should be visible. A fall plus\nelevated CO is a fire incident with a casualty, not a faint.",
+        "properties": {
+          "incident_type": {
+            "$ref": "#/$defs/IncidentType"
+          },
+          "reasoning": {
+            "description": "Plain English, shown to the resident.",
+            "title": "Reasoning",
+            "type": "string"
+          },
+          "contributing_claim_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Contributing Claim Ids",
+            "type": "array"
+          },
+          "discarded_claim_ids": {
+            "description": "Claims that did not survive verification. Named, not hidden.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Discarded Claim Ids",
+            "type": "array"
+          },
+          "confidence": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "incident_type",
+          "reasoning",
+          "confidence"
+        ],
+        "title": "IncidentClassification",
+        "type": "object"
+      },
+      "IncidentEvent": {
+        "description": "An incident was raised, classified, updated, resolved, or refused.",
+        "properties": {
+          "kind": {
+            "const": "incident",
+            "default": "incident",
+            "title": "Kind",
+            "type": "string"
+          },
+          "phase": {
+            "$ref": "#/$defs/IncidentPhase"
+          },
+          "incident": {
+            "$ref": "#/$defs/Incident"
+          }
+        },
+        "required": [
+          "phase",
+          "incident"
+        ],
+        "title": "IncidentEvent",
+        "type": "object"
+      },
+      "IncidentPhase": {
+        "enum": [
+          "raised",
+          "classified",
+          "updated",
+          "resolved",
+          "refused"
+        ],
+        "title": "IncidentPhase",
+        "type": "string"
+      },
+      "IncidentStatus": {
+        "enum": [
+          "raised",
+          "classified",
+          "calling",
+          "on_call",
+          "dispatched",
+          "resolved",
+          "refused"
+        ],
+        "title": "IncidentStatus",
+        "type": "string"
+      },
+      "IncidentType": {
+        "description": "The three incident types. Nothing else classifies.",
+        "enum": [
+          "burglary",
+          "fire",
+          "faint"
+        ],
+        "title": "IncidentType",
+        "type": "string"
+      },
+      "Instruction": {
+        "description": "One thing agents/guidance is telling the resident to do.",
+        "properties": {
+          "instruction_id": {
+            "title": "Instruction Id",
+            "type": "string"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/$defs/InstructionOrigin"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "urgent": {
+            "default": false,
+            "title": "Urgent",
+            "type": "boolean"
+          },
+          "supersedes_instruction_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Supersedes Instruction Id"
+          },
+          "defers_to_operator": {
+            "default": true,
+            "description": "True when this instruction must be dropped the moment the dispatcher gives a competing one. Dispatchers are trained for this and the agent is not.",
+            "title": "Defers To Operator",
+            "type": "boolean"
+          },
+          "provenance": {
+            "$ref": "#/$defs/Provenance"
+          }
+        },
+        "required": [
+          "instruction_id",
+          "incident_id",
+          "text",
+          "origin",
+          "provenance"
+        ],
+        "title": "Instruction",
+        "type": "object"
+      },
+      "InstructionEvent": {
+        "description": "One instruction from agents/guidance.",
+        "properties": {
+          "kind": {
+            "const": "instruction",
+            "default": "instruction",
+            "title": "Kind",
+            "type": "string"
+          },
+          "instruction": {
+            "$ref": "#/$defs/Instruction"
+          }
+        },
+        "required": [
+          "instruction"
+        ],
+        "title": "InstructionEvent",
+        "type": "object"
+      },
+      "InstructionOrigin": {
+        "description": "Where an instruction came from.\n\nThe UI should not distinguish these, because the user does not care. The API\ndoes, because the safety rules differ: relayed operator instructions always\nwin over generated first aid.",
+        "enum": [
+          "relayed_operator",
+          "first_aid",
+          "system_status"
+        ],
+        "title": "InstructionOrigin",
+        "type": "string"
+      },
+      "InteriorState": {
+        "description": "Everything the app needs to draw the house right now.",
+        "properties": {
+          "site_id": {
+            "title": "Site Id",
+            "type": "string"
+          },
+          "captured_at": {
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "sensor_identity": {
+            "description": "ANSName of the sensing device.",
+            "title": "Sensor Identity",
+            "type": "string"
+          },
+          "calibration": {
+            "$ref": "#/$defs/Calibration"
+          },
+          "presences": {
+            "items": {
+              "$ref": "#/$defs/Presence"
+            },
+            "title": "Presences",
+            "type": "array"
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/EnvironmentReading"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Null when agents/environment has not reported."
+          },
+          "floorplan": {
+            "$ref": "#/$defs/Floorplan"
+          },
+          "active_incident_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Active Incident Id"
+          }
+        },
+        "required": [
+          "site_id",
+          "sensor_identity",
+          "calibration",
+          "presences",
+          "floorplan"
+        ],
+        "title": "InteriorState",
+        "type": "object"
+      },
+      "Position": {
+        "description": "Coarse position inside the floorplan.\n\n`zone` is the honest answer and is what the agents reason over. `x`/`y` exist\nonly so the 3D view has somewhere to draw; they are a zone centroid with\njitter, not a localization claim. Do not promise coordinates.",
+        "properties": {
+          "zone": {
+            "description": "Room-level zone id, e.g. 'west_bedroom'. Coarse by design.",
+            "title": "Zone",
+            "type": "string"
+          },
+          "x": {
+            "description": "Metres from floorplan origin. Zone centroid, not a fix.",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Metres from floorplan origin. Zone centroid, not a fix.",
+            "title": "Y",
+            "type": "number"
+          },
+          "zone_confidence": {
+            "description": "Confidence in the zone, 0-1.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Zone Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "zone",
+          "x",
+          "y",
+          "zone_confidence"
+        ],
+        "title": "Position",
+        "type": "object"
+      },
+      "Presence": {
+        "description": "One tracked presence.\n\n`presence_id` is stable within a session only. We do not do person\nre-identification and must not claim to.",
+        "properties": {
+          "presence_id": {
+            "title": "Presence Id",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/$defs/PresenceState"
+          },
+          "position": {
+            "$ref": "#/$defs/Position"
+          },
+          "moving": {
+            "title": "Moving",
+            "type": "boolean"
+          },
+          "confidence": {
+            "description": "Confidence the presence exists at all.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "vitals": {
+            "$ref": "#/$defs/Vitals"
+          },
+          "presence_class": {
+            "$ref": "#/$defs/PresenceClass",
+            "default": "unknown"
+          },
+          "class_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "What the class decision was made from. 'respiration_rate' is the defensible one.",
+            "title": "Class Basis"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "agents/intruder's inference from context (entry point, time of day, count vs reported residents). Never a recognition result. null when not yet decided.",
+            "title": "Expected"
+          },
+          "still_down_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Seconds down and not moving, from agents/collapse. The clinical variable: a long lie is over an hour, and half of those die within six months absent any injury.",
+            "title": "Still Down S"
+          },
+          "provenance": {
+            "$ref": "#/$defs/Provenance",
+            "description": "Required. See the honesty rule."
+          }
+        },
+        "required": [
+          "presence_id",
+          "state",
+          "position",
+          "moving",
+          "confidence",
+          "vitals",
+          "provenance"
+        ],
+        "title": "Presence",
+        "type": "object"
+      },
+      "PresenceClass": {
+        "description": "Coarse class, decided from respiration rate, not signal amplitude.\n\nAdult 12-20 BPM, child 20-30, infant 30-60, dog/cat 15-30+. The overlap\nbetween child and pet is real and is stated rather than hidden; the honest\nresolution is \"adult versus small and fast-breathing\".",
+        "enum": [
+          "adult",
+          "child",
+          "pet",
+          "unknown"
+        ],
+        "title": "PresenceClass",
+        "type": "string"
+      },
+      "PresenceState": {
+        "description": "The three states app/CLAUDE.md requires the 3D view to distinguish.\n\nCONFIRMED_MOVING: moving and breathing. A person, confirmed.\nCONFIRMED_STILL:  still but breathing. A person who is not responding.\n                  The loudest thing on screen. This is what the system exists for.\nUNCONFIRMED:      a perturbation with no respiration signature. Render it as\n                  such, not as a person. A curtain is not an intruder.\nUNKNOWN:          not enough data yet. Absence of respiration is NOT proof of\n                  absence of a person, so a presence that has not been\n                  resolved sits here rather than being called UNCONFIRMED.",
+        "enum": [
+          "confirmed_moving",
+          "confirmed_still",
+          "unconfirmed",
+          "unknown"
+        ],
+        "title": "PresenceState",
+        "type": "string"
+      },
+      "Provenance": {
+        "description": "Where a reading came from. Required on every reading. No default.\n\n`source_class` and `simulated` are computed from `source`, so a producer\ncannot claim a demo-trigger reading was measured.",
+        "properties": {
+          "source": {
+            "$ref": "#/$defs/Source",
+            "description": "What physically produced this reading. Required."
+          },
+          "producer": {
+            "description": "Which agent or component emitted it, e.g. 'agents/environment'.",
+            "title": "Producer",
+            "type": "string"
+          },
+          "ansname": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "ANSName of the producing agent, when it has one.",
+            "title": "Ansname"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Free text, e.g. the capture session id a replay came from.",
+            "title": "Detail"
+          },
+          "source_class": {
+            "$ref": "#/$defs/SourceClass",
+            "description": "Derived from `source`. Never supplied by the caller.",
+            "readOnly": true
+          },
+          "simulated": {
+            "description": "True when this number was not measured by any instrument.\n\nThe iOS app renders a badge off this. It is derived, so it cannot lie.",
+            "readOnly": true,
+            "title": "Simulated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source",
+          "producer",
+          "source_class",
+          "simulated"
+        ],
+        "title": "Provenance",
+        "type": "object"
+      },
+      "RaisedBy": {
+        "description": "Who raised it.\n\nSYSTEM is the path that matters: the person who would have tapped the button\nis on the floor.",
+        "enum": [
+          "user",
+          "system"
+        ],
+        "title": "RaisedBy",
+        "type": "string"
+      },
+      "RespirationStatus": {
+        "description": "Respiration is the personhood test. Never heart rate.",
+        "enum": [
+          "breathing",
+          "no_signature",
+          "unknown"
+        ],
+        "title": "RespirationStatus",
+        "type": "string"
+      },
+      "Room": {
+        "description": "One room in the floorplan. Polygon in metres, floorplan origin at (0,0).",
+        "properties": {
+          "zone": {
+            "title": "Zone",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "polygon": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "minItems": 3,
+            "title": "Polygon",
+            "type": "array"
+          }
+        },
+        "required": [
+          "zone",
+          "name",
+          "polygon"
+        ],
+        "title": "Room",
+        "type": "object"
+      },
+      "Source": {
+        "description": "What physically produced a reading.\n\nClosed set on purpose. Adding a value is a deliberate act, and each new value\nmust be placed into MEASURED_SOURCES or SIMULATED_SOURCES below.",
+        "enum": [
+          "nexmon-csi",
+          "replay-csi",
+          "ruview-sim",
+          "mq7-gpio",
+          "demo-trigger",
+          "user-input",
+          "operator-audio",
+          "agent-inference"
+        ],
+        "title": "Source",
+        "type": "string"
+      },
+      "SourceAgent": {
+        "description": "The agent that made the claim.",
+        "properties": {
+          "name": {
+            "description": "Agent directory name, e.g. 'agents/biometrics'.",
+            "title": "Name",
+            "type": "string"
+          },
+          "ansname": {
+            "description": "The ANSName the claim was presented under.",
+            "title": "Ansname",
+            "type": "string"
+          },
+          "certificate_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Version-bound certificate recording the code running at registration. A fingerprint that drifted mid-run is how code drift becomes detectable.",
+            "title": "Certificate Version"
+          },
+          "trust_index": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TrustIndexScore"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "recommended_profile": {
+            "$ref": "#/$defs/TrustProfile"
+          }
+        },
+        "required": [
+          "name",
+          "ansname",
+          "recommended_profile"
+        ],
+        "title": "SourceAgent",
+        "type": "object"
+      },
+      "SourceClass": {
+        "description": "How much weight a reading's origin can bear.\n\nDerived from `Source`, never supplied. This is the field the iOS app renders\na \"simulated\" badge from.",
+        "enum": [
+          "measured-live",
+          "measured-replay",
+          "simulated",
+          "human",
+          "derived"
+        ],
+        "title": "SourceClass",
+        "type": "string"
+      },
+      "StateEvent": {
+        "description": "An interior state tick. Roughly 2 Hz during an incident, 0.5 Hz otherwise.",
+        "properties": {
+          "kind": {
+            "const": "state",
+            "default": "state",
+            "title": "Kind",
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/$defs/InteriorState"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "StateEvent",
+        "type": "object"
+      },
+      "TranscriptEvent": {
+        "description": "One line of the caller <-> 911 conversation.",
+        "properties": {
+          "kind": {
+            "const": "transcript",
+            "default": "transcript",
+            "title": "Kind",
+            "type": "string"
+          },
+          "line": {
+            "$ref": "#/$defs/TranscriptLine"
+          }
+        },
+        "required": [
+          "line"
+        ],
+        "title": "TranscriptEvent",
+        "type": "object"
+      },
+      "TranscriptLine": {
+        "description": "One line of the caller <-> 911 conversation, shown to the resident.\n\nThe operator does not see this. It exists so the resident is not left in\nsilence while a synthetic voice speaks on their behalf.",
+        "properties": {
+          "line_id": {
+            "title": "Line Id",
+            "type": "string"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "string"
+          },
+          "speaker": {
+            "$ref": "#/$defs/TranscriptSpeaker"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "final": {
+            "default": true,
+            "description": "False for a partial transcription being revised in place. Match on line_id.",
+            "title": "Final",
+            "type": "boolean"
+          },
+          "claim_ids": {
+            "description": "Verified claims this line repeats. Lets the app link a spoken sentence to its proof.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Claim Ids",
+            "type": "array"
+          },
+          "provenance": {
+            "$ref": "#/$defs/Provenance"
+          }
+        },
+        "required": [
+          "line_id",
+          "incident_id",
+          "speaker",
+          "text",
+          "provenance"
+        ],
+        "title": "TranscriptLine",
+        "type": "object"
+      },
+      "TranscriptSpeaker": {
+        "description": "Who said a line.\n\nCALLER is our agent's synthesized voice. OPERATOR is the human dispatcher.\nRESIDENT appears when the resident speaks on the line directly.\nSYSTEM is a non-speech annotation, e.g. \"call connected\".",
+        "enum": [
+          "caller",
+          "operator",
+          "resident",
+          "system"
+        ],
+        "title": "TranscriptSpeaker",
+        "type": "string"
+      },
+      "TrustIndexScore": {
+        "description": "Trust Index scores at the instant the claim was verified.\n\nOnly integrity and identity are implemented upstream. Solvency, behavior and\nsafety are hardcoded to 0 in the reference implementation, so they are\nnullable here rather than silently zero: a 0 that means \"not implemented\"\nand a 0 that means \"scored zero\" are different facts and the app must not\nconflate them. ans/CLAUDE.md names safety as the dimension we intend to ship.",
+        "properties": {
+          "integrity": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Integrity"
+          },
+          "identity": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Identity"
+          },
+          "solvency": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Solvency"
+          },
+          "behavior": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Behavior"
+          },
+          "safety": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Safety"
+          },
+          "unimplemented_dimensions": {
+            "description": "Dimensions the Trust Index does not yet score. Null above, named here.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unimplemented Dimensions",
+            "type": "array"
+          }
+        },
+        "title": "TrustIndexScore",
+        "type": "object"
+      },
+      "TrustProfile": {
+        "description": "Trust Index `recommendedProfile` policy hint.\n\nConsumed rather than reinvented. Using the track's own policy vocabulary is\nfree credibility, and the mapping to what a claim may trigger is the table in\nagents/CLAUDE.md.",
+        "enum": [
+          "UNTRUSTED",
+          "READ_ONLY",
+          "TRANSACTIONAL",
+          "FIDUCIARY"
+        ],
+        "title": "TrustProfile",
+        "type": "string"
+      },
+      "VerificationCheck": {
+        "description": "One check performed, and whether it passed.\n\nThese are what makes DISCARDED legible on screen. \"Untrusted\" is a verdict;\n\"certificate fingerprint differs from the one registered\" is a reason.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "passed": {
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "passed",
+          "detail"
+        ],
+        "title": "VerificationCheck",
+        "type": "object"
+      },
+      "VerificationDecision": {
+        "description": "What master did with a claim, given the source's profile.\n\n| Profile       | Decision            | Meaning                                        |\n|---------------|---------------------|------------------------------------------------|\n| UNTRUSTED     | DISCARDED           | Discards. Logs. Does not relay.                |\n| READ_ONLY     | CORROBORATION_ONLY  | Never the sole basis for a call.               |\n| TRANSACTIONAL | ATTRIBUTED          | Relayed as a reported observation, attributed. |\n| FIDUCIARY     | ASSERTED            | Relayed as an assertion the system stands behind. |\n\nDISCARDED is also the decision when any check fails, whatever the profile.",
+        "enum": [
+          "ASSERTED",
+          "ATTRIBUTED",
+          "CORROBORATION_ONLY",
+          "DISCARDED"
+        ],
+        "title": "VerificationDecision",
+        "type": "string"
+      },
+      "VerificationEvent": {
+        "description": "An ANS verification result: which claim, which agent, verified or DISCARDED and why.\n\nThis event is the submission. A demo that escalates is unremarkable; one that\ncorrectly refuses an impostor is the point, and the app renders that refusal\noff this event.",
+        "properties": {
+          "kind": {
+            "const": "verification",
+            "default": "verification",
+            "title": "Kind",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/$defs/VerificationResult"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "VerificationEvent",
+        "type": "object"
+      },
+      "VerificationResult": {
+        "description": "A claim, who made it, what was checked, and what was decided.",
+        "properties": {
+          "verification_id": {
+            "title": "Verification Id",
+            "type": "string"
+          },
+          "incident_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Incident Id"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "title": "Checked At",
+            "type": "string"
+          },
+          "claim": {
+            "$ref": "#/$defs/Claim"
+          },
+          "agent": {
+            "$ref": "#/$defs/SourceAgent"
+          },
+          "decision": {
+            "$ref": "#/$defs/VerificationDecision"
+          },
+          "reason": {
+            "description": "Why this decision. Required even on ASSERTED, so the stream reads the same both ways.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/$defs/VerificationCheck"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "will_be_spoken": {
+            "description": "Whether agents/caller is permitted to repeat this claim to the operator.",
+            "title": "Will Be Spoken",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "verification_id",
+          "claim",
+          "agent",
+          "decision",
+          "reason",
+          "will_be_spoken"
+        ],
+        "title": "VerificationResult",
+        "type": "object"
+      },
+      "Vitals": {
+        "description": "Respiration and heart rate. Respiration carries the personhood verdict.",
+        "properties": {
+          "respiration": {
+            "$ref": "#/$defs/RespirationStatus"
+          },
+          "breathing_bpm": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 6.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "RuView's stated range. Outside 6-30, report null rather than a number.",
+            "title": "Breathing Bpm"
+          },
+          "heart_bpm": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 40.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Stretch goal, and a good number to say on the call. Never the personhood test.",
+            "title": "Heart Bpm"
+          },
+          "person_confidence": {
+            "description": "Confidence that this perturbation is a living body.",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Person Confidence",
+            "type": "number"
+          }
+        },
+        "required": [
+          "respiration",
+          "person_confidence"
+        ],
+        "title": "Vitals",
+        "type": "object"
+      }
+    },
+    "description": "Every websocket frame is one of these.",
+    "properties": {
+      "seq": {
+        "description": "Monotonic, server-wide. A gap means the client missed a frame.",
+        "title": "Seq",
+        "type": "integer"
+      },
+      "at": {
+        "format": "date-time",
+        "title": "At",
+        "type": "string"
+      },
+      "incident_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Set when the event belongs to an incident.",
+        "title": "Incident Id"
+      },
+      "payload": {
+        "discriminator": {
+          "mapping": {
+            "context": "#/$defs/ContextEvent",
+            "error": "#/$defs/ErrorEvent",
+            "hello": "#/$defs/HelloEvent",
+            "incident": "#/$defs/IncidentEvent",
+            "instruction": "#/$defs/InstructionEvent",
+            "state": "#/$defs/StateEvent",
+            "transcript": "#/$defs/TranscriptEvent",
+            "verification": "#/$defs/VerificationEvent"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/StateEvent"
+          },
+          {
+            "$ref": "#/$defs/IncidentEvent"
+          },
+          {
+            "$ref": "#/$defs/TranscriptEvent"
+          },
+          {
+            "$ref": "#/$defs/InstructionEvent"
+          },
+          {
+            "$ref": "#/$defs/VerificationEvent"
+          },
+          {
+            "$ref": "#/$defs/ContextEvent"
+          },
+          {
+            "$ref": "#/$defs/HelloEvent"
+          },
+          {
+            "$ref": "#/$defs/ErrorEvent"
+          }
+        ],
+        "title": "Payload"
+      }
+    },
+    "required": [
+      "seq",
+      "payload"
+    ],
+    "title": "Envelope",
+    "type": "object"
+  }
+}

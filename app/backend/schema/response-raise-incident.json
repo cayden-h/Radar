@@ -1,0 +1,9 @@
+{
+  "$note": "POST /v1/incident 202 response body.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "incident_id": "inc-0002",
+    "status": "raised",
+    "accepted_at": "2026-09-20T04:12:33Z"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "$note": "One line of the caller <-> 911 conversation, shown to the resident.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 1209,
+    "at": "2026-09-20T04:13:01Z",
+    "incident_id": "inc-0001",
+    "payload": {
+      "kind": "transcript",
+      "line": {
+        "line_id": "line-004",
+        "incident_id": "inc-0001",
+        "speaker": "caller",
+        "text": "This is an automated call from a monitoring system at 1872 Ridgeview Lane, Blacksburg VA 24060. An adult occupant collapsed in the west bedroom about ninety seconds ago and has not gotten up. They are breathing, shallowly, at nine breaths a minute. Carbon monoxide in the building is elevated at 186 parts per million and rising.",
+        "at": "2026-09-20T04:13:01Z",
+        "final": true,
+        "claim_ids": [
+          "clm-001",
+          "clm-002",
+          "clm-004"
+        ],
+        "provenance": {
+          "source": "agent-inference",
+          "producer": "agents/caller",
+          "ansname": "caller.hawkeye.invalid",
+          "detail": null,
+          "source_class": "derived",
+          "simulated": false
+        }
+      }
+    }
+  }
+}

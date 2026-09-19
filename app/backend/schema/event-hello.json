@@ -1,0 +1,18 @@
+{
+  "$note": "First frame on every websocket connection.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 0,
+    "at": "2026-09-20T04:12:33Z",
+    "incident_id": null,
+    "payload": {
+      "kind": "hello",
+      "hub_name": "Hawk Eye Hub",
+      "hub_ansname": "hub.hawkeye.invalid",
+      "mode": "simulated",
+      "stream_protocol_version": 1,
+      "active_incident_id": "inc-0001",
+      "replay_from_seq": 1204
+    }
+  }
+}

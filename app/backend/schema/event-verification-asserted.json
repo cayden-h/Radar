@@ -1,0 +1,62 @@
+{
+  "$note": "A claim that verified. FIDUCIARY source, every check passed, caller may speak it.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 1207,
+    "at": "2026-09-20T04:12:39Z",
+    "incident_id": "inc-0001",
+    "payload": {
+      "kind": "verification",
+      "result": {
+        "verification_id": "ver-001",
+        "incident_id": "inc-0001",
+        "checked_at": "2026-09-20T04:12:39Z",
+        "claim": {
+          "claim_id": "clm-001",
+          "statement": "An adult occupant went down in the west bedroom and has not gotten up.",
+          "field": "collapse.event",
+          "value": "fall, still_down_s=6",
+          "presence_id": "p1"
+        },
+        "agent": {
+          "name": "agents/collapse",
+          "ansname": "collapse.hawkeye.invalid",
+          "certificate_version": "v1.4.2+sha256:9f1c...a30b",
+          "trust_index": {
+            "integrity": 0.94,
+            "identity": 0.97,
+            "solvency": null,
+            "behavior": null,
+            "safety": null,
+            "unimplemented_dimensions": [
+              "solvency",
+              "behavior",
+              "safety"
+            ]
+          },
+          "recommended_profile": "FIDUCIARY"
+        },
+        "decision": "ASSERTED",
+        "reason": "Source is FIDUCIARY and every check passed. Spoken as an assertion the system stands behind.",
+        "checks": [
+          {
+            "name": "ans.resolve",
+            "passed": true,
+            "detail": "collapse.hawkeye.invalid resolved to the registered certificate."
+          },
+          {
+            "name": "cert.version_binding",
+            "passed": true,
+            "detail": "Code fingerprint matches the version-bound certificate issued at registration."
+          },
+          {
+            "name": "trust_index.profile",
+            "passed": true,
+            "detail": "Trust Index recommendedProfile = FIDUCIARY."
+          }
+        ],
+        "will_be_spoken": true
+      }
+    }
+  }
+}
