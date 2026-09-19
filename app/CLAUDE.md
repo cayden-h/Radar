@@ -23,7 +23,24 @@ One tap raises the incident to `agents/master`, which classifies, verifies, and 
 
 **This is the only path.** Hawk Eye never calls 911 on its own; settled 2026-09-19. A human tap is what releases `agents/caller` to dial.
 
-`collapse` and `environment` still detect, and their detections surface here as **alerts**: "a fall was detected in the main bedroom four minutes ago." An alert is information a person acts on. It is not a call.
+`collapse`, `environment` and `intruder` still detect, and their detections surface here as
+**notices**: "a fall was detected in the main bedroom four minutes ago", "an unexpected person is in
+the living room".
+A notice is information a person acts on.
+It is not a call.
+
+A notice reaches the resident two ways: a dismissible banner in the app, and an SMS through Twilio,
+which is the only one of the two that arrives when the phone is locked and the app is closed.
+There is deliberately no local notification.
+One would only fire while the app holds the socket, which is exactly the case the resident does not
+need help with, and on stage it is indistinguishable from a real push.
+APNs is the third sink and is not implemented; it is a driver behind `NoticeSink`, which already
+exists.
+
+The trigger rule lives in `app/backend/hawkeye_backend/notices/detector.py` and is deliberately
+conservative: a confirmed person only, five seconds of continuous hold, suppressed entirely when the
+baseline is unhealthy, and once per presence while it is here.
+A notice is unrecallable once it is an SMS on someone's phone.
 
 The value is not that the system dials for you. It is that when you do tap, the dispatcher is told how many people are in the house, which rooms they are in, whether each is breathing, and how long since one of them went down.
 

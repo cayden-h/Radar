@@ -109,6 +109,7 @@ The project has an explicit honesty rule, so here is the line, drawn plainly.
 - **The interior view.** Everything drawn is computed from the frame that just arrived. Confidence drives blur radius, opacity, jitter and drift, so a 0.4 presence genuinely looks uncertain. No baked animation, no asset files.
 - **The simulated-CO label.** The app reads `environment.provenance.simulated`, which the hub computes from `source` rather than accepting from a producer, and renders a `SIM` chip off it. A simulated reading cannot reach the screen dressed as a measured one.
 - **Gap detection.** Every frame carries a monotonic `seq`. A hole in the sequence sets `missedFrames`, and the home screen says the view may be behind rather than quietly drawing a stale house.
+- **The notice banner.** An unexpected presence that holds for five seconds raises a `notice` event, and the app draws a dismissible violet banner above the interior view carrying the same words and colour as the roster row: "Unexpected person," "Not accounted for." Dismissing it is local to the device; the notice itself stays in the sealed log regardless. It does not raise an incident and the three buttons below it still need a human hold. `MockHawkEyeClient` scripts the notice off `Config.mockNoticeHoldSeconds` rather than re-deriving the hold rule in Swift, because two copies of a rule is how they drift.
 
 ### Not real yet
 

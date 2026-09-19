@@ -81,9 +81,12 @@ A notice fires when **all** of these hold:
 1. A presence crosses into `isUnexpected`: `state.isPerson && expected == false`.
 2. It has held that way continuously for **5 seconds**.
 3. `calibration.healthy` is true.
-4. No notice has yet been raised for that `presence_id`.
+4. No notice has yet been raised for that `presence_id` since it was last seen qualifying within
+   `forget_after_s`.
 
-And then never again for that `presence_id`.
+Once per presence, while it is here. Not once per `presence_id`, ever: a fired mark lapses after
+**15 minutes** (`forget_after_s`, default 900 seconds) of the presence being absent, so a genuine
+re-entry hours later notifies again.
 
 ### Why each clause is there
 
@@ -95,11 +98,30 @@ And then never again for that `presence_id`.
 - **Calibration gate**, because a stale baseline invents presences. Escalation is already suppressed
   upstream when the baseline is unhealthy; texting someone that there is an intruder in their house
   at 3am on the strength of a bad baseline is its own harm, not a degraded version of a good one.
-- **Once per presence**, because a presence that walks room to room is one event, not five.
+- **Once per presence while it is here**, because a presence that walks room to room is one event,
+  not five.
+- **The mark lapses after `forget_after_s`**, so a presence that leaves and returns hours later is
+  treated as a new event rather than as the tail end of the same one.
+
+### Why "once per presence_id, ever" changed during review
+
+This rule shipped as "once per `presence_id`, then never again" and it was wrong, in a way that only
+shows up over a long horizon rather than in a five-minute test run.
+
+If an unexpected person is in the house at 9pm, leaves, and comes back at 1am, "never again" sends
+nothing the second time. That is a genuine re-entry, not a repeat of the same event, and it is
+exactly the kind of thing a resident should be told about. The original rule silently discarded it.
+
+It also fixes a latent bug rather than only a policy gap. `presence_id` is session-scoped: it can be
+recycled after a sensor restart or a long enough gap in tracking. Under "never again," a recycled id
+would permanently suppress notices for whoever next receives it, with no relationship to the person
+who first tripped it. Lapsing the mark after `forget_after_s` closes both problems with the same
+mechanism.
 
 ### Rate limiting
 
-Beyond the per-presence rule: at most one SMS per 60 seconds and five per process lifetime.
+Beyond the per-presence rule: at most one SMS every `twilio_min_interval_s` (default 60 seconds) and
+`twilio_max_per_instance` (default 5) for the life of the sink.
 A rehearsal loop must not be able to send fifty texts, and a bug in the trigger must not be able to
 burn the trial credit.
 
@@ -129,6 +151,7 @@ class Notice(BaseModel):
     title: str            # "Unexpected person"
     body: str             # "Not accounted for. Living room."
     zone: str | None
+    room: str | None      # the floorplan's display name for `zone`, resolved once by the producer
     presence_id: str | None
     raised_at: datetime
     provenance: Provenance
@@ -158,15 +181,18 @@ claims in the first place.
 - `hawkeye_backend/models/notice.py` - the models above. `Provenance` comes from
   `models/common.py`, unchanged.
 - `hawkeye_backend/notices/detector.py` - the trigger rule. Consumes `InteriorState` ticks, holds
-  the per-presence timers and the fired set, emits `Notice` or nothing. Pure and synchronous, so the
-  rule is testable without a server, a clock, or a socket.
+  the per-presence timers and the fired marks (each stamped with when it was last seen qualifying, so
+  it can lapse after `forget_after_s`), emits `Notice` or nothing. Pure and synchronous, so the rule
+  is testable without a server, a clock, or a socket.
 - `hawkeye_backend/notices/sinks.py` - `NoticeSink` protocol with one method, `deliver(notice)`.
   `StreamSink` publishes the `NoticeEvent` onto the existing `EventBus`. `TwilioSink` posts to the
-  Twilio REST API. Delivery failures are logged, never raised.
-- `hawkeye_backend/config.py` - four new settings, all optional:
-  `twilio_account_sid`, `twilio_auth_token`, `twilio_from_number`, `twilio_to_number`.
-  Absent credentials mean the Twilio sink is not constructed at all, and the stream sink runs alone.
-  The app must work with no Twilio account configured.
+  Twilio REST API, rate-limited by `twilio_min_interval_s` and `twilio_max_per_instance`. Delivery
+  failures are logged, never raised.
+- `hawkeye_backend/config.py` - `notice_hold_s` and `notice_forget_after_s` for the trigger rule, plus
+  the Twilio settings, all optional: `twilio_account_sid`, `twilio_auth_token`, `twilio_from_number`,
+  `twilio_to_number`, `twilio_min_interval_s`, `twilio_max_per_instance`.
+  Absent Twilio credentials mean the Twilio sink is not constructed at all, and the stream sink runs
+  alone. The app must work with no Twilio account configured.
 
 Both sinks run in `simulated` and `live` mode alike. The demo runs on the mock path and the text has
 to actually arrive, so a mode gate here would defeat the purpose.

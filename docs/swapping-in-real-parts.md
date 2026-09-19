@@ -130,6 +130,33 @@ Adding a real sensor is a driver behind an interface that already exists, and no
 
 **Never claim a sensing capability the physics does not support.** CSI cannot measure gas composition. Oxygen absorption is a roughly 60 GHz phenomenon and the BCM43455c0 is a 2.4/5 GHz radio.
 
+## The unexpected-presence notice
+
+**Nothing about the notice itself is simulated.** The detector in
+`hawkeye_backend/notices/detector.py` runs on whatever `InteriorState` it is given, with no branch
+for mode: on the mock path it fires off `ruview-sim` frames, on the live path it fires off
+`nexmon-csi` frames, and it cannot tell which one it is looking at.
+
+**What is not implemented: APNs.** "The phone buzzes with the app closed" is true today because of
+Twilio, not because of push. Say which, on stage, before anyone asks. `NoticeSink` is an interface
+with one method, so adding APNs later is a driver behind it and changes nothing above the seam.
+
+**To flip Twilio on:** set `HAWKEYE_TWILIO_ACCOUNT_SID`, `HAWKEYE_TWILIO_AUTH_TOKEN`,
+`HAWKEYE_TWILIO_FROM_NUMBER`, and `HAWKEYE_TWILIO_TO_NUMBER`.
+
+**Verify it flipped:** the startup log line reads `notices: twilio sms sink enabled`, and a fired
+notice logs `twilio sent ntc-p4` rather than staying silent.
+
+**The half-flipped state that looks like something else:** three of the four Twilio variables set
+reads as unconfigured. The startup line is `notices: twilio not configured, in-app banner only`, and
+the in-app banner still appears, so the failure looks like Twilio being slow rather than Twilio being
+off. Check the startup line, not the banner.
+
+**A second half-flipped state worth naming:** a Twilio trial account only sends to numbers verified
+in its console, and US A2P 10DLC enforcement can begin refusing trial sends without warning. A
+refused send is logged and swallowed by design, the same as any other sink failure, so the in-app
+banner appears and no text arrives. The log line is `twilio refused ntc-p4: status=... code=...`.
+
 ## ANS identity
 
 Every ANSName in the codebase today ends in `.invalid`, which is reserved by RFC 2606 and can therefore never be mistaken for a real registration.
