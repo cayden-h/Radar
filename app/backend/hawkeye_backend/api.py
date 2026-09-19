@@ -25,9 +25,11 @@ from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSock
 from pydantic import BaseModel
 
 from hawkeye_backend import __version__
+from hawkeye_backend.household import DeviceAlreadyClaimed, UnknownDevice
 from hawkeye_backend.master.base import MasterUnavailable
 from hawkeye_backend.master.simulated import SimulatedMasterClient
 from hawkeye_backend.models.events import Envelope, HelloEvent
+from hawkeye_backend.models.household import HouseholdMember, ObservedDevice, RememberRequest
 from hawkeye_backend.models.hub import HubStatus
 from hawkeye_backend.models.incident import (
     ContextNote,
@@ -56,6 +58,16 @@ class DemoRunAck(BaseModel):
     started: bool
     detail: str
     raised_incident_id: str | None = None
+
+
+class HouseholdResponse(BaseModel):
+    """The roster. A list rather than a bare array so the shape can grow."""
+
+    members: list[HouseholdMember]
+
+
+class UnclaimedDevicesResponse(BaseModel):
+    devices: list[ObservedDevice]
 
 
 @router.get("/hub", response_model=HubStatus, summary="Hub identity and health")
@@ -240,6 +252,74 @@ async def post_demo_run(
         detail += "; simulated human tap raised a faint incident"
 
     return DemoRunAck(started=started, detail=detail, raised_incident_id=raised_incident_id)
+
+
+@router.get("/household", response_model=HouseholdResponse, summary="Who belongs here")
+async def get_household(request: Request) -> HouseholdResponse:
+    """The roster. Read-only: members are added by approving a real detection."""
+    return HouseholdResponse(members=await _runtime(request).roster.members())
+
+
+@router.get(
+    "/household/unclaimed-devices",
+    response_model=UnclaimedDevicesResponse,
+    summary="Devices no member claims",
+)
+async def get_unclaimed_devices(request: Request) -> UnclaimedDevicesResponse:
+    """Candidates for a binding. The app shows these when the resident chooses
+    to remember a visitor."""
+    return UnclaimedDevicesResponse(devices=await _runtime(request).roster.unclaimed_devices())
+
+
+@router.post(
+    "/household/remember",
+    response_model=HouseholdMember,
+    status_code=201,
+    summary="Remember a visitor",
+)
+async def post_remember(request: Request, body: RememberRequest) -> HouseholdMember:
+    """Name a person and optionally bind the device that just appeared.
+
+    201 because this creates something that outlives the request, which is the
+    whole difference between this and approving a presence.
+    """
+    try:
+        return await _runtime(request).roster.remember(body)
+    except UnknownDevice as exc:
+        raise HTTPException(
+            status_code=404, detail=f"no observed device with id {exc.args[0]!r}"
+        ) from exc
+    except DeviceAlreadyClaimed as exc:
+        # 409 rather than 404: the device exists, it is just not free. A 404
+        # would send the app looking for a device sitting right there, and the
+        # resident needs to be told it already belongs to someone.
+        raise HTTPException(
+            status_code=409,
+            detail=f"device {exc.args[0]!r} already belongs to someone on the roster",
+        ) from exc
+
+
+@router.delete("/household/members/{member_id}", status_code=204, summary="Forget a member")
+async def delete_member(request: Request, member_id: str) -> None:
+    """Remove a member. Their devices become unclaimed rather than orphaned."""
+    if not await _runtime(request).roster.forget(member_id):
+        raise HTTPException(status_code=404, detail=f"no member with id {member_id!r}")
+
+
+@router.post(
+    "/presences/{presence_id}/approve",
+    status_code=202,
+    summary="Vouch for a presence, this session only",
+)
+async def post_approve_presence(request: Request, presence_id: str) -> dict[str, str]:
+    """A human override of a machine inference. It only ever lowers an alarm.
+
+    Not persisted: presence ids are reused across sessions, so a stored approval
+    would silently vouch for a stranger. Idempotent, because a resident tapping
+    twice under stress is not a condition worth surfacing.
+    """
+    _runtime(request).approved_presences.add(presence_id)
+    return {"presence_id": presence_id, "status": "approved"}
 
 
 @router.websocket("/stream")
