@@ -16,7 +16,7 @@ If a value here and a value there disagree, this file wins and the guide is the 
 
 Turn WiFi Channel State Information from the home router into a small, stable structured answer to four questions, one per consuming CSI agent:
 
-- **Occupancy.** How many human presences are in the building, and roughly where.
+- **Occupancy.** Whether presences exist and roughly where. **Not an exact headcount**: a 1x1 radio has no spatial diversity, two people within about a metre merge into one, and a still person beside a moving one is near-invisible. Report "at least N" with a confidence; take the actual headcount from device association against the roster instead. Limits and the reasoning are under `agents/occupancy`.
 - **Body type.** Is each presence an adult, a child, or a pet.
 - **Biometrics.** Is each presence breathing, and at what rate.
 - **Collapse.** Did someone go down, and are they still down.
@@ -266,7 +266,7 @@ It separates three states that look identical to an occupancy counter:
 - still but breathing
 - neither
 
-"Unresponsive occupant in the west bedroom" is the single most valuable sentence this system can say to a dispatcher, and it comes from here.
+"Unresponsive occupant in the main bedroom" is the single most valuable sentence this system can say to a dispatcher, and it comes from here.
 If occupancy works and one other capability works, make it this one.
 
 ## What CSI can and cannot sense

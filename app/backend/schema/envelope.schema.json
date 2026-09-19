@@ -664,7 +664,7 @@
         "description": "Coarse position inside the floorplan.\n\n`zone` is the honest answer and is what the agents reason over. `x`/`y` exist\nonly so the 3D view has somewhere to draw; they are a zone centroid with\njitter, not a localization claim. Do not promise coordinates.",
         "properties": {
           "zone": {
-            "description": "Room-level zone id, e.g. 'west_bedroom'. Coarse by design.",
+            "description": "Room-level zone id, e.g. 'main_bedroom'. Coarse by design.",
             "title": "Zone",
             "type": "string"
           },

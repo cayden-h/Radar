@@ -37,104 +37,100 @@ PROFILE: dict[str, TrustProfile] = {name: profile for name, _, _, profile in AGE
 
 
 def build_floorplan(site_id: str) -> Floorplan:
-    """A two-bedroom, two-bathroom apartment. Metres, origin at the top-left.
+    """The Chestnut: a two-bedroom, two-bathroom apartment, 14.8m x 6.8m.
+
+    Long and shallow, roughly 2.2:1, which is what the real unit is. 100.6 m2,
+    or 1083 sq ft against a published 1086.
 
     Coordinates are floorplan geometry, not a localization claim. Presences get
     a zone centroid; see the note on `Position`.
 
-    `patio` is the one zone that is outside sensor coverage. It is outdoors, and
-    CSI does not reach it. The burglary script depends on that being true: the
-    intruder is not seen approaching, only once they cross into coverage.
+    Eleven zones, and they tile the rectangle completely. Every one of them is
+    inside the unit and inside sensor coverage. What is outside coverage is
+    everything past the front door: the building corridor, the stairwell, the
+    street. Nothing in this system can see any of it, and no agent may answer a
+    question about it.
+
+    The street address is fictional and stays that way. A simulated 911 call
+    must never carry a real residential address.
     """
     return Floorplan(
         site_id=site_id,
-        name="Ridgeview Apartment",
-        width_m=14.0,
-        depth_m=9.0,
+        name="Chestnut",
+        width_m=14.8,
+        depth_m=6.8,
         rooms=[
             Room(
                 zone="main_closet",
                 name="Closet",
-                polygon=[(0.0, 0.0), (2.4, 0.0), (2.4, 2.0), (0.0, 2.0)],
+                polygon=[(0.0, 0.0), (1.9, 0.0), (1.9, 1.9), (0.0, 1.9)],
             ),
             Room(
                 zone="main_bath",
                 name="Main bath",
-                polygon=[(2.4, 0.0), (4.8, 0.0), (4.8, 2.0), (2.4, 2.0)],
+                polygon=[(1.9, 0.0), (3.7, 0.0), (3.7, 1.9), (1.9, 1.9)],
             ),
             Room(
                 zone="second_bath",
                 name="Second bath",
-                polygon=[(4.8, 0.0), (7.2, 0.0), (7.2, 2.0), (4.8, 2.0)],
+                polygon=[(3.7, 0.0), (5.8, 0.0), (5.8, 1.9), (3.7, 1.9)],
             ),
             Room(
                 zone="linen_closet",
                 name="Linen closet",
-                polygon=[(7.2, 0.0), (8.8, 0.0), (8.8, 2.0), (7.2, 2.0)],
+                polygon=[(5.8, 0.0), (6.9, 0.0), (6.9, 1.9), (5.8, 1.9)],
             ),
             Room(
                 zone="dining_room",
                 name="Dining room",
-                polygon=[(8.8, 0.0), (14.0, 0.0), (14.0, 3.4), (8.8, 3.4)],
-            ),
-            Room(
-                zone="hallway",
-                name="Hallway",
-                polygon=[(0.0, 2.0), (8.8, 2.0), (8.8, 3.2), (0.0, 3.2)],
-            ),
-            Room(
-                zone="main_bedroom",
-                name="Main bedroom",
-                polygon=[(0.0, 3.2), (4.6, 3.2), (4.6, 9.0), (0.0, 9.0)],
-            ),
-            Room(
-                zone="second_bedroom",
-                name="Second bedroom",
-                polygon=[(4.6, 3.2), (8.8, 3.2), (8.8, 6.8), (4.6, 6.8)],
-            ),
-            Room(
-                zone="laundry",
-                name="Laundry",
-                polygon=[(4.6, 6.8), (8.8, 6.8), (8.8, 9.0), (4.6, 9.0)],
-            ),
-            Room(
-                zone="kitchen",
-                name="Kitchen",
-                polygon=[(8.8, 3.4), (11.4, 3.4), (11.4, 7.4), (8.8, 7.4)],
+                polygon=[(6.9, 0.0), (10.8, 0.0), (10.8, 3.1), (6.9, 3.1)],
             ),
             Room(
                 zone="living_room",
                 name="Living room",
-                polygon=[(11.4, 3.4), (14.0, 3.4), (14.0, 7.4), (11.4, 7.4)],
+                polygon=[(10.8, 0.0), (14.8, 0.0), (14.8, 6.8), (10.8, 6.8)],
             ),
             Room(
-                zone="patio",
-                name="Patio",
-                polygon=[(8.8, 7.4), (14.0, 7.4), (14.0, 9.0), (8.8, 9.0)],
+                zone="main_bedroom",
+                name="Main bedroom",
+                polygon=[(0.0, 1.9), (3.7, 1.9), (3.7, 6.8), (0.0, 6.8)],
+            ),
+            Room(
+                zone="hallway",
+                name="Hallway",
+                polygon=[(3.7, 1.9), (6.9, 1.9), (6.9, 3.0), (3.7, 3.0)],
+            ),
+            Room(
+                zone="second_bedroom",
+                name="Second bedroom",
+                polygon=[(3.7, 3.0), (6.9, 3.0), (6.9, 6.8), (3.7, 6.8)],
+            ),
+            Room(
+                zone="kitchen",
+                name="Kitchen",
+                polygon=[(6.9, 3.1), (10.8, 3.1), (10.8, 5.4), (6.9, 5.4)],
+            ),
+            Room(
+                zone="laundry",
+                name="Laundry",
+                polygon=[(6.9, 5.4), (10.8, 5.4), (10.8, 6.8), (6.9, 6.8)],
             ),
         ],
     )
 
 
-#: Zones the CSI capture does not reach. The patio is outdoors, so nothing in
-#: this system can see it, and every agent that is asked about it answers that
-#: it does not know rather than guessing.
-UNCOVERED_ZONES: frozenset[str] = frozenset({"patio"})
-
-
 ZONE_CENTROID: dict[str, tuple[float, float]] = {
-    "main_closet": (1.2, 1.0),
-    "main_bath": (3.6, 1.0),
-    "second_bath": (6.0, 1.0),
-    "linen_closet": (8.0, 1.0),
-    "dining_room": (11.4, 1.7),
-    "hallway": (4.4, 2.6),
-    "main_bedroom": (2.3, 6.1),
-    "second_bedroom": (6.7, 5.0),
-    "laundry": (6.7, 7.9),
-    "kitchen": (10.1, 5.4),
-    "living_room": (12.7, 5.4),
-    "patio": (11.4, 8.2),
+    "main_closet": (0.95, 0.95),
+    "main_bath": (2.80, 0.95),
+    "second_bath": (4.75, 0.95),
+    "linen_closet": (6.35, 0.95),
+    "dining_room": (8.85, 1.55),
+    "living_room": (12.80, 3.40),
+    "main_bedroom": (1.85, 4.35),
+    "hallway": (5.30, 2.45),
+    "second_bedroom": (5.30, 4.90),
+    "kitchen": (8.85, 4.25),
+    "laundry": (8.85, 6.10),
 }
 
 

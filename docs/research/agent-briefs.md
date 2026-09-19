@@ -21,6 +21,10 @@ Priority tiers match `agents/CLAUDE.md`.
 
 **Needs a baseline.** The only tier 1 agent that does. Rolling percentile, slow adaptation. See `sensor/CLAUDE.md`.
 
+**Counting is the weak capability and must not be overclaimed.** The BCM43455c0 is 1x1, so there is frequency diversity across subcarriers and no spatial diversity. Counting research generally uses 2-3 antenna NICs; RuView's 3-5 people per AP assumes its multi-node mesh.
+Two people within roughly a metre merge into one. A still person beside a moving one is near-invisible to motion. Two people breathing at similar rates cannot be separated on one link.
+**Source the headcount from device association against the roster** (`identity.md`) and let the radio answer which room and whether that presence is breathing.
+
 **Must not claim:** person re-identification. RuView flags it experimental and data-gated.
 
 ---
@@ -61,7 +65,7 @@ See `incidents.md` for full burglary figures.
 - Heart rate is a stretch goal and a good number to say on the call. It is not a decision input.
 
 **Escalation-relevant:** respiration outside the normal band, or absent where a presence was previously breathing, is the signal that turns an occupancy report into a medical emergency.
-"Unresponsive occupant in the west bedroom" originates here.
+"Unresponsive occupant in the main bedroom" originates here.
 
 **Must not claim:** that absence of respiration proves absence of a person. Shallow breathing, breath-holding, and range limits all degrade toward invisible.
 Cross-check `collapse` and escalate uncertainty rather than resolving it silently. Reporting nothing is safer than reporting a number outside the supported range.

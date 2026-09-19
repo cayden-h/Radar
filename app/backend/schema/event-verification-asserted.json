@@ -13,7 +13,7 @@
         "checked_at": "2026-09-20T04:12:39Z",
         "claim": {
           "claim_id": "clm-001",
-          "statement": "An adult occupant went down in the west bedroom and has not gotten up.",
+          "statement": "An adult occupant went down in the main bedroom and has not gotten up.",
           "field": "collapse.event",
           "value": "fall, still_down_s=6",
           "presence_id": "p1"

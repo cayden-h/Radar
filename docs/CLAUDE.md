@@ -28,6 +28,16 @@ Back the page up before every write. Backups live in `docs/notion-backup/`, not 
 Appended 2026-09-19, after the slide copy:
 
 - **Architecture - Flowcharts.** Five Mermaid diagrams: system architecture and the two human boundaries, the faint path as a sequence (detection, alert, human tap, call), the refusal path, the iOS app flow, and the hardware topology.
+- **The trust layer - how verification actually works.** Four more Mermaid diagrams, added 2026-09-19: the anatomy of a claim, the two-stage pipeline, the authentication-versus-authorization punchline, and where each of the thirteen attacks dies. This is the section to send someone who is lost in the security material.
+
+**Mermaid diagrams are now version-controlled in the repo**, which they were not before:
+
+| File | What it holds |
+|---|---|
+| `architecture-diagrams.md` | The five architecture diagrams. Source of truth; change here, then push to Notion. |
+| `trust-layer-explained.md` | The trust layer, four diagrams plus the prose that makes them land. |
+
+**Flowchart 2 was wrong until 2026-09-19** and is worth knowing about, because the same error is easy to reintroduce in the deck and the video. It showed `master` releasing `caller` to dial with no human in between, which contradicts the settled decision and the shipped `assert_human_released()` guard. Detection is autonomous; the call is not.
 - **Tech Stack.** Every layer with what it is actually doing, as callouts carrying live company logos. This expands Slide 9 rather than replacing it, and it ends with the honesty rule.
 
 `research/CLAUDE.md` is the index. The three findings that carry the pitch are at the top of it.

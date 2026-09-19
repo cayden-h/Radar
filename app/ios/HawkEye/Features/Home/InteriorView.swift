@@ -134,16 +134,57 @@ struct InteriorView: View {
             context.fill(shape, with: .color(Palette.surfaceRaised.opacity(0.55)))
             context.stroke(shape, with: .color(Palette.hairline), lineWidth: 1)
 
-            var label = context.resolve(
-                Text(room.name.uppercased())
-                    .font(.system(size: 8, weight: .semibold))
-                    .tracking(0.7)
-            )
-            label.shading = .color(Palette.inkFaint.opacity(0.85))
-            // Rooms are small; skip the label rather than clipping it.
-            if label.measure(in: rect.size).width < rect.width - 10 {
-                context.draw(label, at: CGPoint(x: rect.minX + 6, y: rect.minY + 6), anchor: .topLeading)
+            drawRoomLabel(&context, room: room, in: rect)
+        }
+    }
+
+    /// Eleven rooms on a 6.3 inch screen, several of them narrower than their
+    /// own name. A label that spills into the room next door is worse than no
+    /// label, because it reads as belonging to the wrong room.
+    ///
+    /// So the label is fitted rather than assumed: it wraps onto a second line
+    /// inside the room, drops a point size if that is what makes it fit, and is
+    /// **dropped entirely** if even that will not sit inside the rectangle.
+    ///
+    /// Every word has to fit on its own line before anything is drawn. Without
+    /// that check `Text` will happily break a word in half and truncate it, and
+    /// "LINE / N / CL..." in a narrow room is worse than a blank room.
+    private func drawRoomLabel(
+        _ context: inout GraphicsContext,
+        room: Floorplan.Room,
+        in rect: CGRect
+    ) {
+        let inset: CGFloat = 5
+        let maxSize = CGSize(width: rect.width - inset * 2, height: rect.height - inset * 2)
+        guard maxSize.width > 8, maxSize.height > 7 else { return }
+        let text = room.name.uppercased()
+        let words = text.split(separator: " ").map(String.init)
+        let unbounded = CGSize(width: CGFloat.greatestFiniteMagnitude,
+                               height: CGFloat.greatestFiniteMagnitude)
+
+        for size in [8.0, 7.0] as [CGFloat] {
+            let tracking: CGFloat = size >= 8 ? 0.7 : 0.4
+            func resolved(_ string: String) -> GraphicsContext.ResolvedText {
+                context.resolve(
+                    Text(string)
+                        .font(.system(size: size, weight: .semibold))
+                        .tracking(tracking)
+                )
             }
+            // No word may be wider than the room, or it gets broken and elided.
+            guard words.allSatisfy({ resolved($0).measure(in: unbounded).width <= maxSize.width })
+            else { continue }
+
+            var label = resolved(text)
+            label.shading = .color(Palette.inkFaint.opacity(0.85))
+            let fitted = label.measure(in: maxSize)
+            guard fitted.width <= maxSize.width, fitted.height <= maxSize.height else { continue }
+            context.draw(
+                label,
+                in: CGRect(x: rect.minX + inset, y: rect.minY + inset,
+                           width: fitted.width, height: fitted.height)
+            )
+            return
         }
     }
 

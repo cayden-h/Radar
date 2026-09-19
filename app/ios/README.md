@@ -46,7 +46,9 @@ Mock mode is not a stub that returns empty arrays.
 It runs the whole demo:
 
 - Two hubs appear on the Connect screen, one already paired, a beat apart so it looks like discovery rather than a fixture.
-- Three presences move through the house at 4 Hz: an adult in the kitchen and living room, a child in the west bedroom, and a curtain over a vent in the garage.
+- Three presences move through the apartment at 4 Hz: the resident between the main bedroom and the hallway, a child in the second bedroom, and a curtain over the vent above the dryer in the laundry.
+
+  **This is mock data and is richer than a 1x1 radio delivers.** Two people within about a metre merge into one, and an exact sensed headcount is not available. Live, the count is sourced from device association against the roster and the radio answers which room and whether a presence is breathing. Do not let the mock set expectations for what the hardware claims on camera; see the counting limits under `agents/occupancy`.
 - A detection lands after `Config.mockDetectionAfter` (14 seconds by default) and **raises an alert, not a call.**
   Hawk Eye never dials 911 on its own; a human tap is what releases `agents/caller`.
   Set the constant to `nil` to disable the detection and drive everything from the buttons.
@@ -59,16 +61,35 @@ Both are complete, both run off the same sensor loop and the same detection time
 
 **`.burglary`, the default.** The one the project is built around.
 
-A fourth presence appears in the garage.
-For the first `Config.mockIntruderIdentifiedAfter` seconds it has no respiration signature, so it is `unconfirmed`, exactly like the curtain over the vent it is standing beside.
-Then respiration is acquired and it becomes a confirmed person with `expected: false`: the system has identified a person in the building it did not expect.
-It then walks `Config.mockIntruderRoute`, garage to hallway to kitchen, with its position interpolated between zone centroids so it visibly moves across the floorplan rather than teleporting between rooms.
+A fourth presence appears in the living room.
+
+For the first `Config.mockIntruderIdentifiedAfter` seconds it has no respiration signature, so it is `unconfirmed`, exactly like the curtain over the dryer vent in the laundry.
+Then respiration is acquired and it becomes a confirmed person with `expected: false`.
+
+**What makes it unexpected is roster plus device association**, which is the rule settled 2026-09-19 in `agents/CLAUDE.md` and `docs/research/identity.md`, not an inference from the CSI stream:
+
+```
+CSI:        3 distinct presences
+Roster:     2 registered residents      (configuration, not discovery)
+Associated: 2 resident phones on the network
+            -------------------------------------
+            1 body with no corresponding device
+```
+
+The household is known rather than discovered, and the router's association table is a genuinely second modality rather than a second view of one CSI stream.
+`intruder` consumes the personhood verdict first: a perturbation with no respiration signature is a curtain, not an intruder.
+We do not recognise anybody and the app never implies we do.
+
+Name the holes rather than pretending there are none: a resident who left their phone in the car, a guest, a burglar carrying a phone that never associates.
+That is exactly why this surfaces as a notification the resident acts on. Nothing dials and nothing raises an incident on its own.
+It then walks `Config.mockIntruderRoute`, living room to kitchen to hallway, with its position interpolated between zone centroids so it visibly moves across the floorplan rather than teleporting between rooms.
 
 The frame that matters is then on screen: the intruder and the resident as two distinct tracked presences, in different rooms, both moving.
-The unexpected person is violet with tracking brackets; the residents are the calm blue; the curtain is still a dashed grey lozenge in the same room the intruder came through.
+The resident is on the left of the apartment and the intruder crosses the whole plan to reach them, so the two are in different rooms for the entire route until the last leg.
+The unexpected person is violet with tracking brackets; the residents are the calm blue; the curtain is still a dashed grey lozenge in the laundry.
 That last contrast is the argument, and it is why the curtain was kept rather than replaced.
 
-**`.faint`.** The child goes down in the west bedroom, a six second debounce runs, and `still_down_s` starts climbing and does not reset.
+**`.faint`.** The child goes down in the second bedroom, a six second debounce runs, and `still_down_s` starts climbing and does not reset.
 The long lie, which is the clinical outcome the product moves.
 
 Per-scenario timings live next to the selector in `Config.swift` and nowhere else.
