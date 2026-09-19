@@ -108,6 +108,7 @@
             }
           }
         ],
+        "associated_devices": [],
         "environment": {
           "co_ppm": 186.0,
           "smoke_detected": false,

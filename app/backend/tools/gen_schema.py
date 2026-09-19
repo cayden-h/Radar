@@ -30,6 +30,12 @@ from hawkeye_backend.models.events import (
     TranscriptEvent,
     VerificationEvent,
 )
+from hawkeye_backend.models.household import (
+    HouseholdMember,
+    KnownDevice,
+    MemberKind,
+    ObservedDevice,
+)
 from hawkeye_backend.models.hub import AgentReachability, HubStatus, Reachability, SensorLiveness
 from hawkeye_backend.models.incident import (
     CallState,
@@ -100,6 +106,11 @@ GUIDANCE = Provenance(
     source=Source.AGENT_INFERENCE, producer="agents/guidance", ansname=ANSNAME["agents/guidance"]
 )
 RESIDENT = Provenance(source=Source.USER_INPUT, producer="app/ios")
+ROUTER = Provenance(
+    source=Source.RUVIEW_SIM,
+    producer="master/simulated",
+    detail="association table, simulated; no router integration exists yet",
+)
 
 
 def presence(
@@ -421,6 +432,33 @@ REPLAY = ReplayRecord(
 )
 
 
+HOUSEHOLD_DEVICE = KnownDevice(
+    device_id="obs-01",
+    identifier_hash="9" * 64,
+    fingerprint="a4:..:91",
+    label="iPhone",
+    added_at=at(0.0),
+    last_seen_at=at(0.0),
+)
+
+HOUSEHOLD_MEMBER = HouseholdMember(
+    member_id="mem-01",
+    name="Grandma",
+    kind=MemberKind.GUEST,
+    devices=[HOUSEHOLD_DEVICE],
+    added_at=at(0.0),
+    added_by="approval",
+)
+
+OBSERVED_DEVICE = ObservedDevice(
+    device_id="obs-01",
+    identifier_hash="9" * 64,
+    fingerprint="a4:..:91",
+    first_seen_at=at(0.0),
+    provenance=ROUTER,
+)
+
+
 def write(name: str, model: BaseModel, note: str) -> None:
     body: dict[str, Any] = {
         "$note": note,
@@ -465,6 +503,17 @@ def main() -> None:
         "response-context.json",
         CONTEXT_NOTE,
         "POST /v1/incident/{id}/context 202 response body.",
+    )
+    write(
+        "household.json",
+        HOUSEHOLD_MEMBER,
+        "A HouseholdMember, as it appears in GET /v1/household and the response to "
+        "POST /v1/household/remember.",
+    )
+    write(
+        "observed-device.json",
+        OBSERVED_DEVICE,
+        "An ObservedDevice, as it appears in GET /v1/household/unclaimed-devices.",
     )
 
     # --- Stream envelopes, one per event kind

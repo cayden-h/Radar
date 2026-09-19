@@ -622,6 +622,14 @@
             "title": "Presences",
             "type": "array"
           },
+          "associated_devices": {
+            "description": "Devices the router reports associated, hashed by the producer. An absent field means not reported, never that nobody is here.",
+            "items": {
+              "$ref": "#/$defs/ObservedDevice"
+            },
+            "title": "Associated Devices",
+            "type": "array"
+          },
           "environment": {
             "anyOf": [
               {
@@ -766,6 +774,43 @@
         ],
         "title": "NoticeSeverity",
         "type": "string"
+      },
+      "ObservedDevice": {
+        "description": "A device seen associated to the network, hashed on arrival.\n\nCarries `Provenance` because it is a reading like any other. On the mock\npath that provenance says simulated, and nothing downstream has to guess.",
+        "properties": {
+          "device_id": {
+            "title": "Device Id",
+            "type": "string"
+          },
+          "identifier_hash": {
+            "description": "HMAC-SHA256 hex digest. Constrained here so a producer that base64s or truncates fails at the boundary rather than silently never matching.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Identifier Hash",
+            "type": "string"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/$defs/Provenance"
+          }
+        },
+        "required": [
+          "device_id",
+          "identifier_hash",
+          "fingerprint",
+          "provenance"
+        ],
+        "title": "ObservedDevice",
+        "type": "object"
       },
       "Position": {
         "description": "Coarse position inside the floorplan.\n\n`zone` is the honest answer and is what the agents reason over. `x`/`y` exist\nonly so the 3D view has somewhere to draw; they are a zone centroid with\njitter, not a localization claim. Do not promise coordinates.",
