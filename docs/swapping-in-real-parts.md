@@ -160,6 +160,23 @@ in its console, and US A2P 10DLC enforcement can begin refusing trial sends with
 refused send is logged and swallowed by design, the same as any other sink failure, so the in-app
 banner appears and no text arrives. The log line is `twilio refused ntc-p4: status=... code=...`.
 
+**The one that will surprise you on the hub path, and is owned elsewhere:** in simulated mode the
+notice arrives *after* the resident taps Burglary, not before it.
+
+That inverts the product story, where the notice is what informs a person so they can decide
+whether to call. The cause is not in the notice path: `SimulatedMasterClient` only creates the
+`expected: false` presence inside `_run_typed_call`, which runs after `assert_human_released`, so
+until a human taps there is no unaccounted-for person for the detector to see. It detects the
+presence that exists, when it exists, which is correct behaviour on an incorrect script.
+
+The iOS mock sequences it the right way round: `Config.mockIntruderIdentifiedAfter` is 5s and
+`mockDetectionAfter` is 14s, both well before any tap. So **the app demo tells the true story and
+the hub demo does not**, and the two disagree today.
+
+Fixing the hub scenario belongs to whoever owns `master/scenario.py` and `master/simulated.py` and
+is deliberately not done here. Until it lands, demo the notice off the app's mock path, and do not
+narrate the hub path as "the system told the resident, and then they decided".
+
 ## ANS identity
 
 Every ANSName in the codebase today ends in `.invalid`, which is reserved by RFC 2606 and can therefore never be mistaken for a real registration.
