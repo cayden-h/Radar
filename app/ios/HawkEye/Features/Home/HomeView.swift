@@ -9,8 +9,6 @@ struct HomeView: View {
     @Environment(AppModel.self) private var model
     var hubName: String
 
-    @State private var pendingIncident: IncidentType?
-
     private var client: any HawkEyeClienting { model.client }
 
     var body: some View {
@@ -39,9 +37,7 @@ struct HomeView: View {
 
             PresenceRoster(state: client.interior)
 
-            IncidentBar { type in
-                pendingIncident = type
-            }
+            IncidentBar(client: client)
         }
         .padding(.horizontal, Space.gutter)
         .padding(.bottom, Space.lg)
@@ -51,27 +47,6 @@ struct HomeView: View {
         )) { incident in
             IncidentView(incident: incident)
                 .environment(model)
-        }
-        .confirmationDialog(
-            pendingIncident.map { "Call 911 for \($0.title.lowercased())?" } ?? "",
-            isPresented: Binding(
-                get: { pendingIncident != nil },
-                set: { if !$0 { pendingIncident = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let type = pendingIncident {
-                Button("Raise \(type.title)", role: .destructive) {
-                    let raise = type
-                    pendingIncident = nil
-                    Task { try? await client.raiseIncident(raise) }
-                }
-            }
-            Button("Cancel", role: .cancel) { pendingIncident = nil }
-        } message: {
-            // One confirmation, because a misfired 911 call is a real-world
-            // harm. One tap raises it; the confirmation is the tap.
-            Text("Hawk Eye will call 911 and tell them what it can verify.")
         }
     }
 
@@ -308,16 +283,21 @@ private struct PresenceRow: View {
 
 /// Three buttons. One tap raises an incident.
 private struct IncidentBar: View {
-    var raise: (IncidentType) -> Void
+    var client: any HawkEyeClienting
 
     var body: some View {
         VStack(spacing: Space.sm) {
-            Text("Call 911")
+            Text("Hold to call 911")
                 .eyebrowStyle(Palette.inkFaint)
 
             HStack(spacing: Space.sm) {
                 ForEach(IncidentType.allCases) { type in
-                    Button { raise(type) } label: {
+                    HoldToConfirmButton(
+                        tint: type.tint,
+                        accessibilityLabel: "Hold to raise \(type.title) incident"
+                    ) {
+                        Task { try? await client.raiseIncident(type) }
+                    } label: {
                         VStack(spacing: 7) {
                             Image(systemName: type.symbol)
                                 .font(.system(size: 19, weight: .medium))
@@ -336,8 +316,6 @@ private struct IncidentBar: View {
                                 .strokeBorder(type.tint.opacity(0.32), lineWidth: 1)
                         )
                     }
-                    .buttonStyle(.pressable)
-                    .accessibilityLabel("Raise \(type.title) incident")
                 }
             }
         }
