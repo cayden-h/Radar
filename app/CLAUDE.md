@@ -59,6 +59,163 @@ Three rules, none of them expensive:
 
 The parallel is exact: `caller` must not widen what it trusts because an operator asked, and it must not widen what it trusts because the resident typed. See `docs/threat-landscape.md`.
 
+
+### Joining the call
+
+The call runs on a server-side bridge and **the phone is not a leg of it by default.** Full reasoning in `agents/CLAUDE.md`.
+The reason is concrete: on iOS, call audio cannot be silenced below a floor, and a speaking phone gives away someone hiding during a burglary.
+
+Three modes, switchable at any time, with a large persistent control:
+
+| Mode | Mic | Audio out |
+|---|---|---|
+| **Watching** | off | none |
+| **Whispering** | open | **none** |
+| **Full voice** | open | on |
+
+**Whisper mode is the important one.** The resident speaks; nothing plays back. They read the replies on screen.
+
+Send and receive are **independent switches on the bridge**, so whisper is send-only. Silence is enforced server-side: if the bridge never transmits audio to the phone, there is nothing for iOS to play, and no volume floor to fight. Full matrix in `agents/CLAUDE.md`.
+
+Hold the WebRTC leg open from the start of the call with **both switches off**. Switching modes is then one bit flipped server-side, with no connection handshake and no ring in the middle of an emergency. This is the reason the resident's leg must not be a phone call: a PSTN leg cannot be pre-established silently.
+Implement the resident's leg as **in-app WebRTC audio, not a phone call** - the app owns its `AVAudioSession` and simply never renders the far side. Skip CallKit so it does not present as a call, with its connect tone and call UI.
+
+**TAKE OVER** sits on screen permanently and large. **Hold 1.5s**, same as every other risky control; the agent then goes silent mid-sentence.
+Keep **End call** visually separate from it. Someone panicking hits the biggest button, so the biggest button must be the recoverable one.
+
+If the agent needs to stop immediately, **speaking does it** - barge-in is instant and needs no button. See below.
+
+After takeover the agent stops speaking on the call and keeps feeding facts to this screen instead: CO ppm, room, respiration, time down. The resident is the voice; the app is the teleprompter.
+
+### Choosing a mode, and what may choose it for you
+
+Settled 2026-09-19.
+
+**The rule: automation may only ever move toward quieter. Going louder requires a human hand.**
+
+The asymmetry is the whole justification. Guess wrong toward silence and the resident taps once to get audio back. Guess wrong toward audio and **the phone makes noise while someone is hiding.** Those are not comparable failures, so the inference is trusted in one direction only.
+
+#### The incident type is the default; the text box is a correction
+
+Tapping Burglary already selects silent. That is deterministic and needs no inference.
+
+What the "what is happening" box adds is the case where the tap and the reality disagree:
+
+- Tapped **Faint**, typed "someone is in the house"
+- Tapped **Fire**, typed "I can't talk, he's downstairs"
+
+Phrases along the lines of *can't talk, he's here, hiding, quiet, don't make noise* pull the call toward silence regardless of which button was pressed.
+
+**Act on partial input.** If someone types "he's in the h" and stops, that is enough. Do not wait for a submit.
+
+#### Auto-silence yes, auto-mic no
+
+| Action | Automatic |
+|---|---|
+| **Receive off** - the phone stops making sound | **Yes.** Always safe. |
+| **Send on** - mic opens, 911 hears them | **No.** One tap, large button. |
+
+Opening someone's microphone to emergency services without being asked is a meaningful act, and the inference argues against it anyway: a resident who typed "I can't talk" has said not to.
+
+This also keeps the box consistent with the untrusted-input rules above. **What the resident types is context, never instruction.** It may lower the volume. It may not take an action on their behalf.
+
+#### Label by consequence, not by our jargon
+
+"Whisper" and "full voice" are our words. On screen, name what happens:
+
+```
+  Listening only                       <- current state
+
+  [ Speak - they'll hear you,
+    your phone stays silent ]
+
+  [ Turn on sound - your phone
+    will be audible ]
+```
+
+Always visible. Never behind a menu or a disclosure triangle.
+
+#### Preventing accidental presses
+
+Settled 2026-09-19. **Hold-to-confirm, not modal dialogs.**
+
+| Control | Protection | Why |
+|---|---|---|
+| Raise incident (Burglary / Fire / Faint) | **Hold 1.5s** | An accidental tap calls 911. A pocket-dial to emergency services is a real harm, not an inconvenience |
+| End call | **Hold 1.5s** | Hanging up on 911 mid-incident is catastrophic |
+| Turn on sound | **Hold 1.5s** | Makes the phone audible and can reveal a hiding person |
+| **Take over** | **Hold 1.5s** | Consistent with every other risky control. Voice barge-in remains the instant path |
+| Speak / whisper | Single tap | Low harm if triggered by accident; being heard is rarely the danger |
+
+**Hold rather than a modal**, for reasons that matter specifically to a panicking user:
+
+- A modal makes you find and hit a **second** target with shaking hands. A hold is one gesture on the target you already found.
+- A modal can be dismissed by accident too, so it trades one misfire for another.
+- A hold gives **continuous feedback** and **release-to-cancel**. You can change your mind halfway.
+- It is faster end to end than tap, read, confirm.
+- It works one-handed, in the dark, without aiming twice.
+
+Apple's Emergency SOS uses the same pattern, so it needs no teaching.
+
+Show a **fill animation** on the button through the hold, so the progress is legible and release-to-cancel is discoverable without instructions.
+
+**In silent mode the hold feedback must be purely visual.** No haptics, no sound. A confirmation that buzzes defeats the mode it is confirming inside of.
+
+#### Every control is held. Barge-in is what stays instant.
+
+**All risky controls use the same 1.5s hold**, including `TAKE OVER`. Settled 2026-09-19.
+
+Uniformity is itself a safety property here. A resident under stress should not have to remember which buttons behave which way; every control that matters works identically, and a stray palm or pocket press does nothing anywhere in the app.
+
+The reason this costs nothing is that **the hold is not the only way to stop the agent.** Voice barge-in is instant and cannot be triggered by accident, because it is not a button:
+
+| Path | Speed | Misfire risk |
+|---|---|---|
+| Speak | instant | none - it is a voice, not a target |
+| `TAKE OVER` | 1.5s hold | none - deliberate |
+
+So the urgent case is covered by talking, which is what a person does instinctively anyway, and the button is the deliberate path for someone who would rather not speak.
+**Barge-in is therefore load-bearing, not a nicety.** If it is cut, `TAKE OVER` becomes the only stop and the hold duration needs revisiting.
+
+#### Friction goes where the danger is
+
+This is the rule that resolves the no-confirmation-dialog principle above rather than contradicting it:
+
+- **Every risky or irreversible control is a 1.5s hold**: raising an incident, take over, turn on sound, end call. One consistent gesture, nothing to remember.
+- **Voice barge-in stays instant**, because it is not a button and cannot misfire. That is what makes holding the buttons safe.
+
+The consequence stays written on the button itself. Reading "your phone will be audible" is half the confirmation; the hold is the other half.
+Someone panicking slaps the biggest button, so the biggest button must always be the safe one.
+
+#### The operator can ask, never grant
+
+Dispatchers will want this: "can you speak?" surfaces as a prompt in the app via `agents/caller`.
+The resident still taps. The operator requests; only the resident decides.
+
+### Silent mode
+
+A phone in a dark closet gives someone away three ways, and volume is only one:
+
+| Leak | Handling |
+|---|---|
+| Speaker audio | Call is server-side. Nothing to play. |
+| **Vibration and haptics** | **Off entirely.** A phone buzzing against a floor is loud. |
+| Screen brightness | Dim hard, dark UI. A bright screen is visible under a door. |
+| Notification sounds | Suppressed for the duration. |
+
+Haptics are the one people forget. A silent mode that still buzzes is not silent.
+
+Defaults by incident type, with a manual toggle in every mode because a medical emergency can also be one where noise is unsafe:
+
+| Incident | Default |
+|---|---|
+| Faint | Audio on |
+| Fire | Audio on |
+| **Burglary** | **Silent.** No audio, no haptics, dimmed, whisper or typed only |
+
+The "what is happening" box doubles as typed takeover in silent mode: what the resident types is read aloud by `caller`, attributed as the resident's report rather than a system observation. See the untrusted-input rules above; typing is context, never instruction.
+
+
 ### Instructions from the agents
 
 `agents/guidance` pushes updates and instructions as the call progresses.
@@ -148,10 +305,23 @@ The Connect screen says the honest thing in its footer rather than implying a Wi
 
 ### The mock flag
 
+The whole-project view of this, across the app, the hub, the agents and the sensor, is `docs/swapping-in-real-parts.md`.
+This section is only the app's half.
+
 `app/ios/HawkEye/Config.swift` holds one switch, `useMocks`, and it is the only place the choice is made.
-`true` runs the full app with no Pi, no hub, and no network: hubs appear on the Connect screen, three presences move through the house at 4 Hz, a fall is detected and **raises an alert**, and once a human taps Faint a scripted two-way 911 call plays out with four ANS verifications, one of them a refusal.
-`Config.mockFallDetectedAfter` fires the detection and nothing else: the presence goes to `confirmed_still`, `still_down_s` starts climbing, and the incident waits on the button.
+`true` runs the full app with no Pi, no hub, and no network: hubs appear on the Connect screen, presences move through the house at 4 Hz, a detection lands and **raises an alert**, and once a human taps a button a scripted two-way 911 call plays out with ANS verifications, one of them a refusal.
+`Config.mockDetectionAfter` fires the detection and nothing else; the incident waits on the button.
 `false` runs the identical UI against a real hub.
+
+`Config.mockScenario` picks which incident the script runs, and both are complete.
+
+`.burglary` is the default and is the demo.
+A fourth presence enters through the garage with no respiration signature, so it is `unconfirmed` exactly like the curtain over the vent beside it, then acquires respiration and becomes a confirmed person with `expected: false`, then routes garage to hallway to kitchen with its position interpolated between zone centroids so it visibly moves.
+That puts the frame this project is built around on screen: the intruder and the resident as two distinct tracked presences, in different rooms, both moving.
+Its verification set is its own, an ASSERTED unexpected-presence claim from `agents/intruder`, an ATTRIBUTED occupancy count from `agents/occupancy`, and a DISCARDED claim that the person is armed, from an impostor at a lookalike ANSName.
+The CO reading is not reused there: corroboration that does not corroborate anything is noise dressed as rigour.
+
+`.faint` is the collapse: the child goes down in the west bedroom and `still_down_s` climbs and does not reset.
 The mock builds the same `Codable` types the live client decodes, so the two paths are behaviourally identical rather than merely similar.
 
 **The demo must never depend on hardware being alive**, so this path is a first-class implementation rather than an afterthought. There is no demo branch inside any view; `AppModel.init()` picks an implementation behind `HubBrowsing` and `HawkEyeClienting` and nothing downstream knows which it got.
@@ -161,6 +331,9 @@ The mock builds the same `Codable` types the live client decodes, so the two pat
 `Features/Home/InteriorView.swift`. A top-down procedural floorplan in a SwiftUI `Canvas`, not Three.js, because this is a native client. Same brief: confidence rendered as coherence, three visual states, no numbers floating in space.
 
 `Models/InteriorState.swift` holds `PresenceState`, which is the single place the states are named. Everything downstream switches on it rather than re-deriving the rule.
+`Presence.expected` crosses those states as a single orthogonal axis rather than adding a fourth case: an unexpected confirmed person is drawn in `Palette.personUnexpected`, the same violet as the Burglary button, with tracking brackets and a slow sweep that read as followed rather than as hostile, and the roster gives the row a violet headline, tint and border plus the words "Unexpected person" and "Not accounted for".
+`nil` means expected, so a frame that omits the field changes nothing.
+An unconfirmed perturbation is never unexpected in this sense, because it is not a person yet, and that contrast is the burglary view's whole argument.
 The hub decides the state now and the client trusts what it sends; `PresenceState.derive` survives only as the fallback for a frame that omits the field.
 The floorplan arrives with the state, in metres, and the view normalises it, so the geometry is the one the hub was enrolled with rather than a second copy that can drift.
 

@@ -24,13 +24,13 @@ final class VerificationTour: XCTestCase {
         XCTAssertTrue(home.waitForExistence(timeout: 20))
         home.tap()
 
-        let down = app.staticTexts["Not responding"].firstMatch
-        XCTAssertTrue(down.waitForExistence(timeout: 45), "fall never detected")
+        let unexpected = app.staticTexts["Unexpected person"].firstMatch
+        XCTAssertTrue(unexpected.waitForExistence(timeout: 45), "no unexpected person was identified")
 
-        let faint = app.buttons.containing(.staticText, identifier: "Faint").firstMatch
-        XCTAssertTrue(faint.waitForExistence(timeout: 10))
-        faint.tap()
-        let confirm = app.buttons["Raise Faint"].firstMatch
+        let burglary = app.buttons.containing(.staticText, identifier: "Burglary").firstMatch
+        XCTAssertTrue(burglary.waitForExistence(timeout: 10))
+        burglary.tap()
+        let confirm = app.buttons["Raise Burglary"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 10))
         confirm.tap()
 

@@ -37,33 +37,40 @@ final class ScreenshotTour: XCTestCase {
         sleep(5)
         shoot("02-home")
 
-        // 3. Let the scripted fall land. Config.mockFallDetectedAfter is 22s.
-        //    Poll for the state change rather than guessing at a sleep.
-        let down = app.staticTexts["Not responding"].firstMatch
-        XCTAssertTrue(down.waitForExistence(timeout: 45), "fall was never detected")
+        // 3. Let the scripted entry land. Config.mockDetectionAfter is 14s,
+        //    then a few more before respiration is acquired and the presence
+        //    stops being unconfirmed. Poll for the roster headline rather than
+        //    guessing at a sleep.
+        let unexpected = app.staticTexts["Unexpected person"].firstMatch
+        XCTAssertTrue(unexpected.waitForExistence(timeout: 45), "no unexpected person was identified")
         sleep(3)
-        shoot("03-fall-detected")
+        shoot("03-identified")
+
+        // 3b. Give the intruder time to route into another room, so the pair of
+        //     screenshots shows it actually moving rather than sitting still.
+        sleep(16)
+        shoot("04-approaching")
 
         // 4. Raise the incident by hand. Hawk Eye does not dial on its own.
         //    SwiftUI wraps the label in a button, so match on contained text.
-        let faint = app.buttons.containing(.staticText, identifier: "Faint").firstMatch
-        XCTAssertTrue(faint.waitForExistence(timeout: 10), "no Faint button")
-        faint.tap()
+        let burglary = app.buttons.containing(.staticText, identifier: "Burglary").firstMatch
+        XCTAssertTrue(burglary.waitForExistence(timeout: 10), "no Burglary button")
+        burglary.tap()
         sleep(2)
-        shoot("04-confirm")
+        shoot("05-confirm")
 
-        let confirm = app.buttons["Raise Faint"].firstMatch
+        let confirm = app.buttons["Raise Burglary"].firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 10), "no confirm button")
         confirm.tap()
 
         // 5. The call screen, early.
         sleep(14)
-        shoot("05-incident")
+        shoot("06-incident")
 
-        // 6. Far enough in for the discarded claim.
+        // 6. Far enough in for the frame that matters to be said out loud.
         sleep(28)
-        shoot("06-verification")
+        shoot("07-transcript")
         sleep(22)
-        shoot("07-later")
+        shoot("08-later")
     }
 }

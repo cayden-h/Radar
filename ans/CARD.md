@@ -188,9 +188,22 @@ Run `card_drift_watch`'s logic against ourselves on a timer: hash both cards, co
 
 If a card changes and we did not ship a version, something is wrong, and we would rather find it than have `verify_agent` find it on Sunday morning.
 
+## The implementation
+
+Card signing, drift fingerprinting, and the address commitment are implemented in
+`app/backend/hawkeye_backend/verification/card.py`, with `app/backend/tests/test_card.py` covering them.
+
+- `sign_card(card, key, trust_card_url=..., kid=...)` produces the `signatures` array in the shape above.
+- `card_fingerprint(card)` is the `card_drift_watch` analogue. It hashes the canonical form, so reformatting is not drift but a changed value is.
+- `commit_address()` / `address_matches()` implement measure 4. A test asserts the address is not recoverable from the published fragment, and another asserts two installations at the same address produce different commitments, so cards cannot be linked.
+
+Canonicalization is shared with the claim envelope (`verification/canonical.py`). One JCS implementation in the codebase, which is what measure 1 asks for.
+
 ## If we do build a verifying endpoint anyway
 
-We do not need one to survive the battery, because the battery cannot reach us. But `master` needs these properties regardless, for its own claim envelope, and ANS-6 Method B specifies them exactly. Implement to that spec rather than inventing a scheme.
+We do not need one to survive the battery, because the battery cannot reach us. But `master` needs these properties regardless, for its own claim envelope, and ANS-6 Method B specifies them exactly.
+
+**This is built**: `app/backend/hawkeye_backend/verification/verifier.py`, with the thirteen shapes as tests in `app/backend/tests/test_battery.py`. What follows is the order it implements, kept here because it is the part worth reviewing.
 
 The verification order, from ANS-6 §7.4, cheapest and least stateful first:
 

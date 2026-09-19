@@ -36,6 +36,8 @@ Follow the demo sequence in `agents/CLAUDE.md`. In order:
 5. The call. Real ElevenLabs voice, a real conversation.
 6. The resident's phone: live transcript, the "what is happening" box, instructions arriving.
 7. **The operator asks a follow-up and the question fans out into ANS-verified queries.** Show this fan-out. It is the architecture in one animation.
+   Then show **TAKE OVER** being tapped and the agent falling silent mid-sentence. Five seconds, and it defuses the biggest objection anyone has to this project.
+   If the burglary path gets screen time, show **whisper mode**: the resident speaks and the phone makes no sound at all.
 8. **The refusal.** A compromised sensing agent, driven by `fraud.webmesh.ai`, and the system declining to escalate on its claims.
 
 Step 8 is the submission. Do not let the video run long before reaching it.

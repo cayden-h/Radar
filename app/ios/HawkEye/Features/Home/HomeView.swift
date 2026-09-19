@@ -121,6 +121,11 @@ private struct PresenceRoster: View {
             HStack {
                 Text(summary)
                     .eyebrowStyle(Palette.inkMuted)
+                    // Three clauses at full tracking just overrun an iPhone
+                    // width. Shrink the line rather than wrap it: a summary
+                    // that breaks mid-count reads as a layout accident.
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
                 Spacer()
                 if let co = state.coPpm, co > 9 {
                     HStack(spacing: 5) {
@@ -149,10 +154,18 @@ private struct PresenceRoster: View {
         .animation(Motion.arrive, value: state.presences)
     }
 
+    /// Counts, in the order a person would want them. The unexpected person is
+    /// named in the summary as well as in their own row, because the summary is
+    /// the line someone reads first and it must not say "2 people inside" as
+    /// though that were unremarkable.
     private var summary: String {
         let people = state.peopleCount
+        let unexpected = state.unexpectedCount
         let others = state.presences.count - people
         var text = people == 1 ? "1 person inside" : "\(people) people inside"
+        if unexpected > 0 {
+            text += unexpected == 1 ? " · 1 not expected" : " · \(unexpected) not expected"
+        }
         if others > 0 { text += " · \(others) unconfirmed" }
         return text
     }
@@ -163,12 +176,37 @@ private struct PresenceRow: View {
     var floorplan: Floorplan
     @State private var pulse = false
 
+    /// The two person states, crossed with the one orthogonal axis. An
+    /// unexpected person takes the violet whichever state they are in.
     private var tint: Color {
+        if presence.isUnexpected { return Palette.personUnexpected }
         switch presence.state {
-        case .personMoving: Palette.personMoving
-        case .personUnresponsive: Palette.personUnresponsive
-        case .unconfirmed, .unresolved: Palette.unconfirmed
+        case .personMoving: return Palette.personMoving
+        case .personUnresponsive: return Palette.personUnresponsive
+        case .unconfirmed, .unresolved: return Palette.unconfirmed
         }
+    }
+
+    /// True for the two rows that must not read as routine.
+    private var emphasised: Bool {
+        presence.state == .personUnresponsive || presence.isUnexpected
+    }
+
+    /// The headline, factual and not morbid. "Unexpected person" is what
+    /// `agents/intruder` actually concluded: a confirmed person whose being
+    /// here is not accounted for. It is not a recognition result and the words
+    /// must not imply one.
+    private var headline: String {
+        presence.isUnexpected ? "Unexpected person" : presence.state.headline
+    }
+
+    /// The unexpected row carries its colour in the headline as well as the
+    /// border, because the headline is the part read across a table. The
+    /// unresponsive row keeps white type: it is already the loudest thing on
+    /// the screen and does not need to compete with itself.
+    private var headlineTint: Color {
+        if presence.isUnexpected { return Palette.personUnexpected }
+        return emphasised ? Palette.ink : Palette.ink.opacity(0.9)
     }
 
     private var roomName: String {
@@ -184,12 +222,15 @@ private struct PresenceRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(presence.state.headline)
-                        .font(presence.state == .personUnresponsive ? TypeScale.bodyStrong : TypeScale.body)
-                        .foregroundStyle(presence.state == .personUnresponsive ? Palette.ink : Palette.ink.opacity(0.9))
+                    Text(headline)
+                        .font(emphasised ? TypeScale.bodyStrong : TypeScale.body)
+                        .foregroundStyle(headlineTint)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                     Text("· \(roomName)")
                         .font(TypeScale.body)
                         .foregroundStyle(Palette.inkMuted)
+                        .lineLimit(1)
                 }
                 Text(detail)
                     .font(TypeScale.caption)
@@ -197,6 +238,17 @@ private struct PresenceRow: View {
             }
 
             Spacer(minLength: Space.sm)
+
+            if presence.isUnexpected {
+                // Reads as tracked, in one glyph, and leaves the headline and
+                // the room name their full width. A badge spelling out "NOT
+                // EXPECTED" said the same thing as the headline beside it and
+                // pushed the room name into an ellipsis, which is worse.
+                Image(systemName: "viewfinder")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Palette.personUnexpected)
+                    .accessibilityHidden(true)
+            }
 
             if let down = presence.stillDownS, down > 0 {
                 // `still_down_s` is the clinical variable, not a diagnostic
@@ -215,18 +267,11 @@ private struct PresenceRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(presence.state == .personUnresponsive
-                      ? Palette.personUnresponsive.opacity(0.10)
-                      : Palette.surface)
+                .fill(emphasised ? tint.opacity(0.10) : Palette.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .strokeBorder(
-                    presence.state == .personUnresponsive
-                    ? Palette.personUnresponsive.opacity(0.45)
-                    : Palette.hairline,
-                    lineWidth: 1
-                )
+                .strokeBorder(emphasised ? tint.opacity(0.45) : Palette.hairline, lineWidth: 1)
         )
         .onAppear {
             guard presence.state == .personUnresponsive else { return }
@@ -235,7 +280,12 @@ private struct PresenceRow: View {
     }
 
     private var detail: String {
-        var parts: [String] = [presence.state.detail]
+        var parts: [String] = []
+        // First, so it survives truncation. This is a statement that the
+        // household has no account of this person, not a claim about who they
+        // are: the system does no recognition and must not imply that it does.
+        if presence.isUnexpected { parts.append("Not accounted for") }
+        parts.append(presence.state.detail)
         if let bpm = presence.breathingBpm { parts.append("\(Int(bpm.rounded())) breaths/min") }
         if presence.state.isPerson, presence.presenceClass != .unknown {
             parts.append(presence.presenceClass.label.lowercased())

@@ -207,6 +207,22 @@ struct Presence: Codable, Sendable, Hashable, Identifiable {
     var breathingBpm: Double? { vitals.breathingBpm }
     var heartBpm: Double? { vitals.heartBpm }
 
+    /// A confirmed person the system did not expect to be in the building.
+    ///
+    /// **`expected` is orthogonal to `state`, not a fourth `PresenceState`.**
+    /// An unexpected person is still moving or still unresponsive; what changes
+    /// is whether their being here is accounted for.
+    ///
+    /// `nil` means expected. A frame that omits the field must not turn the
+    /// household into intruders, and `agents/intruder` only ever sets it to
+    /// `false` deliberately.
+    ///
+    /// A perturbation with no respiration signature is never unexpected in this
+    /// sense, because it is not a person yet. That is the whole contrast the
+    /// burglary view is built on: the curtain over the garage vent and the
+    /// person who came in through the same zone look different on purpose.
+    var isUnexpected: Bool { state.isPerson && expected == false }
+
     /// A deterministic per-presence phase so several blobs do not breathe in
     /// lockstep, which looks synthetic.
     var phase: Double {
@@ -379,6 +395,9 @@ struct InteriorState: Codable, Sendable, Hashable {
 
     var peopleCount: Int { presences.filter(\.state.isPerson).count }
     var hasUnresponsive: Bool { presences.contains { $0.state == .personUnresponsive } }
+    /// Confirmed people the system did not expect to be in the building.
+    var unexpectedCount: Int { presences.filter(\.isUnexpected).count }
+    var hasUnexpected: Bool { unexpectedCount > 0 }
 
     /// False means the baseline is stale. Escalation is suppressed upstream and
     /// the view says so rather than drawing confident nonsense.

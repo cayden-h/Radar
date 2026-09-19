@@ -194,6 +194,10 @@ Every claim it accepts carries the identity of the agent that made it, that agen
 Derived from the `fraud.webmesh.ai` battery, which is thirteen ways of asking one question: **does this implementation treat a valid signature as authorization?**
 Ten of the thirteen pass only if the answer is no. Full mapping in `docs/fraud-13.md`.
 
+**This is implemented**, in `app/backend/hawkeye_backend/verification/`, with all thirteen shapes as passing tests.
+It lives in the hub for now only because `master` does not exist yet; it is a standalone package with no FastAPI or hub imports, so moving it is an import change.
+Do not write a second verifier. Import that one.
+
 1. **Verify the envelope.** mTLS handshake, then JWS signature over the canonical payload. **Nothing downstream ever sees an unverified field.** Verify first, parse second, never the reverse.
 2. **Check bindings.** Audience (this `master`, not any coordinator that will listen), zone scope, incident ID, nonce.
 3. **Check schema version.** Reject an under-specified claim rather than interpreting it charitably. This will bite us for ordinary reasons: nine agents at different build stages all weekend.
@@ -208,6 +212,9 @@ Fail closed and fail **quietly**. A verifier that throws mid-incident is a worse
 ### The dispatch address
 
 **The physical address is the single most important binding in this project, and it does not travel in a claim.**
+
+Implemented as a commitment in `verification/card.py`: the card carries `sha256(salt || address)`, the salt and plaintext are sealed at registration, and `caller` recomputes over the address it is about to speak.
+The card is world-readable, so publishing the street address of someone who cannot get off the floor would be a worse outcome than the attack. A test asserts the address is not recoverable from the published fragment; another asserts two installations at the same address produce different commitments, so cards cannot be linked.
 
 It is bound at registration to the installation's ANSName and sealed into the transparency log.
 No sensing agent, and no operator question, can change where a response is sent.
@@ -243,6 +250,134 @@ Rules for the inbound path:
 
 Operator speech also drives the user's phone. Keywords like "I've dispatched units" or "they're two minutes out" fire notifications to the resident through `guidance`.
 Match on meaning, not exact strings; a dispatcher will not say the phrase you hardcoded.
+
+
+### The resident's place on the call
+
+Settled 2026-09-19. **The call is a server-side conference bridge. The resident's phone is not a leg of it by default.**
+
+```
+conference bridge (backend)
+ |- agents/caller        agent voice
+ |- 911 operator         outbound leg
+ |- resident             added on demand, never by default
+```
+
+This is not an optimisation. Putting the call on the resident's phone means iOS owns the audio routing, and **call audio cannot be silenced below a floor**. During a burglary a speaking phone gives away a hiding person's position. Keeping them off the bridge by default means there is no audio stream to suppress.
+
+#### Three participation modes
+
+| Mode | Mic | Audio out | Used for |
+|---|---|---|---|
+| **Watching** | off | none | Default for Burglary. Transcript only. |
+| **Whispering** | **open** | **none** | Hiding, but needs to be heard |
+| **Full voice** | open | on | Faint, Fire, or Burglary once safe |
+
+**Whisper mode is the one worth building.** The resident's voice reaches the call; nothing comes back through the speaker. They speak and read the replies on screen.
+
+Someone in a closet can say "he is in the kitchen, I am upstairs" in a whisper and stay silent to the room around them. Typing cannot carry urgency or let a dispatcher hear a tone of voice. This can, without the phone making a sound.
+
+#### The bridge switch matrix
+
+Every leg has an independent **send** and **receive**. Whisper is simply send-only.
+
+| Leg | Send (heard by others) | Receive (hears the mix) |
+|---|---|---|
+| `agents/caller` | on | on |
+| 911 operator | on | on |
+| resident - watching | off | off |
+| resident - **whisper** | **on** | **off** |
+| resident - full voice | on | on |
+
+**Silence is enforced at the bridge, not on the device.** If audio is transmitted to the phone, iOS decides how to play it and the floor is not zero. If the bridge never sends it, there is nothing to play.
+That is the difference between muted, which is a promise the phone makes, and silent, which is a fact about what is on the wire.
+
+Switching modes is flipping one bit server-side. The app never has to be trusted to stay quiet.
+
+#### Whisper mode, step by step
+
+The app holds a WebRTC leg to the bridge from the moment the call starts, **send off and receive off**. No ring, no call UI, no sound.
+
+1. Resident taps **Whisper**
+2. App starts mic capture
+3. Bridge sets `send = on` for that leg
+4. Operator hears the resident
+5. Bridge still sends nothing back. **The app never subscribes to an inbound audio track**, so there is no stream to render even by accident
+6. `caller` announces: "The resident is joining but cannot hear you. They are hiding and will respond by voice only."
+7. Resident follows the conversation on the transcript
+
+Since nothing is played, there is no echo path and no acoustic echo cancellation to configure.
+
+**Known cost, state it rather than hide it:** whisper is half-duplex. The resident speaks in real time but reads replies with a second or two of transcription lag, so it behaves more like a radio exchange than a phone call.
+That is the correct trade against a phone that reveals where someone is hiding, and they can switch to full voice the moment it is safe.
+
+#### Why whisper mode is possible
+
+The resident's leg is **in-app audio over WebRTC to our own bridge**, not a phone call.
+
+A phone call hands audio routing to iOS, which is the source of the volume floor, plus a connect tone and call UI that are noisy in their own right. An app that owns its `AVAudioSession` opens the microphone and simply never renders the far-side stream. Skip CallKit so it does not present as a call.
+
+Output-silent is not a mute being fought. There is nothing being played.
+
+**Fallback if in-app audio does not fit the remaining time:** PSTN dial-in for full voice, whisper mode on the roadmap. Whisper is the feature no existing product has, so cut it last.
+
+#### Taking over
+
+**One button, permanently on screen, large: TAKE OVER.**
+
+- **Hold to confirm, 1.5s**, consistent with every other risky control in the app. Nothing in this UI misfires from a stray palm or a pocket.
+- The agent goes silent **mid-sentence**, not at the end of its thought.
+- It does not resume on its own. Handing back is a separate deliberate action.
+- **Voice barge-in is the instant path and is not held.** A human starts speaking, the agent yields immediately. That is what makes it safe for the button to be deliberate, so barge-in is load-bearing rather than a nicety.
+
+Add **voice barge-in** alongside the button: if a human starts speaking, the agent yields immediately.
+
+**Rule: the agent never talks over a human.** Not the operator, not the resident. Either speaks, it yields. That one rule covers most of the failure modes here.
+
+After takeover the agent stops speaking **on the call** but keeps feeding the app: CO reading, room, respiration, `still_down_s`. **The resident becomes the voice and the agent becomes the teleprompter.** That is better than the agent guessing what a frightened person wants said.
+
+Three controls, kept visually distinct because someone panicking will hit the biggest one:
+
+| | Effect |
+|---|---|
+| **Take over** | Agent silent, resident speaks. Call continues. Hold 1.5s in the app. |
+| **End call** | Hang up. Hold-to-confirm in the app, and **never a silent drop**; see false alarms below. |
+| **Automatic yield** | Agent stops the instant any human speaks. Not a button, so it cannot misfire, and it is the instant path when the hold is too slow. |
+
+#### Who may change the mode
+
+**Automation may only ever move toward quieter. Going louder requires a human hand.**
+
+Guessing wrong toward silence costs one tap. Guessing wrong toward audio makes a phone audible while someone is hiding. The two failures are not comparable, so inference is trusted in one direction only.
+
+- `master` may set **receive off** on its own, from the incident type or from the resident's typed context.
+- **Send on is never automatic.** Opening a microphone to emergency services is a human decision.
+- `caller` may surface an operator's request to speak. **The operator requests; only the resident grants.**
+
+Full UI treatment, including labelling modes by consequence rather than by our jargon, is in `app/CLAUDE.md`.
+
+#### Ending a call, and false alarms
+
+**An abandoned 911 call causes a dispatch.** PSAPs treat a dropped call as a real emergency and will call back, and send units when they cannot reach anyone.
+
+So `End call` must never be a silent hang-up. Before the leg closes, `caller` says what happened:
+
+- "This incident is being cancelled by the resident. There is no emergency at this address."
+- Or, if the resident is unreachable or cannot speak, it stays on and says so rather than dropping.
+
+An accidental raise that is immediately cancelled should cost the dispatcher ten seconds, not a truck.
+This is also why raising an incident is hold-to-confirm in the app: the cheapest false alarm is the one that never gets placed.
+
+#### Announce every transition
+
+**No unexplained voice changes on a call**, on a project whose threat model is impersonation. A dispatcher who hears the voice swap with no explanation has every reason to doubt the call.
+
+- "The resident is taking over."
+- "The resident is joining. They can hear you."
+- "The resident is joining but cannot hear you. They are hiding and will respond by voice only."
+
+That last line is real information. It tells a dispatcher there is an active threat, the caller is concealed, and how to speak to them. Silent 911 is a known hard problem; Text-to-911 exists but PSAP coverage is uneven.
+
 
 This is the fiduciary agent. It speaks to emergency services on a human's behalf. Treat it accordingly.
 
@@ -384,6 +519,7 @@ Full sequence, as filmed:
 5. `caller` dials. ElevenLabs voice to a human operator, reporting only verified claims - including the forty seconds that elapsed before anyone tapped.
 6. The resident watches a live transcript on their phone while `guidance` tells them what to do.
 7. **The operator asks a follow-up in plain English.** "Is the child still breathing?" The question fans out as ANS-verified queries, live, and comes back as a spoken answer. This is the beat that shows ANS working during the call rather than before it.
+   Then **the resident taps TAKE OVER and the agent goes silent mid-sentence.** Five seconds of footage that answers the room's biggest doubt about this entire project: what if the AI says something wrong. A human starts the call, a human can take it, a human can end it. The agent only ever holds the microphone on loan.
 8. **Then run it again with a compromised sensing agent** and show the system refusing to escalate on its claims.
    Build the attacker locally, in the thirteen shapes `fraud.webmesh.ai` uses. **His battery cannot be aimed at us** (no target parameter, hardwired to `supplier.webmesh.ai`, verified 2026-09-19), so we implement the probes rather than invoke them, and we say that plainly rather than implying we ran his suite.
    Stage `underpay_valid_sig`: a genuinely valid signature that must still be refused. It demonstrates the difference between authentication and authorization to a room, and its Hawk Eye analogue lands on a non-technical judge immediately. Per-probe translations in `docs/fraud-13.md`.

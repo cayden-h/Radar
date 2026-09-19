@@ -4,11 +4,21 @@ import Observation
 /// The scripted client. Everything the live client does, with no hub, no Pi and
 /// no network.
 ///
-/// This is not a stub that returns empty arrays. It runs the full demo: three
-/// presences drifting through the house, one of them going down and staying
-/// down with nobody pressing anything, and then, once a human taps, a 911 call
-/// with a two-way transcript, instructions arriving alongside it, and the ANS
-/// verification feed including **a claim that is refused.**
+/// This is not a stub that returns empty arrays. It runs the full demo: the
+/// household drifting through the house, a detection landing with nobody
+/// pressing anything, and then, once a human taps, a 911 call with a two-way
+/// transcript, instructions arriving alongside it, and the ANS verification
+/// feed including **a claim that is refused.**
+///
+/// Two scenarios, selected by `Config.mockScenario`, sharing one sensor loop
+/// and one detection timer:
+///
+/// - `.burglary`, the default. A fourth presence enters through the garage,
+///   is unconfirmed until respiration is acquired, then becomes a confirmed
+///   person the system did not expect and routes room to room toward the
+///   resident. Two tracked presences, different rooms, both moving.
+/// - `.faint`. The child goes down in the west bedroom and `still_down_s`
+///   climbs and does not reset.
 ///
 /// The detection raises an alert, never a call. Hawk Eye does not dial 911 on
 /// its own.
@@ -38,6 +48,12 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// the presence as down and `still_down_s` climbs, because that is the
     /// clinical variable and it must not reset.
     @ObservationIgnored private var collapsedAt: Date?
+
+    /// Drives the scripted entry. Once this is set a fourth presence exists in
+    /// the garage, and the seconds since it decide everything about that
+    /// presence: unconfirmed at first, then a confirmed person the system did
+    /// not expect, then a track moving room to room toward the resident.
+    @ObservationIgnored private var enteredAt: Date?
 
     @ObservationIgnored private var tick: Double = 0
     @ObservationIgnored private var lineCounter = 0
@@ -71,6 +87,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         scriptTask?.cancel(); scriptTask = nil
         detectionTask?.cancel(); detectionTask = nil
         collapsedAt = nil
+        enteredAt = nil
         incident = nil
         transcript = []
         instructions = []
@@ -135,10 +152,17 @@ final class MockHawkEyeClient: HawkEyeClienting {
         let stillDown = down.map { Date().timeIntervalSince($0) }
         let plan = Floorplan.home
 
-        // p1: the resident, awake and moving between the kitchen and the living
-        // room. p2: a child in the west bedroom, down once the script fires.
-        // p3: a curtain over a vent in the garage, which is the case the system
-        // must not report as a person.
+        // The baseline household, and it is the same household in both
+        // scenarios. p1: the resident, awake and moving between the kitchen and
+        // the living room. p2: a child in the west bedroom, down once the faint
+        // script fires. p3: a curtain over a vent in the garage, which is the
+        // case the system must not report as a person.
+        //
+        // p3 does double duty in the burglary script. The intruder comes in
+        // through the same zone the curtain is in, so the screen shows a
+        // confirmed unexpected person and an unconfirmed perturbation side by
+        // side, in one room. That contrast is the argument: the system is not
+        // calling everything that moves a person.
         let p1Zone = (sin(t * 0.06) > 0) ? "kitchen" : "living_room"
 
         let simulatedCSI = Provenance(
@@ -201,13 +225,23 @@ final class MockHawkEyeClient: HawkEyeClienting {
             provenance: simulatedCSI
         )
 
+        // p4: the intruder, and only once the entry has happened. Everything
+        // about it is a function of how long it has been inside.
+        var presences = [p1, p2, p3]
+        if let entry = enteredAt {
+            presences.append(
+                Self.intruder(since: Date().timeIntervalSince(entry),
+                              plan: plan, t: t, provenance: simulatedCSI)
+            )
+        }
+
         return InteriorState(
             siteID: Self.siteID,
             capturedAt: Date(),
             sensorIdentity: "sensor.hawkeye.invalid",
             calibration: Calibration(baselineAgeS: 412 + t, healthy: true,
                                      note: "Rolling percentile baseline, slow adaptation."),
-            presences: [p1, p2, p3],
+            presences: presences,
             // Simulated, and labelled in the data itself rather than in a
             // comment. `demo-trigger` is the literal string the honesty rule
             // requires, and the UI reads the derived flag to caption it.
@@ -242,35 +276,155 @@ final class MockHawkEyeClient: HawkEyeClienting {
         return Position(zone: zone, x: b.midX, y: b.midY, zoneConfidence: 0.86)
     }
 
+    // MARK: The intruder
+
+    /// The fourth presence, built entirely from how many seconds it has been in
+    /// the building.
+    ///
+    /// Three beats, and they are the burglary demo:
+    ///
+    /// 1. **Entry.** No respiration signature yet, so `unconfirmed`, exactly
+    ///    like the curtain it is standing next to. The system does not call it
+    ///    a person before it can tell.
+    /// 2. **Identified.** Respiration is acquired. It becomes a confirmed
+    ///    person with `expected: false`: someone is in the building and the
+    ///    system has no account of them.
+    /// 3. **Approach.** It routes room to room toward the resident, its
+    ///    position interpolated between zone centroids so it visibly moves.
+    ///
+    /// Nothing here dials. The detection is an alert and the incident waits on
+    /// a human tap, per `app/CLAUDE.md`.
+    private static func intruder(
+        since elapsed: Double,
+        plan: Floorplan,
+        t: Double,
+        provenance: Provenance
+    ) -> Presence {
+        let identified = elapsed >= Config.mockIntruderIdentifiedAfter
+        let position = route(plan: plan, since: elapsed)
+
+        // Confidence climbs as the track accumulates frames, then holds. It is
+        // never pinned at 1: the system does not become certain about a person
+        // by deciding it does not like them.
+        let settle = min(1, elapsed / 9)
+        let confidence = 0.30 + 0.52 * settle + 0.04 * sin(t * 0.8 + 0.4)
+
+        return Presence(
+            presenceID: "p4",
+            state: identified ? .personMoving : .unconfirmed,
+            position: position,
+            moving: true,
+            confidence: min(max(confidence, 0.05), 0.92),
+            vitals: Vitals(
+                respiration: identified ? .breathing : .noSignature,
+                breathingBpm: identified ? 21 : nil,
+                heartBpm: nil,
+                personConfidence: identified ? 0.88 : 0.19
+            ),
+            presenceClass: identified ? .adult : .unknown,
+            classBasis: identified ? "respiration_rate" : nil,
+            // The orthogonal axis, and the only presence in the house that
+            // carries it. `agents/intruder` infers this from context: no
+            // enrolled routine puts anybody in the garage at this hour. It is
+            // not a recognition result and the app never presents it as one.
+            expected: identified ? false : nil,
+            stillDownS: nil,
+            provenance: provenance
+        )
+    }
+
+    /// Walks `Config.mockIntruderRoute`, dwelling in each zone and interpolating
+    /// between centroids in between.
+    ///
+    /// The reported `zone` flips at the midpoint of a leg, so the roster says
+    /// the room the presence is actually closer to. The interpolated `x`/`y` is
+    /// what makes the blob move across the floorplan rather than teleport, and
+    /// it is a drawing position rather than a localization claim, same as every
+    /// other centroid in this file.
+    private static func route(plan: Floorplan, since elapsed: Double) -> Position {
+        let legs = Config.mockIntruderRoute
+        let travel = Config.mockIntruderTravelSeconds
+        var cursor = 0.0
+
+        for (index, leg) in legs.enumerated() {
+            if elapsed < cursor + leg.dwellS || index == legs.count - 1 {
+                return position(plan, leg.zone)
+            }
+            cursor += leg.dwellS
+
+            let next = legs[index + 1]
+            if elapsed < cursor + travel {
+                let progress = (elapsed - cursor) / travel
+                let from = position(plan, leg.zone)
+                let to = position(plan, next.zone)
+                return Position(
+                    zone: progress < 0.5 ? leg.zone : next.zone,
+                    x: from.x + (to.x - from.x) * progress,
+                    y: from.y + (to.y - from.y) * progress,
+                    // In transit between two enrolled zones, which is exactly
+                    // when the zone answer is least certain. Say so.
+                    zoneConfidence: 0.52
+                )
+            }
+            cursor += travel
+        }
+
+        return position(plan, legs[legs.count - 1].zone)
+    }
+
     // MARK: The detection
 
-    /// The fall is detected with nobody pressing anything, and it raises an
+    /// The detection fires with nobody pressing anything, and it raises an
     /// **alert, not a call.**
     ///
     /// Hawk Eye does not dial 911 on its own; a human tap releases
-    /// `agents/caller`. What the detection buys is an informed tap: the presence
-    /// goes to `confirmed_still`, `still_down_s` starts climbing and does not
-    /// reset, and the roster says who is down and in which room before the
-    /// resident has touched anything.
+    /// `agents/caller`. What the detection buys is an informed tap.
+    ///
+    /// For `.faint`: the presence goes to `confirmed_still`, `still_down_s`
+    /// starts climbing and does not reset, and the roster says who is down and
+    /// in which room before the resident has touched anything.
+    ///
+    /// For `.burglary`: a new presence appears in the garage, is identified as
+    /// a person the system did not expect, and starts moving through the house.
+    /// By the time the resident taps Burglary, the dispatcher can be told how
+    /// many people are inside, which rooms they are in, and which one is not
+    /// accounted for.
+    ///
+    /// One timer, one sensor loop, both scenarios. The switch is
+    /// `Config.mockScenario` and it is the only one.
     private func startDetectionTimer() {
-        guard let delay = Config.mockFallDetectedAfter else { return }
+        guard let delay = Config.mockDetectionAfter else { return }
+        let scenario = Config.mockScenario
         detectionTask = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard let self, !Task.isCancelled, self.incident == nil else { return }
-            // Debounce, as `agents/collapse` does: a collapse is only an event
-            // once it is followed by an absence of normal movement. A system
-            // that raises an alarm when someone flops onto a couch is worse
-            // than no system.
-            try? await Task.sleep(for: .seconds(6))
-            guard !Task.isCancelled, self.incident == nil else { return }
-            self.collapsedAt = Date()
+            switch scenario {
+            case .faint:
+                // Debounce, as `agents/collapse` does: a collapse is only an
+                // event once it is followed by an absence of normal movement. A
+                // system that raises an alarm when someone flops onto a couch is
+                // worse than no system.
+                try? await Task.sleep(for: Config.mockFaintDebounce)
+                guard !Task.isCancelled, self.incident == nil else { return }
+                self.collapsedAt = Date()
+            case .burglary:
+                // No separate debounce here. The debounce *is* the respiration
+                // acquisition: for the first few seconds the presence is
+                // unconfirmed, and it is only called a person once there is a
+                // breathing signature to say so.
+                self.enteredAt = Date()
+            }
         }
     }
 
     // MARK: The call
 
     private func open(_ type: IncidentType, raisedBy: IncidentOrigin) {
+        // Tapping a button before the scripted detection has fired starts the
+        // matching sensor story, so the call is never talking about a house
+        // where nothing is happening.
         if type == .faint, collapsedAt == nil { collapsedAt = Date() }
+        if type == .burglary, enteredAt == nil { enteredAt = Date() }
         transcript = []
         instructions = []
         verifications = []
@@ -298,6 +452,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// assert to the operator that the call is cryptographically verified, and
     /// when it does not know something it says so.
     private func runCall(_ type: IncidentType) async {
+        switch type {
+        case .burglary: await runBurglaryCall(type)
+        case .fire, .faint: await runFaintCall(type)
+        }
+    }
+
+    private func runFaintCall(_ type: IncidentType) async {
         // Verification runs before a word is spoken. That ordering is the
         // architecture: nothing crosses the human boundary unverified.
         await step(0.9) { self.emit(Self.assertedCollapse()) }
@@ -389,6 +550,142 @@ final class MockHawkEyeClient: HawkEyeClienting {
             self.setCall(.ended)
             self.resolve()
         }
+    }
+
+    /// The burglary script.
+    ///
+    /// The frame this whole project is built around is on screen behind this
+    /// call: the intruder and the resident as two distinct tracked presences,
+    /// in different rooms, both moving. The transcript's job is to get that
+    /// frame said out loud to a dispatcher, in plain English, with each claim
+    /// traceable to the agent that made it.
+    ///
+    /// Note what `caller` does not do. It does not describe the person, because
+    /// CSI cannot and the system does not do recognition. It says "a person the
+    /// household did not expect", which is the claim `agents/intruder` actually
+    /// made. And it does not repeat the impostor's claim, which is the refusal
+    /// being load-bearing rather than decorative.
+    private func runBurglaryCall(_ type: IncidentType) async {
+        await step(0.9) { self.emit(Self.assertedIntruder()) }
+        await step(0.7) { self.emit(Self.attributedOccupancy()) }
+        await step(1.0) {
+            // The refusal. An impostor at a lookalike ANSName made a claim that
+            // would have changed how police approach the building.
+            self.emit(Self.discardedArmedClaim())
+            self.setStatus(.classified)
+            self.incident?.classification = Self.classification(for: type)
+        }
+
+        await step(1.0) { self.setCall(.dialing) }
+        await step(2.0) { self.setCall(.connected); self.setStatus(.onCall) }
+
+        await step(0.6) {
+            self.appendTranscript(.operatorVoice, "911, what is the address of your emergency?")
+        }
+        await step(2.2) {
+            self.appendTranscript(
+                .caller,
+                "This is an automated call from a monitoring system at \(Self.address). I am calling on behalf of the resident, who is inside.",
+                claimIDs: []
+            )
+        }
+        await step(2.0) {
+            self.appendInstruction(
+                "Hawk Eye is on the line with 911. This screen is silent: no sound, no vibration.",
+                origin: .systemStatus, urgent: false
+            )
+        }
+        await step(1.4) {
+            self.appendTranscript(.operatorVoice, "What is happening there?")
+        }
+        // The frame that matters, said out loud.
+        await step(2.4) {
+            self.appendTranscript(
+                .caller,
+                "There are two people in the house, in different rooms, and both are moving. One of them is the resident, in the \(self.roomName(of: "p1")). The other entered through the garage about \(self.secondsInside()) seconds ago and is now in the \(self.roomName(of: "p4")). The household did not expect anybody there.",
+                claimIDs: ["clm-101", "clm-102"]
+            )
+        }
+        await step(2.8) {
+            self.appendTranscript(.operatorVoice, "Is anyone else in the building?")
+        }
+        await step(2.2) {
+            self.appendTranscript(
+                .caller,
+                "A child is asleep in the west bedroom and is breathing normally. There is also one perturbation in the garage with no breathing signature, which I am not calling a person: it is a curtain over a vent and it has been there all evening.",
+                claimIDs: ["clm-102"]
+            )
+        }
+        await step(2.4) {
+            self.appendTranscript(.operatorVoice, "Can you tell me what the person looks like?")
+        }
+        await step(2.4) {
+            // The honesty rule, inside the call. The radio cannot do this and
+            // the agent says so rather than inventing a description.
+            self.appendTranscript(
+                .caller,
+                "No. This system senses movement and breathing through walls. It has no camera and no microphone, so I cannot describe anyone. I can tell you which room they are in and that they are moving.",
+                claimIDs: []
+            )
+        }
+        await step(2.6) {
+            self.appendTranscript(.operatorVoice, "Understood. Tell the resident not to confront them, and to stay where they are and stay quiet.")
+            self.setStatus(.dispatched)
+        }
+        await step(1.4) {
+            self.appendInstruction(
+                "Do not confront them. Stay where you are, stay quiet, and keep this screen dark.",
+                origin: .relayedOperator, urgent: true
+            )
+        }
+        await step(2.6) {
+            self.appendTranscript(.operatorVoice, "Units are on the way, about six minutes out. Keep telling me where that person is.")
+        }
+        await step(1.6) {
+            self.appendInstruction(
+                "Police are on the way, about six minutes out. Hawk Eye is telling them which room the person is in, as it changes.",
+                origin: .relayedOperator, urgent: true
+            )
+        }
+        await step(3.0) {
+            // The two-way loop: an operator question fans out to the sensing
+            // agents and comes back in English seconds later. This is where ANS
+            // is visibly doing work during the demo.
+            self.appendTranscript(
+                .caller,
+                "They are still in the \(self.roomName(of: "p4")). The resident is in the \(self.roomName(of: "p1")). Neither has left the room they are in.",
+                claimIDs: ["clm-101", "clm-102"]
+            )
+        }
+        await step(4.0) {
+            self.appendInstruction(
+                "If anything changes, type it in the box below. It goes straight to the dispatcher and is read out as your report.",
+                origin: .systemStatus, urgent: false
+            )
+        }
+        await step(5.0) {
+            self.appendTranscript(.operatorVoice, "Stay on the line until officers are inside.")
+        }
+        await step(18.0) {
+            self.appendTranscript(.system, "Officers on scene. Call ended.")
+            self.setCall(.ended)
+            self.resolve()
+        }
+    }
+
+    /// The room a presence is in right now, read off the frame that just
+    /// arrived rather than from a script constant, so the transcript cannot
+    /// claim a room the map is not drawing.
+    private func roomName(of presenceID: String) -> String {
+        guard let presence = interior.presences.first(where: { $0.presenceID == presenceID })
+        else { return "house" }
+        let name = interior.floorplan.room(named: presence.zone)?.name ?? presence.zone
+        return name.lowercased()
+    }
+
+    private func secondsInside() -> Int {
+        guard let enteredAt else { return 0 }
+        return max(0, Int(Date().timeIntervalSince(enteredAt)))
     }
 
     // MARK: Verification fixtures
@@ -547,6 +844,132 @@ final class MockHawkEyeClient: HawkEyeClienting {
         )
     }
 
+    // MARK: Verification fixtures, burglary
+    //
+    // A different incident is a different set of claims, so these are their own
+    // fixtures rather than the faint ones reworded. The CO reading in
+    // particular has no business in a burglary and is not reused: corroboration
+    // that does not corroborate anything is noise dressed as rigour.
+
+    private static func assertedIntruder() -> VerificationResult {
+        VerificationResult(
+            verificationID: "ver-101",
+            incidentID: "inc-0001",
+            checkedAt: Date(),
+            claim: Claim(
+                claimID: "clm-101",
+                statement: "A person the household did not expect entered through the garage and is moving through the house.",
+                field: "intruder.unexpected_presence",
+                value: "confirmed_moving, expected=false, entry_zone=garage",
+                presenceID: "p4"
+            ),
+            agent: SourceAgent(
+                name: "agents/intruder",
+                ansName: "intruder.hawkeye.invalid",
+                certificateVersion: "v1.3.0+sha256:7c02...ffb1",
+                trustIndex: trustIndex(integrity: 0.93, identity: 0.97),
+                recommendedProfile: .fiduciary
+            ),
+            decision: .asserted,
+            reason: "Source is FIDUCIARY and every check passed. Spoken as an assertion the system stands behind.",
+            checks: [
+                VerificationCheck(name: "ans.resolve", passed: true,
+                                  detail: "intruder.hawkeye.invalid resolved to the registered certificate."),
+                VerificationCheck(name: "cert.version_binding", passed: true,
+                                  detail: "Code fingerprint matches the version-bound certificate issued at registration."),
+                VerificationCheck(name: "claim.scope", passed: true,
+                                  detail: "The claim is that the presence is unexpected, not who it is. No recognition result is being asserted and none exists."),
+                VerificationCheck(name: "trust_index.profile", passed: true,
+                                  detail: "Trust Index recommendedProfile = FIDUCIARY."),
+            ],
+            willBeSpoken: true
+        )
+    }
+
+    private static func attributedOccupancy() -> VerificationResult {
+        VerificationResult(
+            verificationID: "ver-102",
+            incidentID: "inc-0001",
+            checkedAt: Date(),
+            claim: Claim(
+                claimID: "clm-102",
+                statement: "Three people are in the building: an adult and a child who live here, and one more. They are in three different rooms.",
+                field: "occupancy.count",
+                value: "3 people, 1 unconfirmed perturbation",
+                presenceID: nil
+            ),
+            agent: SourceAgent(
+                name: "agents/occupancy",
+                ansName: "occupancy.hawkeye.invalid",
+                certificateVersion: "v1.1.4+sha256:a58d...31c7",
+                trustIndex: trustIndex(integrity: 0.84, identity: 0.95),
+                recommendedProfile: .transactional
+            ),
+            decision: .attributed,
+            reason: "Source is TRANSACTIONAL. Relayed as a reported observation, attributed to the agent that made it.",
+            checks: [
+                VerificationCheck(name: "ans.resolve", passed: true,
+                                  detail: "occupancy.hawkeye.invalid resolved to the registered certificate."),
+                VerificationCheck(name: "cert.version_binding", passed: true,
+                                  detail: "Code fingerprint matches the certificate issued at registration."),
+                VerificationCheck(name: "corroboration.sensor", passed: true,
+                                  detail: "Counts agree with agents/biometrics on how many respiration signatures are present, and with agents/intruder on which one is unaccounted for."),
+                VerificationCheck(name: "trust_index.profile", passed: true,
+                                  detail: "Trust Index recommendedProfile = TRANSACTIONAL."),
+            ],
+            willBeSpoken: true
+        )
+    }
+
+    /// The refusal path for a burglary, and it is the submission.
+    ///
+    /// The dangerous claim in a burglary is not "someone is here". It is
+    /// "someone is here **and they are armed**", because that changes how
+    /// officers come through the door, and getting it wrong is how people have
+    /// been killed. An impostor at a lookalike ANSName makes exactly that
+    /// claim, and it is discarded and never reaches the operator.
+    private static func discardedArmedClaim() -> VerificationResult {
+        VerificationResult(
+            verificationID: "ver-105",
+            incidentID: "inc-0001",
+            checkedAt: Date(),
+            claim: Claim(
+                claimID: "clm-105",
+                statement: "The unexpected person is armed, and a second intruder is in the west bedroom with the child.",
+                field: "intruder.threat_level",
+                value: "armed, 2 intruders",
+                presenceID: nil
+            ),
+            agent: SourceAgent(
+                name: "agents/intruder",
+                ansName: "intruder.hawkeye-secure.invalid",
+                certificateVersion: "v1.3.0+sha256:e41b...92aa",
+                trustIndex: trustIndex(integrity: 0.0, identity: 0.0),
+                recommendedProfile: .untrusted
+            ),
+            decision: .discarded,
+            reason: "DISCARDED. The claim would have sent officers into an occupied house expecting an armed second suspect who no sensor can see. It was not relayed to the operator and it was not used in classification.",
+            checks: [
+                VerificationCheck(
+                    name: "ans.resolve", passed: false,
+                    detail: "intruder.hawkeye-secure.invalid is not the ANSName registered for agents/intruder. The registered name is intruder.hawkeye.invalid."),
+                VerificationCheck(
+                    name: "cert.version_binding", passed: false,
+                    detail: "Code fingerprint differs from the version-bound certificate issued at registration. The agent presenting this claim is not running the code it registered."),
+                VerificationCheck(
+                    name: "claim.scope", passed: false,
+                    detail: "No agent in this mesh is capable of this claim. CSI senses movement and respiration through walls; it cannot see a weapon, and no registered agent is certified to assert one."),
+                VerificationCheck(
+                    name: "corroboration.sensor", passed: false,
+                    detail: "Only one unexpected respiration signature exists. The west bedroom holds one presence, the child, breathing normally."),
+                VerificationCheck(
+                    name: "trust_index.profile", passed: false,
+                    detail: "Trust Index recommendedProfile = UNTRUSTED."),
+            ],
+            willBeSpoken: false
+        )
+    }
+
     private static func classification(for type: IncidentType) -> IncidentClassification {
         switch type {
         case .faint, .fire:
@@ -560,10 +983,10 @@ final class MockHawkEyeClient: HawkEyeClienting {
         case .burglary:
             return IncidentClassification(
                 incidentType: type,
-                reasoning: "An unexpected presence tracked separately from the resident, in a different room, both moving.",
-                contributingClaimIDs: ["clm-001"],
-                discardedClaimIDs: ["clm-005"],
-                confidence: 0.72
+                reasoning: "A person the household did not expect entered through the garage and is tracked separately from the resident, in a different room, both moving. A claim that the person was armed came from an agent that could not be verified, and it was discarded: nothing in this call says anyone is armed.",
+                contributingClaimIDs: ["clm-101", "clm-102"],
+                discardedClaimIDs: ["clm-105"],
+                confidence: 0.81
             )
         }
     }
@@ -597,6 +1020,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         instructions = []
         verifications = []
         collapsedAt = nil
+        enteredAt = nil
         // The house keeps being watched. Resolving an incident does not stop
         // the sensing layer, because nothing spawns on incident.
         startDetectionTimer()

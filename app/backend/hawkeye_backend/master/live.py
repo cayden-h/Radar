@@ -21,7 +21,7 @@ import logging
 import httpx
 from pydantic import ValidationError
 
-from hawkeye_backend.master.base import EventSink, MasterUnavailable
+from hawkeye_backend.master.base import AutonomousDialRefused, EventSink, MasterUnavailable
 from hawkeye_backend.master.scenario import AGENT_ROSTER
 from hawkeye_backend.models.events import EnvelopeAdapter
 from hawkeye_backend.models.hub import AgentReachability, Reachability, SensorLiveness
@@ -177,6 +177,14 @@ class LiveMasterClient:
     async def raise_incident(
         self, incident_type: IncidentType, raised_by: RaisedBy, note: str | None
     ) -> Incident:
+        # The hub forwards taps, and only taps. master owns the mesh side of
+        # this, but the hub refuses to be the thing that asks it to dial without
+        # a human: Hawk Eye never calls 911 on its own, settled 2026-09-19.
+        if raised_by is not RaisedBy.USER:
+            raise AutonomousDialRefused(
+                f"the hub will not forward a {raised_by.value!r}-raised incident to master. "
+                "A detection surfaces as interior state; a human tap releases the call."
+            )
         body: dict[str, object] = {
             "incident_type": incident_type.value,
             "raised_by": raised_by.value,
