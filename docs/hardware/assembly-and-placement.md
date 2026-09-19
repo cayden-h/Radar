@@ -92,6 +92,16 @@ home router / modem
                 AX1450 ))))))))) people ))))))))) Pi   (the measurement)
 ```
 
+**Settled 2026-09-19: the uplink is a wall jack.** The AX1450's WAN goes into an ethernet wall jack
+at the house, not into the home router's LAN ports and not through a laptop. Same chain as drawn
+above, one less box, and the uplink question is closed: **the house shoot has internet**, so the
+911 call, ElevenLabs, Twilio, ANS and Gemini all work during the take.
+
+Two things follow from that and are worth checking before filming rather than during it.
+The jack has to be live, which is not the same as the jack existing; test it with a laptop first.
+And the channel-separation rule still applies, because a wall jack usually means the household's own
+network is on the same physical uplink: check what channel it runs on and take a different non-DFS one.
+
 No MacBook in the uplink chain.
 Internet Sharing exists only to give a router a wired uplink where there is none, and at the house the uplink is already ethernet.
 Dropping it removes three failure points: macOS Internet Sharing, the USB Ethernet adapter in the uplink role, and the 192.168.2.x subnet collision.
@@ -105,8 +115,11 @@ If the demo router and the household's existing network share it, household traf
 Check what the home network is on and take a different non-DFS channel.
 See [router-archer-ax1450.md](router-archer-ax1450.md).
 
-Decide before filming whether the Pi needs internet at all.
-If the sensing agents run on a laptop on the same LAN rather than on Vultr, the uplink stops mattering during the take, which is one less thing that can break on camera.
+~~Decide before filming whether the Pi needs internet at all.~~
+**Decided 2026-09-19: it does, and it has it.** The wall jack settles this. Run the agents on Vultr
+for the take, which is also what the primary track requires, rather than LAN-local. The earlier
+suggestion to drop the uplink by moving the agents onto a laptop is superseded: it traded a track
+requirement for a robustness gain we no longer need.
 
 ### What actually needs internet, and what survives without it
 
@@ -163,6 +176,19 @@ The agents run from Vultr and the CSI is replayed from the session captured at t
 The Pi and router come for a prop and for one honest live bit: **movement response**.
 No calibration, no baseline, no through-wall claim.
 A judge waves a hand and the signal moves.
+
+**What the judging table actually shows, settled 2026-09-19.** Four things, in this order:
+
+1. **Live RF response.** A hand waved between the router and the Pi moves the signal, in real time.
+   This is the only live sensing claim made at the venue and it is the only one that survives a hall.
+2. **The map.** The interior view drawing presences into the enrolled floorplan, off replayed CSI.
+3. **Family management in the app.** Adding and approving people, on the app's own path.
+   This needs no hardware and no live capture, so it cannot be broken by the room.
+4. **Replay.** The sealed post-incident record, reviewed after the fact.
+
+Everything a judge can verify live is either app-local or replayed. Nothing on that table depends on
+the capture path behaving in an unfamiliar room, which is the whole reason the sensing claims stay in
+the video shot at the house.
 
 The reason the rest stays in the video is principled, not an excuse.
 Counting and localization need a baseline, and a hall cannot supply a usable one: the baseline decays as the room fills because bodies are reflectors, and occupancy assumes a bounded space that an open hall does not have.
