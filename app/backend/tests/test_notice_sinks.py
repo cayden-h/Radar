@@ -11,8 +11,9 @@ import httpx
 import pytest
 
 from hawkeye_backend.models.common import Provenance, Source
+from hawkeye_backend.models.events import NoticeEvent
 from hawkeye_backend.models.notice import Notice, NoticeSeverity
-from hawkeye_backend.notices.sinks import TwilioSink, deliver
+from hawkeye_backend.notices.sinks import StreamSink, TwilioSink, deliver
 
 pytestmark = pytest.mark.asyncio
 
@@ -69,6 +70,25 @@ async def test_a_failing_sink_does_not_stop_the_others():
     assert len(good.seen) == 1
 
 
+async def test_the_stream_sink_emits_a_notice_event():
+    """The in-app banner's whole path starts here, so it gets a real test.
+
+    Task 5 wires this into the runtime's one emit path and Task 9 draws the
+    banner off it.
+    """
+    emitted: list[NoticeEvent] = []
+
+    async def emit(event: NoticeEvent) -> None:
+        emitted.append(event)
+
+    notice = a_notice()
+    await StreamSink(emit).deliver(notice)
+
+    assert len(emitted) == 1
+    assert isinstance(emitted[0], NoticeEvent)
+    assert emitted[0].notice is notice
+
+
 def stub_twilio(captured: list[httpx.Request], status: int = 201) -> httpx.AsyncClient:
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
@@ -78,6 +98,17 @@ def stub_twilio(captured: list[httpx.Request], status: int = 201) -> httpx.Async
 
 
 def a_sink(captured: list[httpx.Request], status: int = 201, **overrides) -> TwilioSink:
+    """Each test gets a fresh sink, so the default 60s `min_interval_s` never
+    engages unless a test overrides it - the sink has never sent before, so
+    `_last_at` is `None` and the interval check does not fire on the first
+    call. That is why `test_the_rate_limit_caps_a_rehearsal_loop` has to pass
+    `min_interval_s=0.0` explicitly: it sends more than once per sink and would
+    otherwise be capped by the interval rather than by the count it is testing.
+
+    `overrides` is applied after `base` is built, including `client`, so a
+    test that wants to inject its own client (rather than one built from
+    `status`) can pass one and only one client is ever constructed.
+    """
     base = dict(
         account_sid="ACfake",
         auth_token="tokenfake",
@@ -131,7 +162,7 @@ async def test_the_sms_never_contains_the_street_address():
 async def test_the_rate_limit_caps_a_rehearsal_loop():
     """A bug in the trigger must not be able to burn the trial credit."""
     captured: list[httpx.Request] = []
-    sink = a_sink(captured, min_interval_s=0.0, max_per_process=3)
+    sink = a_sink(captured, min_interval_s=0.0, max_per_instance=3)
 
     for i in range(10):
         await sink.deliver(a_notice(notice_id=f"ntc-{i}"))
@@ -144,3 +175,18 @@ async def test_a_twilio_error_response_is_logged_not_raised():
     captured: list[httpx.Request] = []
 
     await a_sink(captured, status=400).deliver(a_notice())  # must not raise
+
+
+async def test_an_injected_client_is_not_closed_by_the_sink():
+    """A caller that supplies a client owns its lifetime.
+
+    Task 5 constructs this sink at app startup. If the sink closed a client it
+    was handed, it would close it out from under everything else using it.
+    """
+    captured: list[httpx.Request] = []
+    client = stub_twilio(captured)
+    sink = a_sink(captured, client=client)
+
+    await sink.aclose()
+
+    assert not client.is_closed

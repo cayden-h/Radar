@@ -44,6 +44,11 @@ async def deliver(notice: Notice, sinks: Sequence[NoticeSink]) -> None:
 
     This is load-bearing for demo day: a Twilio trial that starts refusing
     A2P sends on Sunday morning must leave the in-app banner intact.
+
+    Cancellation is not failure for this purpose. `CancelledError` is a
+    `BaseException` and passes straight through, so a cancelled delivery skips
+    every sink after the one in flight. That is intended - a shutting-down hub
+    should stop, not keep trying to text people.
     """
     for sink in sinks:
         try:
@@ -85,16 +90,26 @@ class TwilioSink:
         timezone: str,
         client: httpx.AsyncClient | None = None,
         min_interval_s: float = 60.0,
-        max_per_process: int = 5,
+        max_per_instance: int = 5,
     ) -> None:
+        """
+        max_per_instance: at most this many sends for the life of this sink.
+            Per instance rather than per process, which in practice is the same
+            thing because the app constructs exactly one of these at startup.
+            Named for what it actually counts rather than for what it is used
+            for, so a second instance cannot quietly double the budget.
+        """
         self._sid = account_sid
         self._from = from_number
         self._to = to_number
         self._tz = ZoneInfo(timezone)
         self._client = client or httpx.AsyncClient(timeout=10.0)
+        # Only close what we created. A caller that injected a client owns its
+        # lifetime, and closing it here would break every other user of it.
+        self._owns_client = client is None
         self._auth = (account_sid, auth_token)
         self._min_interval_s = min_interval_s
-        self._max_per_process = max_per_process
+        self._max_per_instance = max_per_instance
         self._sent = 0
         self._last_at: float | None = None
         self._lock = asyncio.Lock()
@@ -119,9 +134,9 @@ class TwilioSink:
     async def deliver(self, notice: Notice) -> None:
         async with self._lock:
             now = time.monotonic()
-            if self._sent >= self._max_per_process:
-                logger.warning("twilio: process cap of %d reached, dropping %s",
-                               self._max_per_process, notice.notice_id)
+            if self._sent >= self._max_per_instance:
+                logger.warning("twilio: instance cap of %d reached, dropping %s",
+                               self._max_per_instance, notice.notice_id)
                 return
             if self._last_at is not None and (now - self._last_at) < self._min_interval_s:
                 logger.warning("twilio: within %.0fs of the last send, dropping %s",
@@ -136,9 +151,20 @@ class TwilioSink:
             data={"From": self._from, "To": self._to, "Body": self._body(notice)},
         )
         if resp.status_code >= 400:
-            logger.error("twilio refused %s: %s %s", notice.notice_id, resp.status_code, resp.text)
+            # Twilio error bodies echo request parameters back, including the
+            # destination number, so the code is logged and the body is not.
+            try:
+                code = resp.json().get("code")
+            except ValueError:
+                code = None
+            logger.error(
+                "twilio refused %s: status=%s code=%s",
+                notice.notice_id, resp.status_code, code,
+            )
             return
         logger.info("twilio sent %s", notice.notice_id)
 
     async def aclose(self) -> None:
-        await self._client.aclose()
+        """Close the HTTP client, but only if this sink created it."""
+        if self._owns_client:
+            await self._client.aclose()
