@@ -76,6 +76,10 @@ struct AddFamilyMemberView: View {
             Text("Devices on your network")
                 .eyebrowStyle(Palette.inkFaint)
 
+            Text(devices.isEmpty ? "No devices connected" : "\(devices.count) device\(devices.count == 1 ? "" : "s") connected")
+                .font(TypeScale.caption)
+                .foregroundStyle(devices.isEmpty ? Palette.inkFaint : Palette.inkMuted)
+
             if devices.isEmpty {
                 Text("No phones seen on your WiFi yet. Ask them to join your home network, then come back here.")
                     .font(TypeScale.body)
