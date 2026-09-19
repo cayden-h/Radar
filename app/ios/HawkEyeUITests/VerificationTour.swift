@@ -37,25 +37,9 @@ final class VerificationTour: XCTestCase {
         // Let the verifications accumulate, including the discarded one.
         sleep(40)
 
-        print("TREE-START")
-        print(app.debugDescription)
-        print("TREE-END")
-
-        // The tab may be a button, a segmented control, or a bare tappable
-        // text depending on how it was built. Try each in turn.
-        var tapped = false
-        let asButton = app.buttons.containing(.staticText, identifier: "What was verified").firstMatch
-        if asButton.exists { asButton.tap(); tapped = true }
-        if !tapped {
-            let asText = app.staticTexts["What was verified"].firstMatch
-            if asText.exists { asText.tap(); tapped = true }
-        }
-        if !tapped {
-            let byLabel = app.descendants(matching: .any)
-                .matching(NSPredicate(format: "label CONTAINS[c] 'verified'")).firstMatch
-            if byLabel.exists { byLabel.tap(); tapped = true }
-        }
-        XCTAssertTrue(tapped, "could not find the verification tab")
+        let tab = app.buttons["What was verified"].firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 15), "no verification tab")
+        tab.tap()
         sleep(2)
         shoot("10-verified-top")
 

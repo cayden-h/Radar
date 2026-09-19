@@ -43,16 +43,52 @@ struct IncidentView: View {
         ZStack {
             Palette.ground.ignoresSafeArea()
 
-            VStack(spacing: Space.md) {
-                banner
-                guidanceStack
-                if !refusals.isEmpty { refusalBanner }
-                feedSwitch
-                feedBody
+            // One scroll for the whole page, with the context field pinned.
+            //
+            // The header grows without bound as `guidance` sends instructions,
+            // so when the feed had its own inner ScrollView the header squeezed
+            // it to a couple of hundred points and the discarded claim, which is
+            // the most important thing on this screen, became unreachable.
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing: Space.md) {
+                            banner
+                            guidanceStack
+                            if !refusals.isEmpty { refusalBanner }
+                            feedSwitch
+                            feedBody
+                            Color.clear.frame(height: 1).id(Self.bottomAnchor)
+                        }
+                        .padding(.horizontal, Space.gutter)
+                        .padding(.top, Space.md)
+                        .padding(.bottom, Space.sm)
+                    }
+                    .scrollIndicators(.hidden)
+                    .onChange(of: client.transcript.count) {
+                        guard feed == .call else { return }
+                        withAnimation(Motion.arrive) {
+                            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                        }
+                    }
+                }
+
                 contextField
+                    .padding(.horizontal, Space.gutter)
+                    .padding(.bottom, Space.md)
             }
-            .padding(.horizontal, Space.gutter)
-            .padding(.bottom, Space.md)
+            // Scrolled content passes under the status bar, so fade it out
+            // rather than letting transcript text collide with the clock.
+            .overlay(alignment: .top) {
+                LinearGradient(
+                    colors: [Palette.ground, Palette.ground.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 28)
+                .ignoresSafeArea(edges: .top)
+                .allowsHitTesting(false)
+            }
         }
         .preferredColorScheme(.dark)
         .animation(Motion.arrive, value: refusals.count)
@@ -238,33 +274,22 @@ struct IncidentView: View {
     }
 
     private var transcript: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: Space.md) {
-                    ForEach(client.transcript) { line in
-                        TranscriptRow(line: line)
-                            .id(line.id)
-                    }
-                    Color.clear.frame(height: 1).id(Self.bottomAnchor)
-                }
-                .padding(.vertical, Space.sm)
-            }
-            .scrollIndicators(.hidden)
-            .onChange(of: client.transcript.count) {
-                withAnimation(Motion.arrive) {
-                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(alignment: .top) {
+        VStack(alignment: .leading, spacing: Space.md) {
             if client.transcript.isEmpty {
                 Text("Waiting for the operator to pick up.")
                     .font(TypeScale.body)
                     .foregroundStyle(Palette.inkFaint)
                     .padding(.top, Space.lg)
+                    .frame(maxWidth: .infinity)
+            } else {
+                ForEach(client.transcript) { line in
+                    TranscriptRow(line: line)
+                        .id(line.id)
+                }
             }
         }
+        .padding(.vertical, Space.sm)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     /// Every claim that reached `master`, verified or refused, newest first.
@@ -273,25 +298,22 @@ struct IncidentView: View {
     /// can. This exists so the resident, and anyone reviewing afterwards, can
     /// see what the system was willing to stand behind and what it threw away.
     private var verificationFeed: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: Space.sm) {
-                ForEach(client.verifications) { result in
-                    VerificationRow(result: result)
-                        .id(result.id)
-                }
-            }
-            .padding(.vertical, Space.sm)
-        }
-        .scrollIndicators(.hidden)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(alignment: .top) {
+        VStack(alignment: .leading, spacing: Space.sm) {
             if client.verifications.isEmpty {
                 Text("No claims have been checked yet.")
                     .font(TypeScale.body)
                     .foregroundStyle(Palette.inkFaint)
                     .padding(.top, Space.lg)
+                    .frame(maxWidth: .infinity)
+            } else {
+                ForEach(client.verifications) { result in
+                    VerificationRow(result: result)
+                        .id(result.id)
+                }
             }
         }
+        .padding(.vertical, Space.sm)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .animation(Motion.arrive, value: client.verifications)
     }
 
