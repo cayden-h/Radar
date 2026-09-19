@@ -1357,7 +1357,119 @@ before the detector runs, add:
             # be a binding candidate by the time the notice about it lands.
             for device in payload.state.associated_devices:
                 await self.roster.observe(device)
+
+            # This is where remembering a visitor starts to mean something.
+            #
+            # `Presence.expected` is decided upstream and knows nothing about
+            # this hub's roster, so without this the roster would be a list
+            # nobody consults and "Remember this visitor" would change nothing
+            # about the next visit.
+            #
+            # The rule itself lives in household/accounting.py and is called
+            # rather than reimplemented, so `agents/intruder` and the hub cannot
+            # drift on the question of whether someone is unaccounted for.
+            #
+            # It can only ever lower an alarm. With no devices reported,
+            # `known_devices_present` is 0, the surplus equals the headcount,
+            # and nothing is suppressed: an absent field means not reported,
+            # never that everyone is accounted for.
+            people = sum(1 for p in payload.state.presences if p.state in PERSON_STATES)
+            known = await self.roster.known_devices_present(payload.state.associated_devices)
+            if unaccounted_count(people=people, known_devices_present=known) == 0:
+                return
 ```
+
+Add to the imports in `runtime.py`:
+
+```python
+from hawkeye_backend.household import Roster, unaccounted_count
+from hawkeye_backend.notices.detector import PERSON_STATES
+```
+
+`PERSON_STATES` is currently the private `_PERSON_STATES` in `notices/detector.py`.
+Rename it to `PERSON_STATES` and update its use inside that file. It is now shared
+by two modules, and a leading underscore on a name two files import is a lie about
+its scope.
+
+Add these tests to `app/backend/tests/test_household_observation.py`:
+
+```python
+def a_person(presence_id: str = "p1") -> Presence:
+    return Presence(
+        presence_id=presence_id,
+        state=PresenceState.CONFIRMED_MOVING,
+        position=Position(zone="living_room", x=12.0, y=3.0, zone_confidence=0.8),
+        moving=True,
+        confidence=0.8,
+        vitals=Vitals(
+            respiration=RespirationStatus.BREATHING, breathing_bpm=16, person_confidence=0.9
+        ),
+        presence_class=PresenceClass.ADULT,
+        class_basis="respiration_rate",
+        expected=False,
+        provenance=PROV,
+    )
+
+
+async def test_a_roster_that_accounts_for_everyone_suppresses_the_notice():
+    """The whole point of remembering a visitor.
+
+    `expected` is decided upstream and knows nothing about this hub's roster, so
+    without this the roster would be a list nobody consults.
+    """
+    rt = a_runtime()
+    device = a_device()
+    await rt.emit(StateEvent(state=frame(device)))
+    await rt.roster.remember(RememberRequest(name="Grandma", device_id=device.device_id))
+
+    state = frame(device, at_s=1)
+    state.presences = [a_person()]
+    rec = Recorder()
+    rt.notice_sinks.append(rec)
+
+    await rt.emit(StateEvent(state=state))
+    state2 = frame(device, at_s=30)
+    state2.presences = [a_person()]
+    await rt.emit(StateEvent(state=state2))
+
+    assert rec.seen == []
+
+
+async def test_an_unremembered_device_does_not_suppress():
+    """An unclaimed device accounts for nobody, so the surplus stands."""
+    rt = a_runtime()
+    device = a_device()
+
+    state = frame(device)
+    state.presences = [a_person()]
+    await rt.emit(StateEvent(state=state))
+    state2 = frame(device, at_s=30)
+    state2.presences = [a_person()]
+    await rt.emit(StateEvent(state=state2))
+
+    events = await rt.store.recent_events(200)
+    assert any(isinstance(e.payload, NoticeEvent) for e in events)
+
+
+async def test_no_devices_reported_does_not_suppress():
+    """Absent means not reported, never that everyone is accounted for."""
+    rt = a_runtime()
+
+    state = frame()
+    state.presences = [a_person()]
+    await rt.emit(StateEvent(state=state))
+    state2 = frame(at_s=30)
+    state2.presences = [a_person()]
+    await rt.emit(StateEvent(state=state2))
+
+    events = await rt.store.recent_events(200)
+    assert any(isinstance(e.payload, NoticeEvent) for e in events)
+```
+
+Add the imports those tests need: `NoticeEvent` from `models.events`, `RememberRequest`
+from `models.household`, `Position`, `Presence`, `PresenceClass`, `PresenceState`,
+`RespirationStatus`, `Vitals` from `models.state`, and a `Recorder` sink class
+matching the one in `tests/test_notice_runtime.py`.
 
 - [ ] **Step 5: Run the tests**
 
