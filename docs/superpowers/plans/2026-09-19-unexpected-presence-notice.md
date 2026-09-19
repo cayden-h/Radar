@@ -22,6 +22,7 @@
 | `app/backend/hawkeye_backend/notices/__init__.py` | Package re-exports. |
 | `app/backend/hawkeye_backend/notices/detector.py` | The trigger rule. Pure, synchronous, no I/O. |
 | `app/backend/hawkeye_backend/notices/sinks.py` | `NoticeSink` protocol, `StreamSink`, `TwilioSink`. |
+| (Task 3 also adds `Notice.room`, set by the detector, so the SMS never parses rendered prose to recover a room name.) | |
 | `app/backend/tests/test_notice_detector.py` | The trigger rule under test. |
 | `app/backend/tests/test_notice_sinks.py` | Fan-out, failure isolation, Twilio request shape, rate limit. |
 
@@ -970,15 +971,14 @@ class TwilioSink:
         travel in claims and it does not travel here. An SMS is plaintext to a
         device that can be stolen, which is the threat model that put the
         address out of claims in the first place.
-        """
-        The room is taken from the notice's own `body`, which the detector
-        already rendered from the floorplan, rather than re-deriving it here:
-        one place decides what a zone is called.
+
+        The room comes off `notice.room`, which the detector resolved from the
+        floorplan. The sink never re-derives it: one place decides what a zone
+        is called, and a sink that parsed the rendered prose back apart would
+        break the first time anyone reworded it.
         """
         local = notice.raised_at.astimezone(self._tz).strftime("%H:%M")
-        # The detector's body is "Not accounted for. Living room."
-        room = notice.body.rstrip(".").split(". ")[-1].lower() if notice.zone else ""
-        where = f" in the {room}" if room else ""
+        where = f" in the {notice.room.lower()}" if notice.room else ""
         return f"Hawk Eye: unexpected person{where}, {local}.\nNot accounted for."
 
     async def deliver(self, notice: Notice) -> None:
@@ -1023,7 +1023,7 @@ Expected: `7 passed`.
 cd app/backend && .venv/bin/python -m pytest -q
 ```
 
-Expected: `59 passed` (37 + 3 + 12 + 7).
+Expected: `63 passed` (56 existing + 7 new).
 
 - [ ] **Step 7: Commit**
 
@@ -1449,7 +1449,7 @@ Expected: `4 passed`.
 cd app/backend && .venv/bin/python -m pytest -q
 ```
 
-Expected: `67 passed` (37 + 3 + 12 + 7 + 4 + 4).
+Expected: `71 passed` (63 + 4 config + 4 runtime).
 
 - [ ] **Step 7: Verify it end to end against the simulated master**
 
@@ -1990,7 +1990,7 @@ git commit -m "Document the notice path and its seams"
 cd app/backend && .venv/bin/python -m pytest -q
 ```
 
-Expected: `67 passed` (37 + 3 + 12 + 7 + 4 + 4).
+Expected: `71 passed`.
 
 - [ ] **Schema and client agree**
 
