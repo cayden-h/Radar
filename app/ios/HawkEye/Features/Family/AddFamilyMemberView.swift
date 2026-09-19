@@ -11,7 +11,9 @@ import SwiftUI
 ///
 /// The device list below is simulated, not a real WiFi scan — hence the
 /// `SIM` tag on every row, the same honesty-rule tag already used by
-/// `CoAlertRow` in `HomeView.swift` for the simulated CO reading.
+/// `CoAlertRow` in `HomeView.swift` for the simulated CO reading. It starts
+/// empty and fills in one device at a time via `joinSimulatedDevices()`, to
+/// read as devices joining the network rather than a static pre-filled list.
 struct AddFamilyMemberView: View {
     var onBack: () -> Void
 
@@ -28,11 +30,16 @@ struct AddFamilyMemberView: View {
         var deviceLabel: String
     }
 
-    @State private var devices: [SimulatedDevice] = [
+    /// The full simulated pool, revealed gradually by `joinSimulatedDevices()`
+    /// rather than shown all at once — mirrors a phone actually joining the
+    /// WiFi network at its own pace instead of a static pre-filled list.
+    private static let simulatedPool: [SimulatedDevice] = [
         SimulatedDevice(id: "d1", vendorLabel: "Apple iPhone", suffix: "4F2A"),
         SimulatedDevice(id: "d2", vendorLabel: "Apple Watch", suffix: "9C31"),
         SimulatedDevice(id: "d3", vendorLabel: "Samsung Galaxy", suffix: "7B08"),
     ]
+
+    @State private var devices: [SimulatedDevice] = []
     @State private var members: [FamilyMember] = []
     @State private var namingDeviceID: String?
     @State private var draftName: String = ""
@@ -67,6 +74,18 @@ struct AddFamilyMemberView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Palette.ground.ignoresSafeArea())
         .preferredColorScheme(.dark)
+        .task { await joinSimulatedDevices() }
+    }
+
+    /// Simulates devices joining the WiFi network one at a time rather than
+    /// listing the whole pool the instant this screen opens. Front-end only:
+    /// there is no real network being scanned here.
+    private func joinSimulatedDevices() async {
+        for device in Self.simulatedPool {
+            try? await Task.sleep(for: .seconds(1.5))
+            guard !Task.isCancelled else { return }
+            devices.append(device)
+        }
     }
 
     // MARK: Devices
@@ -81,7 +100,7 @@ struct AddFamilyMemberView: View {
                 .foregroundStyle(devices.isEmpty ? Palette.inkFaint : Palette.inkMuted)
 
             if devices.isEmpty {
-                Text("No phones seen on your WiFi yet. Ask them to join your home network, then come back here.")
+                Text("No other device to connect")
                     .font(TypeScale.body)
                     .foregroundStyle(Palette.inkMuted)
                     .padding(.vertical, Space.sm)
