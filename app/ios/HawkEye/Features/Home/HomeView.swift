@@ -10,6 +10,11 @@ struct HomeView: View {
     var hubName: String
 
     @State private var pendingIncident: IncidentType?
+    /// The notice whose "Remember this visitor" was tapped. Presenting the
+    /// sheet off the notice itself, rather than a bare `Bool`, is what lets
+    /// the save action know which presence to approve alongside naming it.
+    @State private var rememberingNotice: Notice?
+    @State private var showingHousehold = false
 
     private var client: any HawkEyeClienting { model.client }
 
@@ -18,11 +23,25 @@ struct HomeView: View {
             header
 
             ForEach(client.notices) { notice in
-                NoticeBanner(notice: notice) {
-                    withAnimation(Motion.standard) {
-                        client.dismissNotice(notice.id)
+                NoticeBanner(
+                    notice: notice,
+                    onDismiss: {
+                        withAnimation(Motion.standard) {
+                            client.dismissNotice(notice.id)
+                        }
+                    },
+                    onApprove: {
+                        guard let presenceID = notice.presenceID else { return }
+                        Task { try? await client.approvePresence(presenceID) }
+                        withAnimation(Motion.standard) {
+                            client.dismissNotice(notice.id)
+                        }
+                    },
+                    onRemember: {
+                        guard notice.presenceID != nil else { return }
+                        rememberingNotice = notice
                     }
-                }
+                )
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
@@ -54,6 +73,30 @@ struct HomeView: View {
         }
         .padding(.horizontal, Space.gutter)
         .padding(.bottom, Space.lg)
+        .task { await client.refreshHousehold() }
+        .sheet(item: $rememberingNotice) { notice in
+            RememberVisitorSheet(unclaimedDevices: client.unclaimedDevices) { name, kind, deviceID in
+                Task {
+                    try? await client.rememberVisitor(name: name, kind: kind, deviceID: deviceID)
+                    // The resident has just said who this is, which answers the
+                    // question the banner exists to raise. Approving and
+                    // dismissing here, rather than making them also tap
+                    // "This is expected", is the point: remembering someone is
+                    // a stronger fact than merely vouching for them.
+                    if let presenceID = notice.presenceID {
+                        try? await client.approvePresence(presenceID)
+                    }
+                    withAnimation(Motion.standard) {
+                        client.dismissNotice(notice.id)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingHousehold) {
+            HouseholdList(members: client.household) { memberID in
+                Task { try? await client.forgetMember(memberID) }
+            }
+        }
         .fullScreenCover(item: Binding(
             get: { client.incident },
             set: { _ in }
@@ -100,6 +143,16 @@ struct HomeView: View {
                     .font(TypeScale.caption)
                     .foregroundStyle(Palette.inkMuted)
             }
+
+            Button { showingHousehold = true } label: {
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Palette.inkMuted)
+                    .frame(width: Hit.min * 0.5, height: Hit.min * 0.5)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Household")
         }
         .padding(.top, Space.sm)
         .overlay(alignment: .bottom) {

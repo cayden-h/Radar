@@ -12,6 +12,13 @@ import SwiftUI
 struct NoticeBanner: View {
     let notice: Notice
     let onDismiss: () -> Void
+    /// "This is expected." Vouches for the presence this session only. Nothing
+    /// persists, which is the entire reason this is a separate control from
+    /// `onRemember` rather than a second tap on the same button.
+    let onApprove: () -> Void
+    /// "Remember this visitor." Names the person and, when a device just
+    /// joined, offers to bind it. Permanent.
+    let onRemember: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: Space.sm) {
@@ -36,6 +43,24 @@ struct NoticeBanner: View {
                 Text("\(notice.body) \(Self.clock.string(from: notice.raisedAt))")
                     .font(TypeScale.caption)
                     .foregroundStyle(Palette.inkMuted)
+
+                // The two distinctions this notice guards, side by side rather
+                // than stacked, so neither reads as the default. One button
+                // vouches for a session; the other writes a name down forever,
+                // and conflating them would routinely persist a stranger
+                // because someone wanted the banner gone.
+                HStack(spacing: Space.sm) {
+                    Button("This is expected", action: onApprove)
+                        .buttonStyle(.plain)
+                        .font(TypeScale.caption)
+                        .foregroundStyle(Palette.personUnexpected)
+
+                    Button("Remember this visitor", action: onRemember)
+                        .buttonStyle(.plain)
+                        .font(TypeScale.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                }
+                .padding(.top, 2)
             }
 
             Spacer(minLength: Space.sm)
