@@ -10,6 +10,7 @@ struct HomeView: View {
     var hubName: String
 
     @State private var showAddFamilyMember = false
+    @State private var locallyEndedIncidentID: String?
 
     private var client: any HawkEyeClienting { model.client }
 
@@ -46,11 +47,17 @@ struct HomeView: View {
         .padding(.horizontal, Space.gutter)
         .padding(.bottom, Space.lg)
         .fullScreenCover(item: Binding(
-            get: { client.incident },
+            get: {
+                guard let incident = client.incident,
+                      incident.id != locallyEndedIncidentID else { return nil }
+                return incident
+            },
             set: { _ in }
         )) { incident in
-            IncidentView(incident: incident)
-                .environment(model)
+            IncidentView(incident: incident) {
+                locallyEndedIncidentID = incident.id
+            }
+            .environment(model)
         }
         .fullScreenCover(isPresented: $showAddFamilyMember) {
             AddFamilyMemberView { showAddFamilyMember = false }

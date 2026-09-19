@@ -28,6 +28,8 @@ struct IncidentView: View {
         }
     }
 
+    var onEndCall: () -> Void
+
     @State private var context: String = ""
     @State private var sending = false
     @State private var feed: Feed = .call
@@ -73,6 +75,10 @@ struct IncidentView: View {
                         }
                     }
                 }
+
+                endCallButton
+                    .padding(.horizontal, Space.gutter)
+                    .padding(.top, Space.sm)
 
                 contextField
                     .padding(.horizontal, Space.gutter)
@@ -392,6 +398,40 @@ struct IncidentView: View {
         Task {
             try? await client.sendContext(text)
             sending = false
+        }
+    }
+
+    // MARK: End call
+
+    /// **Front-end only.** The backend has no stand-down route (see
+    /// `app/CLAUDE.md`: "the app has no stand-down button... an incident
+    /// closes when `master` sends `resolved`"), so this does not tell the
+    /// backend anything — it stops showing this incident on this phone. A
+    /// real hang-up needs a real stand-down route; this is a placeholder for
+    /// that, not a claim that the 911 call itself was ended.
+    private var endCallButton: some View {
+        HoldToConfirmButton(
+            tint: Palette.personUnresponsive,
+            accessibilityLabel: "Hold to end call",
+            action: onEndCall
+        ) {
+            HStack(spacing: 8) {
+                Image(systemName: "phone.down.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("End call")
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundStyle(Palette.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: Hit.min)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                    .fill(Palette.personUnresponsive.opacity(0.18))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                    .strokeBorder(Palette.personUnresponsive.opacity(0.5), lineWidth: 1)
+            )
         }
     }
 }
