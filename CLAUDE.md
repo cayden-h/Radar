@@ -15,7 +15,7 @@ Written as of 2026-09-19:
 
 Still outstanding, in rough order of risk:
 
-1. **The CSI capture path.** No hardware has been brought up yet. This is the largest single risk in the project. `docs/hardware/bring-up-checklist.md` is the path; `sensor/CLAUDE.md` has the fallback ladder and the point at which to stop.
+1. ~~The CSI capture path. No hardware has been brought up yet.~~ **Done 2026-09-19.** Real, varying, non-zero CSI confirmed flowing end to end on the Pi 4B (`nexmon_csi` via the `Makefile.rpi` path — the originally-planned kernel-pinned patch turned out not to match what Raspberry Pi Imager currently ships; see "Kernel reality, corrected 2026-09-19" in `sensor/CLAUDE.md`). Disk image and a first CSI replay session captured. `docs/hardware/bring-up-checklist.md` and `docs/hardware/raspberry-pi-4b.md` are updated with the corrected procedure and recorded values. Still open: capture a proper representative replay session (with a staged fall) at the actual house shoot, and root-cause why the achieved packet rate (30-70/sec) falls short of the 100+/sec target.
 2. **The nine agents.** Contracts are written in `agents/CLAUDE.md`; the code is not.
 3. **ANS registration and hosting.** The deployment is currently broken, and the agents must be internet-reachable rather than on localhost. That is a hard requirement of the primary track, not a nicety.
 4. **Agent cards are not published.** The signing, drift and address-commitment code exists and is tested (`app/backend/hawkeye_backend/verification/card.py`); what is missing is real cards served at real hostnames. This is the surface the judge's own verifier inspects. `ans/CARD.md` is the spec and checklist.

@@ -87,10 +87,11 @@ If a path does not match what you see, the setting still exists somewhere under 
 | WPS | Off | Advanced > Wireless > WPS | Not CSI-relevant. It is one less thing changing the radio state during a take. |
 | Guest network | Off | Advanced > Wireless > Guest Network | A second BSS on the same radio is extra traffic and extra state for no benefit. |
 
-SSID names: `TBD - decide and record here.`
-Suggestion, so that nobody has to guess at 2am: `HawkEye-5G` and `HawkEye-24G`.
+SSID names, set 2026-09-19: `Radar` (2.4GHz), `Radar-5g` (5GHz).
 
-Wi-Fi password: `TBD - decide and record here.`
+**The over-the-air MAC for each SSID is not the MAC printed on the router's label.** The AX1450 uses a distinct MAC per radio/band; ours was off by one in the last octet between the label and the actual `Radar-5g` BSSID seen in a scan. Anything that needs the router's real MAC (`makecsiparams -m`, for instance) must get it from a WiFi scan, not the label — see `docs/hardware/raspberry-pi-4b.md` Step 5.
+
+Wi-Fi password: set at configuration time, not recorded here (this file is git-tracked — ask the team directly).
 Use WPA2-PSK if there is a choice.
 WPA3 is fine for connectivity but is one more variable on a box whose only job is to emit predictable 802.11ac frames.
 
@@ -109,9 +110,11 @@ If that binary is absent on your macOS version, use the Wireless Diagnostics sca
 
 Take whichever of 36, 40, 44, 48 has the least sitting on it, and one the household network is not on.
 
-Record the choice here: `TBD - decide and record here.`
+Recorded 2026-09-19: **channel 40**, 80MHz.
 This number has to match `makecsiparams -c <channel>/80` on the Pi exactly.
 A mismatch there produces packets with zero payloads, which is the hardest failure in the project to diagnose.
+
+Note that `airport -s` is gone on recent macOS versions (removed from the system entirely, not just relocated) — go straight to the Wireless Diagnostics scan window described below, or `sudo wdutil info` for just the currently-associated network.
 
 ### If 5GHz does not penetrate
 
@@ -245,3 +248,5 @@ sudo iw dev wlan0 scan | grep -A 5 "HawkEye-5G"
 | Internet Sharing works but the Pi has no route | 192.168.2.x collision | Confirm the router LAN is 192.168.0.x |
 | Venue Wi-Fi will not share | Captive portal | USB tether a phone to the MacBook and share that instead |
 | You wanted to run the traffic generator on the router | Stock TP-Link firmware has no SSH | Not possible. Generate from a client. |
+| `makecsiparams -m <label MAC>` produces packets with zero flow, no error anywhere | The router's per-band radio MAC differs from the MAC printed on its label | Get the real MAC from a WiFi scan (monitor mode off) instead of the label. See `docs/hardware/raspberry-pi-4b.md` Step 5. |
+| macOS Internet Sharing shows "on" but the shared adapter never gets an IP, `log show` mentions `BRDGADD: failed Resource busy` | Known macOS flake in the sharing bridge setup | Toggle Internet Sharing off, physically unplug/replug the USB-Ethernet adapter, toggle back on. Reboot the Mac if that doesn't clear it. |
