@@ -17,6 +17,15 @@ struct HomeView: View {
         VStack(spacing: Space.lg) {
             header
 
+            ForEach(client.notices) { notice in
+                NoticeBanner(notice: notice) {
+                    withAnimation(Motion.standard) {
+                        client.dismissNotice(notice.id)
+                    }
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             VStack(spacing: Space.xs) {
                 // The panel flexes to whatever height is going spare rather
                 // than locking to the plan's aspect ratio. This plan is wider
