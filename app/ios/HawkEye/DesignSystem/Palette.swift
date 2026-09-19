@@ -33,25 +33,36 @@ enum Palette {
     /// A confirmed person, moving and breathing. Nothing is wrong.
     static let personMoving = Color(hex: 0x5BA8FF)
     /// A person who is still but breathing. The loudest state in the product.
+    /// Also the generic danger/refusal color used across the verification and
+    /// connect-error UI. Do not repoint this at the collapse-state map color
+    /// below — they are deliberately separate constants even though they used
+    /// to share a value.
     static let personUnresponsive = Color(hex: 0xFF3B4E)
     /// A perturbation with no respiration signature. Not a person.
     static let unconfirmed = Color(hex: 0x6E7889)
 
     /// A confirmed person the system did not expect to be in the building.
     ///
-    /// Deliberately the same violet as the Burglary button: the colour the
+    /// Deliberately the same deep red as the Burglary button: the colour the
     /// roster turns and the button the resident presses are the same fact, and
     /// pairing them means the screen does not have to explain the link.
     ///
     /// `expected` is an orthogonal axis to `PresenceState`, not a fourth state,
     /// so this tint replaces the state tint rather than adding a case to it.
-    static let personUnexpected = Color(hex: 0x8B7CFF)
+    static let personUnexpected = Color(hex: 0x9A1B1B)
+
+    /// A confirmed person who is still and breathing, on the map/roster only.
+    /// Paired with `Palette.faint`: the Faint button and the "person down"
+    /// map state are the same fact. Kept separate from
+    /// `Palette.personUnresponsive`, which is the unrelated danger/refusal
+    /// red used elsewhere in the app.
+    static let collapse = Color(hex: 0x8B7CFF)
 
     // MARK: Incidents
 
-    static let burglary = Color(hex: 0x8B7CFF)
+    static let burglary = Color(hex: 0x9A1B1B)
     static let fire = Color(hex: 0xFF7A3D)
-    static let faint = Color(hex: 0xFF3B4E)
+    static let faint = Color(hex: 0x8B7CFF)
 
     /// Active call state.
     static let live = Color(hex: 0xFF3B4E)
