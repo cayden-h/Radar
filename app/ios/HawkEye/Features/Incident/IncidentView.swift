@@ -79,10 +79,11 @@ struct IncidentView: View {
                     .padding(.bottom, Space.md)
             }
 
-            // Content scrolls behind the status bar, so cover that strip in
-            // the ground colour rather than letting transcript text collide
-            // with the clock. The ground is flat, so this reads as seamless.
-            Palette.ground
+            // Content scrolls behind the status bar, so cover that strip
+            // with the same ambient backdrop as the rest of the screen
+            // rather than letting transcript text collide with the clock.
+            // A flat colour here would seam against the backdrop's glow.
+            AmbientBackground(tint: incident.type.tint)
                 .frame(height: proxy.safeAreaInsets.top)
                 .ignoresSafeArea(edges: .top)
                 .allowsHitTesting(false)

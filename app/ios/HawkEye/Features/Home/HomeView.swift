@@ -14,64 +14,68 @@ struct HomeView: View {
     private var client: any HawkEyeClienting { model.client }
 
     var body: some View {
-        VStack(spacing: Space.lg) {
-            header
+        ZStack {
+            AmbientBackground()
 
-            VStack(spacing: Space.xs) {
-                // The panel flexes to whatever height is going spare rather
-                // than locking to the plan's aspect ratio. This plan is wider
-                // than it is deep, so an aspect-locked panel is limited by the
-                // screen's width and strands a dead band above the incident
-                // buttons. `planRect` aspect-fits and centres the drawing, so a
-                // taller panel simply frames it with more margin, and the panel
-                // gives the height back when a fourth roster row arrives.
-                InteriorView(state: client.interior)
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
+            VStack(spacing: Space.lg) {
+                header
 
-                // The honesty rule applied to the drawing. The plan is
-                // authored, not discovered: walls are the static baseline the
-                // system subtracts to see people, and it never maps them.
-                Text("Floor plan set up once, by hand. Hawk Eye does not map walls.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Palette.inkFaint)
-            }
+                VStack(spacing: Space.xs) {
+                    // The panel flexes to whatever height is going spare rather
+                    // than locking to the plan's aspect ratio. This plan is wider
+                    // than it is deep, so an aspect-locked panel is limited by the
+                    // screen's width and strands a dead band above the incident
+                    // buttons. `planRect` aspect-fits and centres the drawing, so a
+                    // taller panel simply frames it with more margin, and the panel
+                    // gives the height back when a fourth roster row arrives.
+                    InteriorView(state: client.interior)
+                        .frame(maxWidth: .infinity)
+                        .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
 
-            PresenceRoster(state: client.interior)
+                    // The honesty rule applied to the drawing. The plan is
+                    // authored, not discovered: walls are the static baseline the
+                    // system subtracts to see people, and it never maps them.
+                    Text("Floor plan set up once, by hand. Hawk Eye does not map walls.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Palette.inkFaint)
+                }
 
-            IncidentBar { type in
-                pendingIncident = type
-            }
-        }
-        .padding(.horizontal, Space.gutter)
-        .padding(.bottom, Space.lg)
-        .fullScreenCover(item: Binding(
-            get: { client.incident },
-            set: { _ in }
-        )) { incident in
-            IncidentView(incident: incident)
-                .environment(model)
-        }
-        .confirmationDialog(
-            pendingIncident.map { "Call 911 for \($0.title.lowercased())?" } ?? "",
-            isPresented: Binding(
-                get: { pendingIncident != nil },
-                set: { if !$0 { pendingIncident = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let type = pendingIncident {
-                Button("Raise \(type.title)", role: .destructive) {
-                    let raise = type
-                    pendingIncident = nil
-                    Task { try? await client.raiseIncident(raise) }
+                PresenceRoster(state: client.interior)
+
+                IncidentBar { type in
+                    pendingIncident = type
                 }
             }
-            Button("Cancel", role: .cancel) { pendingIncident = nil }
-        } message: {
-            // One confirmation, because a misfired 911 call is a real-world
-            // harm. One tap raises it; the confirmation is the tap.
-            Text("Hawk Eye will call 911 and tell them what it can verify.")
+            .padding(.horizontal, Space.gutter)
+            .padding(.bottom, Space.lg)
+            .fullScreenCover(item: Binding(
+                get: { client.incident },
+                set: { _ in }
+            )) { incident in
+                IncidentView(incident: incident)
+                    .environment(model)
+            }
+            .confirmationDialog(
+                pendingIncident.map { "Call 911 for \($0.title.lowercased())?" } ?? "",
+                isPresented: Binding(
+                    get: { pendingIncident != nil },
+                    set: { if !$0 { pendingIncident = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let type = pendingIncident {
+                    Button("Raise \(type.title)", role: .destructive) {
+                        let raise = type
+                        pendingIncident = nil
+                        Task { try? await client.raiseIncident(raise) }
+                    }
+                }
+                Button("Cancel", role: .cancel) { pendingIncident = nil }
+            } message: {
+                // One confirmation, because a misfired 911 call is a real-world
+                // harm. One tap raises it; the confirmation is the tap.
+                Text("Hawk Eye will call 911 and tell them what it can verify.")
+            }
         }
     }
 
