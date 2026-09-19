@@ -81,7 +81,7 @@ class ParticipationMode(StrEnum):
     """
 
     FULL_VOICE = "full_voice"
-    """Mic open, audio out. Faint, Fire, or Burglary once safe."""
+    """Mic open, audio out. Fire, or Burglary once safe."""
 
 
 class ModeChangeRefused(RuntimeError):

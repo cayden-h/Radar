@@ -16,8 +16,8 @@ incident. Under pull it cannot, because it cannot guess the challenge.
 It also collapses two code paths into one. The steady-state tick and the
 operator fan-out are the same mechanism, so the beat that matters in the demo is
 exercised continuously rather than only during a call. The cost is up to one
-second of detection latency, which is nothing against a `still_down_s` measured
-in minutes.
+second of detection latency, which is nothing against a
+`people.respiration_lost` clock measured in minutes.
 
 ## A2A JSON-RPC, because that is what we published
 

@@ -60,7 +60,7 @@ def test_an_agent_may_only_speak_for_itself():
     admitted = gate.admit(
         _observation(
             "agents/replay",
-            "ans://v0.1.0.replay.hawkeye.invalid",
+            "ans://v0.1.0.replay.batradar.club",
             [_assertion("people.respiration", "breathing")],
         )
     )
@@ -75,7 +75,7 @@ def test_an_untrusted_agent_is_discarded_and_logged():
     admitted = gate.admit(
         _observation(
             "agents/people",
-            "ans://v0.1.0.people.hawkeye.invalid",
+            "ans://v0.1.0.people.batradar.club",
             [_assertion("people.personhood", "living_body")],
         )
     )
@@ -94,8 +94,8 @@ def test_a_valid_claim_is_still_capped_by_its_source_profile():
     admitted = gate.admit(
         _observation(
             "agents/people",
-            "ans://v0.1.0.people.hawkeye.invalid",
-            [_assertion("people.still_down_s", "240", ceiling=Severity.DISPATCHABLE)],
+            "ans://v0.1.0.people.batradar.club",
+            [_assertion("people.respiration_lost", "240", ceiling=Severity.DISPATCHABLE)],
         ),
         envelope_verified=True,
     )
@@ -115,7 +115,7 @@ def test_nothing_is_speakable_while_the_transport_is_unwired():
     admitted = gate.admit(
         _observation(
             "agents/people",
-            "ans://v0.1.0.people.hawkeye.invalid",
+            "ans://v0.1.0.people.batradar.club",
             [_assertion("people.personhood", "living_body")],
         ),
         envelope_verified=False,
@@ -134,7 +134,7 @@ def test_a_verified_fiduciary_claim_is_asserted():
     admitted = gate.admit(
         _observation(
             "agents/people",
-            "ans://v0.1.0.people.hawkeye.invalid",
+            "ans://v0.1.0.people.batradar.club",
             [_assertion("people.personhood", "living_body")],
         ),
         envelope_verified=True,
@@ -150,7 +150,7 @@ def test_a_verified_fiduciary_claim_is_asserted():
 def test_master_never_dials_on_its_own(mesh):
     """The whole project in reverse is a house that dials with nobody asking."""
     master = MasterAgent(mesh)
-    master.raise_incident(IncidentType.FAINT, RaisedBy.SYSTEM)
+    master.raise_incident(IncidentType.FIRE, RaisedBy.SYSTEM)
 
     with pytest.raises(AutonomousDialRefused, match="never calls 911 on its own"):
         master.release_for_call()
@@ -158,24 +158,37 @@ def test_master_never_dials_on_its_own(mesh):
 
 def test_a_human_tap_releases_the_call(mesh):
     master = MasterAgent(mesh)
-    master.raise_incident(IncidentType.FAINT, RaisedBy.USER)
+    master.raise_incident(IncidentType.FIRE, RaisedBy.USER)
     incident = master.release_for_call()
 
     assert incident.released_for_call is True
     assert incident.traceparent.startswith("00-")
 
 
-def test_a_fall_with_elevated_co_is_a_fire_not_a_faint(verified_mesh, feed, roster):
-    """The classification the briefs say is most consequential to get right."""
+def test_co_with_a_lost_breathing_signature_is_a_fire_with_someone_who_may_not_respond(
+    verified_mesh, feed, roster
+):
+    """The two-modality case, and the one worth showing a judge.
+
+    CSI resolved the breathing and then lost it; a separate gas sensor read the
+    air. Neither alone is this verdict. And the verdict must not overclaim: a
+    lost signature is not a finding that breathing stopped.
+    """
     people = PeopleAgent(feed, roster)
-    feed.occupy("main_bedroom", bpm=15.0, moving=True)
+    # Still and breathing, NOT moving. `SyntheticCsiFeed.occupy(moving=True)`
+    # deliberately makes respiration unrecoverable - broadband motion noise
+    # swamps the chest sinusoid - so a moving presence never establishes a
+    # signature and therefore can never lose one. Task 1 found this the hard
+    # way.
+    feed.occupy("main_bedroom", bpm=15.0)
     for _ in range(35):
         feed.advance(1)
         verified_mesh.publish(people.run_once())
-    feed.transient("main_bedroom")
-    feed.advance(1)
-    feed.settle("main_bedroom", bpm=8.0)
-    for _ in range(40):
+    feed.vacate("main_bedroom")
+    # 70 rather than 40: the 30s analysis window keeps resolving residual
+    # breathing frames for roughly 22s after the body leaves, so the clock
+    # only starts then.
+    for _ in range(70):
         feed.advance(1)
         verified_mesh.publish(people.run_once())
 
@@ -186,9 +199,52 @@ def test_a_fall_with_elevated_co_is_a_fire_not_a_faint(verified_mesh, feed, rost
     master.run_once()
     observation = master.run_once()
 
-    assert [a.value for a in observation.assertions if a.field == "master.incident_type"] == [
-        IncidentType.FIRE.value
-    ]
+    verdicts = [a for a in observation.assertions if a.field == "master.incident_type"]
+    assert [a.value for a in verdicts] == [IncidentType.FIRE.value]
+    assert "main_bedroom" in verdicts[0].basis
+    assert "may not be able to respond" in verdicts[0].basis
+    assert "not a finding" in verdicts[0].basis.lower()
+
+
+def test_co_with_a_still_breathing_presence_is_a_fire_with_someone_not_moving(
+    verified_mesh, feed, roster
+):
+    """The classic fire fatality: asleep while the air goes bad.
+
+    Ranks below a lost signature and must say what it cannot tell. A radio
+    that sees stillness and breathing cannot separate unconsciousness from
+    sleep, and must not imply it can.
+    """
+    people = PeopleAgent(feed, roster)
+    feed.occupy("main_bedroom", bpm=15.0)
+    for _ in range(35):
+        feed.advance(1)
+        verified_mesh.publish(people.run_once())
+
+    sensor = SimulatedCoSensor(ramp_ppm_per_s=200.0)
+    sensor.trigger()
+    sensor.advance(2.0)
+    master = MasterAgent(verified_mesh, gas=sensor)
+    master.run_once()
+    observation = master.run_once()
+
+    verdicts = [a for a in observation.assertions if a.field == "master.incident_type"]
+    assert [a.value for a in verdicts] == [IncidentType.FIRE.value]
+    assert "not moving" in verdicts[0].basis
+    assert "unconsciousness from sleep" in verdicts[0].basis
+
+
+def test_nothing_corroborating_and_nothing_raised_produces_no_classification(mesh):
+    """The placeholder verdict is gone. No claims and no tap means no answer.
+
+    Master used to publish `master.incident_type=faint` at confidence 0.0 on
+    every idle tick. A placeholder that is shaped exactly like a verdict is how
+    a placeholder gets read as one.
+    """
+    master = MasterAgent(mesh)
+    observation = master.run_once()
+
+    assert [a for a in observation.assertions if a.field == "master.incident_type"] == []
 
 
 def test_the_air_reading_is_never_speakable_and_never_measured(verified_mesh):

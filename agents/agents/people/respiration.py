@@ -280,7 +280,8 @@ class RespirationReader:
                     basis=(
                         f"Broadband RMS {motion:.3f} against a {MOVING_RMS} threshold. Movement "
                         "is broadband; breathing is narrowband. The two are separable, and the "
-                        "difference is 'walking around' versus 'on the floor'."
+                        "difference is 'moving around' versus 'lying still'. Which of those a "
+                        "still, breathing presence is cannot be decided from here."
                     ),
                     presence_id=memory.presence_id,
                     provenance=provenance,

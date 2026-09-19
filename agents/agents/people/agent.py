@@ -6,21 +6,23 @@ one is a person at all, whether they are breathing, whether they are moving, and
 how long it has been since a breathing signature was last resolvable on one of
 them.
 
-Merged from what were three agents (occupancy, biometrics, collapse) on
-2026-09-19, and fall detection was cut from it on 2026-09-19. What remains is
+Merged on 2026-09-19 from what were three agents: occupancy, biometrics and
+collapse. Fall detection was dropped later the same day, so what remains is
 personhood, location and responsiveness.
 
-The merge is the right shape, and the reason is not that three was
-too many - it is that they were one question asked three ways:
+The merge is the right shape, and the reason is not that three agents were too
+many - it is that they were one question asked three ways:
 
 - They read the **same CSI window**. Three agents meant three copies of the same
   frames and three chances for them to disagree about what the radio said.
 - They share **one baseline**, and the baseline is the expensive, fragile,
   slow-to-warm piece. Splitting it bought three deployments and nothing else.
 - The dependency chain ran one way and was total: occupancy could not name a
-  presence without the personhood verdict, and collapse could not interpret a
-  transient without knowing whether the thing that fell was breathing. Three
-  agents in a fixed chain with no branch is one agent with three steps.
+  presence without the personhood verdict, and collapse - which no longer
+  exists - could not interpret a transient without knowing whether the thing
+  that fell was breathing. Three agents in a fixed chain with no branch is one
+  agent with three steps. That last one is history rather than a description
+  of the code: nothing here reads falls any more.
 
 What it is **not** is a reduction in what gets verified. The split that carries
 the ANS story is between the agent that senses and the agent that decides, and

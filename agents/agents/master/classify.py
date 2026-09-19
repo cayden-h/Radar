@@ -1,4 +1,4 @@
-"""Burglary, Fire or Faint, from what the sensing agents said.
+"""Burglary or Fire, from what the sensing agents said.
 
 **Classification is the interesting part and should be visible.** A judge
 watching a system switch on one signal sees a thermostat; a judge watching it
@@ -8,20 +8,21 @@ renders it.
 
 The table is from `docs/research/agent-briefs.md`:
 
-| Observation                                          | Classification                          |
-|------------------------------------------------------|-----------------------------------------|
-| Fall + elevated CO                                    | Fire with a casualty, not a faint       |
-| Fall + normal air + no other presence                 | Faint, and nobody is coming to help     |
+| Observation                                           | Classification                           |
+|-------------------------------------------------------|------------------------------------------|
+| Elevated CO + a lost breathing signature              | Fire, with someone who may not respond   |
+| Elevated CO + a still, breathing presence             | Fire, with someone who is not moving     |
+| Elevated CO + everyone up and breathing               | Fire, everyone on their feet             |
 | Unexpected presence + resident in a different room    | Burglary in progress with occupants home |
-| Unexpected presence + house registered empty          | Burglary, no occupants at risk          |
+| Unexpected presence + house registered empty          | Burglary, no occupants at risk           |
 
-The second row is the one to lead with. It is the case where the statistics say
-the outcome is decided by discovery time.
+The first row is the one to lead with, and it is the only row built from two
+independent modalities: CSI resolved the breathing, a separate gas sensor read
+the air. Two views of one CSI stream agreeing is not corroboration; this is.
 
-**All three types are raised by a human**, from the iOS app. This function does
-not raise anything and cannot. It answers "if someone raises an incident right
-now, what is it", so that a resident who taps `Faint` while the air is full of
-CO gets corrected toward Fire before the call is placed rather than after.
+**Both types are raised by a human**, from the iOS app. This function does not
+raise anything and cannot. It answers "if someone raises an incident right now,
+what is it".
 """
 
 from __future__ import annotations
@@ -57,46 +58,126 @@ def _value(claims: list[AdmittedClaim], field: str) -> str | None:
     return None
 
 
-def classify(claims: list[AdmittedClaim], *, requested: IncidentType | None = None) -> Classification:
-    """Classify from admitted claims. Discarded claims are not visible here.
+def _claim(claims: list[AdmittedClaim], field: str) -> AdmittedClaim | None:
+    """First claim on `field`, whatever its value.
 
-    That is deliberate and it is the point of the gate: a compromised sensor's
-    claim never reaches the classifier at all, so there is no path by which a
-    fabricated observation changes what a dispatcher is told. The claims this
-    function sees have already survived the profile gate.
+    Separate from `_truthy` because the responsiveness claim carries elapsed
+    seconds rather than a boolean: its presence is the signal.
     """
-    collapse = _truthy(claims, "people.collapse_detected")
+    for claim in claims:
+        if claim.assertion.field == field:
+            return claim
+    return None
+
+
+def _elapsed(seconds: str) -> str:
+    value = float(seconds)
+    return f"{value / 60.0:.0f} minutes" if value >= 60.0 else f"{value:.0f} seconds"
+
+
+def _still_and_breathing(claims: list[AdmittedClaim]) -> AdmittedClaim | None:
+    """A zone that resolves a breathing signature with no movement in it.
+
+    The second responsiveness signal, and a weaker one than a lost signature.
+    Both `people.respiration` and `people.moving` are asserted from the same
+    branch of the respiration reader, so a zone with one has the other.
+
+    It ranks below a lost signature deliberately. A lost signature means
+    something changed; this means something has not. Without fall detection
+    "still" no longer means "went down and stayed down" - it covers sleeping
+    and sitting quietly too - so this classifies but never on its own terms
+    and never with high confidence.
+    """
+    breathing = {
+        c.assertion.zone_scope
+        for c in claims
+        if c.assertion.field == "people.respiration" and c.assertion.value == "breathing"
+    }
+    for claim in claims:
+        if (
+            claim.assertion.field == "people.moving"
+            and claim.assertion.value == "false"
+            and claim.assertion.zone_scope in breathing
+        ):
+            return claim
+    return None
+
+
+def classify(
+    claims: list[AdmittedClaim], *, requested: IncidentType | None = None
+) -> Classification | None:
+    """Classify from admitted claims, or None when there is nothing to say.
+
+    Discarded claims are not visible here. That is deliberate and it is the
+    point of the gate: a compromised sensor's claim never reaches the classifier
+    at all, so there is no path by which a fabricated observation changes what a
+    dispatcher is told.
+
+    None is a real answer and the caller must handle it. Returning a defaulted
+    incident type at confidence zero was how a placeholder got presented as a
+    verdict, so it is no longer possible to do that by accident.
+    """
+    lost = _claim(claims, "people.respiration_lost")
     elevated = _truthy(claims, "master.co_elevated")
     intruder = _truthy(claims, "intruder.unexpected_presence")
-    headcount = _value(claims, "people.headcount")
-    still_down = _value(claims, "people.still_down_s")
 
-    # Fire first, and specifically the fall-plus-CO combination, because getting
-    # this one wrong is the most consequential misclassification available. A
-    # casualty inside a building with rising CO is a fire response with a rescue,
-    # and calling it a faint sends an ambulance to a house that needs a truck.
-    if collapse is not None and elevated is not None:
+    # Fire first, and specifically the CO-plus-lost-signature combination,
+    # because getting this one wrong is the most consequential misclassification
+    # available. Responders need to know before they go in whether there is
+    # someone in there who will not answer them.
+    if elevated is not None and lost is not None:
         co = _value(claims, "master.co_ppm") or "elevated"
         return Classification(
             incident_type=IncidentType.FIRE,
             reasoning=(
-                f"A collapse in {collapse.assertion.zone_scope} with carbon monoxide at "
-                f"{co} ppm. Two independent modalities: CSI saw the fall, a separate gas "
-                "sensor saw the air. This is a fire with a casualty, not a faint - toxic "
-                "gases can render someone unconscious in under a minute, often before they "
-                "know there is a fire."
+                f"Carbon monoxide at {co} ppm, and a breathing signature that was present in "
+                f"{lost.assertion.zone_scope} {_elapsed(lost.assertion.value)} ago is no longer "
+                "resolvable. Two independent modalities: CSI resolved the breathing, a separate "
+                "gas sensor read the air. Treat that room as holding someone who may not be "
+                "able to respond. This is not a finding that they have stopped breathing - "
+                "shallow breathing and range limits look the same to this radio."
             ),
             confidence=0.8,
-            contributing_fields=("people.collapse_detected", "master.co_elevated", "master.co_ppm"),
+            contributing_fields=(
+                "people.respiration_lost",
+                "master.co_elevated",
+                "master.co_ppm",
+            ),
         )
 
-    if elevated is not None and collapse is None:
+    # The classic fire fatality, and the reason this branch exists: someone
+    # asleep or unconscious while CO rises, who will not evacuate and will not
+    # answer the door. Ranked below a lost signature because a lost signature
+    # means something changed, where this means something has not.
+    if elevated is not None:
+        still = _still_and_breathing(claims)
+        if still is not None:
+            co = _value(claims, "master.co_ppm") or "elevated"
+            return Classification(
+                incident_type=IncidentType.FIRE,
+                reasoning=(
+                    f"Carbon monoxide at {co} ppm, and a presence in "
+                    f"{still.assertion.zone_scope} that is breathing and not moving. Two "
+                    "independent modalities: CSI resolved the breathing, a separate gas "
+                    "sensor read the air. They are alive and they have not moved, so do not "
+                    "count on them getting themselves out. This does not distinguish "
+                    "unconsciousness from sleep, and the radio cannot."
+                ),
+                confidence=0.65,
+                contributing_fields=(
+                    "people.respiration",
+                    "people.moving",
+                    "master.co_elevated",
+                    "master.co_ppm",
+                ),
+            )
+
         co = _value(claims, "master.co_ppm") or "elevated"
         return Classification(
             incident_type=IncidentType.FIRE,
             reasoning=(
-                f"Carbon monoxide at {co} ppm with no collapse detected. Everyone in the "
-                "building is still on their feet, which is the moment to leave."
+                f"Carbon monoxide at {co} ppm. Every presence the radio resolves is breathing "
+                "and moving, which is the moment to leave."
             ),
             confidence=0.6,
             contributing_fields=("master.co_ppm",),
@@ -130,30 +211,6 @@ def classify(claims: list[AdmittedClaim], *, requested: IncidentType | None = No
             contributing_fields=("intruder.unexpected_presence", "people.headcount"),
         )
 
-    # Faint. The headline case, and the one the statistics belong to.
-    if collapse is not None:
-        alone = headcount == "1"
-        down = f"{float(still_down) / 60.0:.0f} minutes" if still_down else "an unknown time"
-        return Classification(
-            incident_type=IncidentType.FAINT,
-            reasoning=(
-                f"A collapse in {collapse.assertion.zone_scope}, down {down}, with normal air "
-                "and no unexpected presence. "
-                + (
-                    "One resident is home by device association, so nobody is coming to help. "
-                    "The fall is not what kills; the time to discovery is."
-                    if alone
-                    else "Other occupants are home."
-                )
-            ),
-            confidence=0.75 if alone else 0.65,
-            contributing_fields=(
-                "people.collapse_detected",
-                "people.still_down_s",
-                "people.headcount",
-            ),
-        )
-
     # Nothing corroborates. The resident's tap still stands - a person decides
     # what is an emergency, not this function - and master says plainly that it
     # has nothing to add rather than manufacturing a reason.
@@ -169,12 +226,4 @@ def classify(claims: list[AdmittedClaim], *, requested: IncidentType | None = No
             contributing_fields=(),
         )
 
-    return Classification(
-        incident_type=IncidentType.FAINT,
-        reasoning=(
-            "No corroborating claims and nothing was raised. This is a placeholder verdict "
-            "and must not be presented as a classification."
-        ),
-        confidence=0.0,
-        contributing_fields=(),
-    )
+    return None

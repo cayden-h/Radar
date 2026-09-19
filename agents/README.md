@@ -14,7 +14,7 @@ in the prose is `agents.people` in the code.
 | Path | What it is |
 |---|---|
 | `agents/core/` | Identity, cards, keys, signing, the transport, discovery, the ports, the signal helpers |
-| `agents/people/` | Presence, personhood, respiration, location, falls. The only CSI consumer |
+| `agents/people/` | Presence, personhood, respiration, location, responsiveness. The only CSI consumer |
 | `agents/intruder/` | Roster plus device association over the personhood verdict |
 | `agents/master/` | The trust gate, the classifier, the incident, the local gas sensor |
 | `agents/caller/` | The 911 phone call, the conference bridge, and the resident's guidance |

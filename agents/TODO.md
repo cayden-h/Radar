@@ -51,15 +51,28 @@ Domain Name prize for free.
 
 Then, in order:
 
-- Replace `DOMAIN` in `agents/core/identity.py`. It is `hawkeye.invalid` today,
-  on the RFC 2606 reserved TLD precisely so it can never resolve and can never
-  be mistaken for a real registration.
-- Settle the ANSName shape: `people.hawkeye.example` or
-  `hawkeye.example/agents/people`? Check `agent.webmesh.ai`'s
-  `/.well-known/agents-index.json` and match it rather than guessing.
-- Free ANS registration through GoDaddy for each of the five.
-- **DNSSEC on.** Chain validity is a scored integrity signal, `verify_agent`
-  checks it by name, and it is free.
+- ~~Replace `DOMAIN` in `agents/core/identity.py`.~~ **Done.**
+  `batradar.club`, registered at Porkbun 2026-09-19. `.club` is a GoDaddy
+  Registry TLD, so the MLH Best Domain Name stack survives the registrar.
+- ~~Settle the ANSName shape.~~ **Done, and it was not a preference.** ANS
+  publishes `_ans.<host>` and `_ans-badge.<host>` TXT records *per
+  registration*, so five agents on one host collide on them. Subdomain per
+  agent: `ans://v0.1.0.people.batradar.club`.
+- ~~CSRs for all five.~~ **Done.** `ans-cli generate-csr`, EC P-256 identity
+  and RSA-2048 server, under `agents/.ans/<slug>/`. **Gitignored, and they must
+  stay that way**: the identity key *is* the agent.
+- **Register the five.** `scripts/register-agents.sh` does it in one command
+  and `scripts/verify-agents.sh` drives them to ACTIVE. **Blocked on a
+  production API key.** The key in hand is an OTE key: it authenticates against
+  `api.ote-godaddy.com` and returns a bare `Unauthorized` against
+  `api.godaddy.com`, with nothing in the error naming the environment. Re-issue
+  at https://classic-developer.godaddy.com/keys with type **Production**,
+  completing the mobile-PIN prompt. The whole flow is already rehearsed against
+  OTE and reached `PENDING_VALIDATION` with an ACME challenge, so nothing else
+  is unknown.
+- **DNSSEC on at Porkbun.** Chain validity is a scored integrity signal,
+  `verify_agent` checks it by name, and the CLI skips TLSA entirely without it -
+  which means **no DNSSEC, no DANE, no Silver tier.** Free, and easy to forget.
 
 **Blocks:** 3, 4, 5. **Blocked by:** 1 (they need somewhere to resolve to).
 
@@ -240,16 +253,15 @@ if time runs out is PSTN dial-in for full voice, with whisper on the roadmap.
 
 ## 13. Tune the sensing thresholds against real capture
 
-Four constants are placeholders with a stated rationale and no data behind them.
+Two constants are placeholders with a stated rationale and no data behind them.
 Each is marked `TODO(sensor)`:
 
 | Constant | File | What it decides |
 |---|---|---|
 | `PERSONHOOD_STRENGTH` | `people/respiration.py` | Whether a perturbation is a living body |
 | `OCCUPIED_EXCESS` | `people/presence.py` | Whether a zone is occupied |
-| `TRANSIENT_RMS`, `STILL_RMS`, `DEBOUNCE_S` | `people/collapse.py` | Whether a fall is a fall or a couch |
 
-All four need the same thing: an empty room and an occupied room from the same
+Both need the same thing: an empty room and an occupied room from the same
 link, same channel, same geometry. `docs/hardware/bring-up-checklist.md` is the
 path.
 

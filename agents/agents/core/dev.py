@@ -106,20 +106,6 @@ class SyntheticCsiFeed:
         """
         self._state[zone] = (None, magnitude, 0.0)
 
-    def transient(self, zone: str) -> None:
-        """One large, fast disturbance. A fall, or a person sitting down hard.
-
-        Deliberately the same call for both, because at the instant it happens
-        they are the same measurement. What separates them is what comes next,
-        and that is `collapse`'s problem rather than this fixture's.
-        """
-        bpm, sigma, _ = self._state.get(zone, (None, 0.0, 0.0))
-        self._state[zone] = (bpm, max(sigma, MOVING_SIGMA), 4.0)
-
-    def settle(self, zone: str, *, bpm: float = 8.0) -> None:
-        """Still, but breathing. The state the whole system exists to notice."""
-        self._state[zone] = (bpm, 0.0, 0.0)
-
     # --------------------------------------------------------------- the feed
 
     def advance(self, seconds: float) -> None:

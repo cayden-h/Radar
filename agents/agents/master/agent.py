@@ -122,7 +122,7 @@ class MasterAgent(Agent):
             admitted,
             requested=self._incident.incident_type if self._incident else None,
         )
-        if self._incident is not None:
+        if self._incident is not None and classification is not None:
             self._incident.classification = classification
 
         provenance = Provenance(
@@ -132,64 +132,73 @@ class MasterAgent(Agent):
             detail=f"{len(admitted)} admitted, {len(gate.discarded)} discarded",
         )
 
-        assertions = [
-            Assertion(
-                field="master.incident_type",
-                value=classification.incident_type.value,
-                severity_ceiling=Severity.ACTIONABLE,
-                confidence=classification.confidence,
-                basis=classification.reasoning,
-                provenance=provenance,
-            ),
-            Assertion(
-                field="master.classification_basis",
-                value=",".join(classification.contributing_fields) or "none",
-                severity_ceiling=Severity.INFORMATIONAL,
-                confidence=1.0,
-                basis=(
-                    "The fields that contributed. A classification built from one signal is a "
-                    "thermostat; this one combines independent modalities and shows which."
+        assertions: list[Assertion] = []
+        if classification is not None:
+            assertions.extend(
+                [
+                    Assertion(
+                        field="master.incident_type",
+                        value=classification.incident_type.value,
+                        severity_ceiling=Severity.ACTIONABLE,
+                        confidence=classification.confidence,
+                        basis=classification.reasoning,
+                        provenance=provenance,
+                    ),
+                    Assertion(
+                        field="master.classification_basis",
+                        value=",".join(classification.contributing_fields) or "none",
+                        severity_ceiling=Severity.INFORMATIONAL,
+                        confidence=1.0,
+                        basis=(
+                            "The fields that contributed. A classification built from one "
+                            "signal is a thermostat; this one combines independent modalities "
+                            "and shows which."
+                        ),
+                        provenance=provenance,
+                    ),
+                ]
+            )
+        assertions.extend(
+            [
+                Assertion(
+                    field="master.accepted",
+                    value=str(len(admitted)),
+                    severity_ceiling=Severity.INFORMATIONAL,
+                    confidence=1.0,
+                    basis=f"{len(admitted)} claim(s) survived the gate.",
+                    provenance=provenance,
                 ),
-                provenance=provenance,
-            ),
-            Assertion(
-                field="master.accepted",
-                value=str(len(admitted)),
-                severity_ceiling=Severity.INFORMATIONAL,
-                confidence=1.0,
-                basis=f"{len(admitted)} claim(s) survived the gate.",
-                provenance=provenance,
-            ),
-            Assertion(
-                field="master.discarded",
-                value=str(len(gate.discarded)),
-                severity_ceiling=Severity.INFORMATIONAL,
-                confidence=1.0,
-                basis=(
-                    f"{len(gate.discarded)} claim(s) discarded and logged with a reason. The "
-                    "discard log is what makes 'it tells you what it discarded' checkable "
-                    "rather than assertable."
+                Assertion(
+                    field="master.discarded",
+                    value=str(len(gate.discarded)),
+                    severity_ceiling=Severity.INFORMATIONAL,
+                    confidence=1.0,
+                    basis=(
+                        f"{len(gate.discarded)} claim(s) discarded and logged with a reason. The "
+                        "discard log is what makes 'it tells you what it discarded' checkable "
+                        "rather than assertable."
+                    ),
+                    provenance=provenance,
                 ),
-                provenance=provenance,
-            ),
-            Assertion(
-                field="master.speakable",
-                value=str(len(gate.speakable())),
-                severity_ceiling=Severity.INFORMATIONAL,
-                confidence=1.0,
-                basis=(
-                    f"{len(gate.speakable())} claim(s) agents/caller may repeat to an operator. "
-                    + (
-                        "Zero: no claim this pass arrived over a verified transport. Every "
-                        "claim caller speaks has a verified source or it does not get spoken, "
-                        "and that rule is not relaxed because a demo is running."
-                        if not gate.speakable()
-                        else ""
-                    )
+                Assertion(
+                    field="master.speakable",
+                    value=str(len(gate.speakable())),
+                    severity_ceiling=Severity.INFORMATIONAL,
+                    confidence=1.0,
+                    basis=(
+                        f"{len(gate.speakable())} claim(s) agents/caller may repeat to an operator. "
+                        + (
+                            "Zero: no claim this pass arrived over a verified transport. Every "
+                            "claim caller speaks has a verified source or it does not get spoken, "
+                            "and that rule is not relaxed because a demo is running."
+                            if not gate.speakable()
+                            else ""
+                        )
+                    ),
+                    provenance=provenance,
                 ),
-                provenance=provenance,
-            ),
-        ]
+            ]
+        )
 
         # The air reading, surfaced on master's own observation so the app can
         # render it alongside everything else. It is already in the verification
@@ -214,8 +223,8 @@ class MasterAgent(Agent):
             unknowns=unknowns,
             healthy=not unreachable,
             note=(
-                f"{classification.incident_type.value}, {len(admitted)} admitted, "
-                f"{len(gate.discarded)} discarded"
+                f"{classification.incident_type.value if classification else 'unclassified'}, "
+                f"{len(admitted)} admitted, {len(gate.discarded)} discarded"
             ),
         )
 
@@ -265,7 +274,8 @@ class MasterAgent(Agent):
         how high the number climbs. A simulated reading from an unverified local
         input must never be able to move anybody on its own, and it never
         becomes the sole basis for a classification - the Fire rows in
-        `classify` all require a CSI-derived collapse alongside it.
+        `classify` all require a CSI-derived lost breathing signature
+        alongside it.
         """
         if self._gas is None:
             return []
@@ -340,8 +350,8 @@ class MasterAgent(Agent):
                 "true" if elevated else "false",
                 (
                     f"{'Above' if elevated else 'Below'} the {ELEVATED_PPM:.0f} ppm UL 2034 "
-                    "alarm floor. Elevated CO alongside a collapse is a fire incident with a "
-                    "casualty rather than a faint."
+                    "alarm floor. Elevated CO alongside a breathing signature that has gone "
+                    "missing is a fire with an occupant who may not be able to respond."
                 ),
             ),
         ):
@@ -393,10 +403,11 @@ class MasterAgent(Agent):
     ) -> Incident:
         """Open an incident. A person taps; master records and classifies.
 
-        Accepts a SYSTEM raise deliberately: `collapse` and `environment`
-        detections should surface as incidents in the app, because surfacing
-        them is the entire point of detecting them. What a SYSTEM raise cannot
-        do is reach `release_for_call`.
+        Accepts a SYSTEM raise deliberately: a lost breathing signature from
+        `people`, an unexpected presence from `intruder`, or elevated CO on
+        master's own gas reading should surface as incidents in the app,
+        because surfacing them is the entire point of detecting them. What a
+        SYSTEM raise cannot do is reach `release_for_call`.
         """
         incident = Incident(
             incident_id=f"i-{uuid.uuid4().hex[:12]}",
