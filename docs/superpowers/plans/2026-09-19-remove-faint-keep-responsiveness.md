@@ -10,6 +10,38 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-19-remove-faint-keep-responsiveness-design.md`
 
+## Environment
+
+There is no virtualenv in this repo and `python` is not on PATH. Every Python command in this plan is written with `$PY`. Export this first, in every shell:
+
+```bash
+export PY="PYTHONPATH=/Users/cayden/Documents/GitHub/VTHacks/app/backend python3"
+```
+
+That is not a normal alias - it carries an environment variable, so it only works as a command prefix, which is how every command below uses it. If your shell mangles it, write the full form instead:
+
+```bash
+PYTHONPATH=/Users/cayden/Documents/GitHub/VTHacks/app/backend python3 -m pytest -q
+```
+
+`agents` imports `hawkeye_backend` (for `Provenance` and the verification package, deliberately - see `agents/pyproject.toml`), which is why the path is needed from both trees.
+
+**The agents suite takes about three minutes** - `tests/test_wire.py` spins real HTTP servers. During the red-green loop run only the tests you are working on with `-k`. Run the full suite once at the end of your task, and budget for the wait rather than assuming it hung.
+
+Baseline before this plan starts: **74 agents tests, 81 backend tests, all passing.** If you see a different baseline, stop and say so.
+
+**Repo root:** `/Users/cayden/Documents/GitHub/VTHacks`. **Branch:** `hawkeye/remove-faint`.
+
+## House style
+
+From `CLAUDE.md`, and they are not optional:
+
+- Never use an em dash. Use a plain dash.
+- Never use Markdown blockquotes.
+- In long Markdown files, put each full sentence on its own line.
+- Never add an agent name as commit co-author.
+- The honesty rule governs every string this change touches: a simulated input is labelled in the data, and the system never claims a sensing capability the physics does not support. A lost respiration signature is never reported as a person not breathing.
+
 ---
 
 ## File Structure
@@ -108,7 +140,7 @@ def test_a_lost_signature_is_never_a_finding_that_breathing_stopped(feed, roster
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-cd agents && python -m pytest tests/test_people.py -k "signature or lost" -v
+cd agents && $PY -m pytest tests/test_people.py -k "signature or lost" -v
 ```
 
 Expected: `test_a_lost_signature_is_never_a_finding_that_breathing_stopped` FAILS on the `collapse` assertion (the basis still names it). The other two may already pass - that is fine and expected, they are regression guards for behaviour we are about to keep.
@@ -170,7 +202,7 @@ In `agents/agents/people/respiration.py`, replace the whole `if memory is not No
 - [ ] **Step 4: Run the tests to verify they pass**
 
 ```bash
-cd agents && python -m pytest tests/test_people.py -k "signature or lost" -v
+cd agents && $PY -m pytest tests/test_people.py -k "signature or lost" -v
 ```
 
 Expected: 3 passed.
@@ -205,7 +237,7 @@ The last one's guarantee is not lost: Task 1 re-established it as `test_a_lost_s
 - [ ] **Step 2: Run the suite to see what else depends on collapse**
 
 ```bash
-cd agents && python -m pytest tests/test_people.py -v
+cd agents && $PY -m pytest tests/test_people.py -v
 ```
 
 Expected: PASS. The remaining `test_people.py` tests do not touch collapse.
@@ -257,7 +289,7 @@ and delete the `collapse` row of the reader table at line 31 entirely.
 - [ ] **Step 4: Run the full agents suite**
 
 ```bash
-cd agents && python -m pytest -q
+cd agents && $PY -m pytest -q
 ```
 
 Expected: FAIL. `tests/test_trust.py`, `tests/test_caller.py` and `tests/test_wire.py` still reference collapse fields and `IncidentType.FAINT`. Those are Tasks 3-5. Note the failures and continue.
@@ -334,7 +366,7 @@ Replace the two `IncidentType.FAINT` uses at lines 153 and 161 with `IncidentTyp
 - [ ] **Step 2: Run the tests to verify they fail**
 
 ```bash
-cd agents && python -m pytest tests/test_trust.py -k "lost_breathing or no_classification" -v
+cd agents && $PY -m pytest tests/test_trust.py -k "lost_breathing or no_classification" -v
 ```
 
 Expected: both FAIL. The first on the verdict - `classify` still returns `FAINT` from its fall branch, or `FIRE` with the old fall reasoning that says nothing about responding. The second on the placeholder - `master.incident_type` is still published on every idle tick at confidence 0.0.
@@ -559,7 +591,7 @@ Lines 341-345, the `master.co_elevated` basis:
 - [ ] **Step 6: Run the tests**
 
 ```bash
-cd agents && python -m pytest tests/test_trust.py -v
+cd agents && $PY -m pytest tests/test_trust.py -v
 ```
 
 Expected: PASS.
@@ -620,7 +652,7 @@ Replace every `IncidentType.FAINT` in this file (lines 49, 65, 90, 108, 198, 206
 - [ ] **Step 2: Run the test to verify it fails**
 
 ```bash
-cd agents && python -m pytest tests/test_caller.py -k "lost_signature or expect_an_answer" -v
+cd agents && $PY -m pytest tests/test_caller.py -k "lost_signature or expect_an_answer" -v
 ```
 
 Expected: FAIL - `_speak_value` falls through to the default case and `route_question` returns `people.respiration` or None.
@@ -695,7 +727,7 @@ In `_speak_value`, delete the `people.collapse_detected`, `people.still_down_s` 
 `NEGATIVE_VALUES` is `{"false", "at least 0", "0"}`. `respiration_lost` carries elapsed seconds, so a value of `"0"` would be filtered. That is correct: zero seconds since the last signature means the signature is current. No change needed - but confirm it:
 
 ```bash
-cd agents && python -c "
+cd agents && $PY -c "
 from agents.caller.agent import worth_reporting
 from agents.core.observations import Assertion
 print('0s filtered:', not worth_reporting(Assertion(field='people.respiration_lost', value='0')))
@@ -708,7 +740,7 @@ Expected: both `True`. If `Assertion` requires more fields, supply the minimum i
 - [ ] **Step 7: Run the tests**
 
 ```bash
-cd agents && python -m pytest tests/test_caller.py -v
+cd agents && $PY -m pytest tests/test_caller.py -v
 ```
 
 Expected: PASS.
@@ -752,7 +784,7 @@ def test_fire_guidance_never_tells_a_resident_to_stay_and_help():
 - [ ] **Step 2: Run to verify it fails**
 
 ```bash
-cd agents && python -m pytest tests/test_caller.py -k stay_and_help -v
+cd agents && $PY -m pytest tests/test_caller.py -k stay_and_help -v
 ```
 
 Expected: PASS. This one is a regression guard rather than a red-to-green test - it locks in that the fire protocol is to leave, so that deleting the Faint protocol in Step 3 cannot quietly take "get out now" with it.
@@ -766,7 +798,7 @@ In `agents/agents/caller/guidance.py`, delete the entire `IncidentType.FAINT: (.
 - [ ] **Step 4: Run the tests**
 
 ```bash
-cd agents && python -m pytest tests/test_caller.py -v
+cd agents && $PY -m pytest tests/test_caller.py -v
 ```
 
 Expected: PASS.
@@ -819,7 +851,7 @@ def test_people_declares_no_collapse_fields():
 - [ ] **Step 2: Run to verify it fails**
 
 ```bash
-cd agents && python -m pytest tests/test_cards.py -k "declared or collapse" -v
+cd agents && $PY -m pytest tests/test_cards.py -k "declared or collapse" -v
 ```
 
 Expected: FAIL on both.
@@ -880,7 +912,7 @@ Delete line 137, the merge-rationale comment `#   collapse    -> people    a fal
 - [ ] **Step 6: Rebuild the cards**
 
 ```bash
-cd agents && python scripts/build_cards.py && python scripts/build_cards.py --check
+cd agents && $PY scripts/build_cards.py && python scripts/build_cards.py --check
 ```
 
 Expected: the build rewrites `agents/build/cards/people/agent-card.json` (and its trust card if the builder emits one), then `--check` exits 0.
@@ -888,7 +920,7 @@ Expected: the build rewrites `agents/build/cards/people/agent-card.json` (and it
 - [ ] **Step 7: Run the tests**
 
 ```bash
-cd agents && python -m pytest -q
+cd agents && $PY -m pytest -q
 ```
 
 Expected: PASS across the whole agents suite. If `tests/test_wire.py` still fails, it is on `IncidentType.FAINT` at lines 144 and 212 - replace both with `IncidentType.FIRE`.
@@ -945,7 +977,7 @@ def test_every_incident_type_has_resident_guidance():
 - [ ] **Step 2: Run to verify it fails**
 
 ```bash
-cd app/backend && python -m pytest tests/test_incident_roster.py -v
+cd app/backend && $PY -m pytest tests/test_incident_roster.py -v
 ```
 
 Expected: FAIL - the set still contains `"faint"`.
@@ -984,7 +1016,7 @@ class IncidentClassification(BaseModel):
 - [ ] **Step 4: Run the test**
 
 ```bash
-cd app/backend && python -m pytest tests/test_incident_roster.py -v
+cd app/backend && $PY -m pytest tests/test_incident_roster.py -v
 ```
 
 Expected: PASS.
@@ -1020,7 +1052,7 @@ def test_presence_carries_a_respiration_clock_not_a_fall_clock():
 - [ ] **Step 2: Run to verify it fails**
 
 ```bash
-cd app/backend && python -m pytest tests/test_incident_roster.py -k respiration_clock -v
+cd app/backend && $PY -m pytest tests/test_incident_roster.py -k respiration_clock -v
 ```
 
 Expected: FAIL.
@@ -1044,7 +1076,7 @@ In `app/backend/hawkeye_backend/models/state.py`, replace the `still_down_s` fie
 - [ ] **Step 4: Run the test**
 
 ```bash
-cd app/backend && python -m pytest tests/test_incident_roster.py -v
+cd app/backend && $PY -m pytest tests/test_incident_roster.py -v
 ```
 
 Expected: PASS.
@@ -1116,7 +1148,7 @@ Expected: no output.
 - [ ] **Step 6: Run the backend suite**
 
 ```bash
-cd app/backend && python -m pytest -q
+cd app/backend && $PY -m pytest -q
 ```
 
 Expected: PASS (37 security tests plus the new roster tests). If a schema fixture fails, that is Task 10.
@@ -1157,13 +1189,13 @@ Replace lines 402-403:
 - [ ] **Step 2: Regenerate**
 
 ```bash
-cd app/backend && python tools/gen_schema.py
+cd app/backend && $PY tools/gen_schema.py
 ```
 
 - [ ] **Step 3: Verify the enums moved**
 
 ```bash
-cd app/backend && python -c "
+cd app/backend && $PY -c "
 import json
 e = json.load(open('schema/enums.json'))
 assert e['incident_type'] == ['burglary', 'fire'], e['incident_type']
@@ -1178,7 +1210,7 @@ Expected: `incident_type: ['burglary', 'fire']`, `respiration_status` unchanged,
 - [ ] **Step 4: Run the backend suite**
 
 ```bash
-cd app/backend && python -m pytest -q
+cd app/backend && $PY -m pytest -q
 ```
 
 Expected: PASS.
@@ -1477,8 +1509,8 @@ git commit -m "Rewrite the docs around responsiveness rather than the long lie"
 
 ```bash
 cd /Users/cayden/Documents/GitHub/VTHacks
-cd agents && python -m pytest -q && python scripts/build_cards.py --check && cd ..
-cd app/backend && python -m pytest -q && cd ../..
+cd agents && $PY -m pytest -q && python scripts/build_cards.py --check && cd ..
+cd app/backend && $PY -m pytest -q && cd ../..
 cd app/ios && find HawkEye -name '*.swift' -print0 | xargs -0 swiftc -parse -swift-version 6 && cd ../..
 ```
 
@@ -1487,8 +1519,8 @@ Expected: agents suite green, `--check` exits 0, backend suite green, Swift pars
 - [ ] **Step 2: Run the agent mesh end to end**
 
 ```bash
-cd agents && python -m agents people --port 8101 &
-HAWKEYE_PEERS=people=http://127.0.0.1:8101 python -m agents master --port 8100 &
+cd agents && $PY -m agents people --port 8101 &
+HAWKEYE_PEERS=people=http://127.0.0.1:8101 $PY -m agents master --port 8100 &
 ```
 
 Then drive the backend demo:
