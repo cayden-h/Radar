@@ -61,7 +61,7 @@ def _rf_block(state: InteriorState, sensor: SensorLiveness | None) -> dict[str, 
 
     `frame_rate_hz` is the field that catches the quiet failure. Without a
     traffic generator a real capture drops to roughly 10 Hz, which barely
-    resolves breathing and never resolves a fall transient, with every component
+    resolves breathing and never resolves a short motion transient, with every component
     still reporting healthy. Recording it puts that on the record.
     """
     block: dict[str, object] = {
@@ -118,7 +118,7 @@ def _frame_detail(state: InteriorState, sensor: SensorLiveness | None) -> dict[s
                 "confidence": round(p.confidence, 3),
                 "presence_class": p.presence_class.value,
                 "expected": p.expected,
-                "still_down_s": p.still_down_s,
+                "respiration_lost_s": p.respiration_lost_s,
                 "breathing_bpm": p.vitals.breathing_bpm,
                 "heart_bpm": p.vitals.heart_bpm,
                 "respiration": p.vitals.respiration.value,

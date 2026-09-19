@@ -70,7 +70,7 @@ def incident(
     return Incident(
         incident_id=incident_id,
         site_id=SITE,
-        incident_type=IncidentType.FAINT,
+        incident_type=IncidentType.FIRE,
         status=status,
         raised_by=raised_by,
         address=ADDRESS,
@@ -81,7 +81,7 @@ def incident(
 def state(
     *,
     presence_state: PresenceState = PresenceState.CONFIRMED_MOVING,
-    still_down_s: float | None = None,
+    respiration_lost_s: float | None = None,
     at_offset_s: float = 0.0,
     incident_id: str | None = "inc-0001",
 ) -> InteriorState:
@@ -102,7 +102,7 @@ def state(
                     breathing_bpm=16.0,
                     person_confidence=0.92,
                 ),
-                still_down_s=still_down_s,
+                respiration_lost_s=respiration_lost_s,
                 provenance=SIM,
             )
         ],
@@ -270,11 +270,11 @@ def test_every_event_kind_lands_once(recorder: ReplayRecorder) -> None:
 def test_a_frame_carries_the_map_and_the_radio(recorder: ReplayRecorder) -> None:
     inc = incident()
     raise_it(recorder, inc)
-    recorder.observe(StateEvent(state=state(still_down_s=45.0)), inc.incident_id)
+    recorder.observe(StateEvent(state=state(respiration_lost_s=45.0)), inc.incident_id)
 
     frame = recorder.get(inc.incident_id).entries[-1]
     assert frame.kind == "frame"
-    assert frame.detail["presences"][0]["still_down_s"] == 45.0
+    assert frame.detail["presences"][0]["respiration_lost_s"] == 45.0
     assert frame.detail["rf"]["frame_rate_hz"] == 137.4
     # The honesty rule, enforced in the data rather than in a comment.
     assert frame.detail["rf"]["raw_csi"] is None
@@ -404,7 +404,7 @@ def test_removing_an_entry_is_caught(recorder: ReplayRecorder) -> None:
 def test_the_export_bundle_holds_what_it_claims(recorder: ReplayRecorder, tmp_path) -> None:
     inc = incident()
     raise_it(recorder, inc)
-    recorder.observe(StateEvent(state=state(still_down_s=90.0)), inc.incident_id)
+    recorder.observe(StateEvent(state=state(respiration_lost_s=90.0)), inc.incident_id)
     end_call(recorder, inc)
 
     record = recorder.get(inc.incident_id).to_record()

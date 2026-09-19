@@ -20,7 +20,11 @@ class PresenceState(StrEnum):
     """The three states app/CLAUDE.md requires the 3D view to distinguish.
 
     CONFIRMED_MOVING: moving and breathing. A person, confirmed.
-    CONFIRMED_STILL:  still but breathing. A person who is not responding.
+    CONFIRMED_STILL:  a person who is not moving. Either still breathing, or
+                      carrying a breathing signature that was resolvable and is
+                      not now - see Presence.respiration_lost_s, which is what
+                      separates those two. A lost signature is never a finding
+                      that breathing stopped.
                       The loudest thing on screen. This is what the system exists for.
     UNCONFIRMED:      a perturbation with no respiration signature. Render it as
                       such, not as a person. A curtain is not an intruder.

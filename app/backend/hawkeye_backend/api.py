@@ -178,7 +178,7 @@ async def get_state(request: Request) -> InteriorState:
 
 @router.post("/incident", response_model=IncidentAck, status_code=202, summary="Raise an incident")
 async def post_incident(request: Request, body: RaiseIncidentRequest) -> IncidentAck:
-    """One tap from the app. Burglary, Fire, or Faint.
+    """One tap from the app. Burglary or Fire.
 
     202 rather than 201: the hub has accepted it and forwarded it to master, and
     what happens next arrives on the stream. The resident should not be staring
@@ -388,7 +388,7 @@ async def post_demo_run(
     simulate_human_tap: bool = Query(
         default=False,
         description=(
-            "Stand in for a person pressing Faint in the app. Off by default. "
+            "Stand in for a person pressing Fire in the app. Off by default. "
             "The hub itself never raises an incident; this parameter exists so "
             "one curl can exercise detection plus call end to end, and it is "
             "the human, not the system, that it is imitating."
@@ -398,11 +398,12 @@ async def post_demo_run(
     """Drive the scripted detection, then stop. Simulated mode only.
 
     The detection is expressed purely in interior state: the presence goes to
-    `confirmed_still`, `still_down_s` climbs, the CO reading rises. No incident
+    `confirmed_still` with no resolvable breathing signature, `respiration_lost_s`
+    climbs, the CO reading rises. No incident
     is created and no call is placed, because Hawk Eye never calls 911 on its
     own (settled 2026-09-19). The system notices and waits for a human tap.
 
-    `?simulate_human_tap=true` additionally raises a Faint incident exactly as
+    `?simulate_human_tap=true` additionally raises a Fire incident exactly as
     `POST /v1/incident` would, with `raised_by: user`, because the thing being
     simulated is the person. Without it this endpoint cannot start a call.
 
@@ -417,7 +418,7 @@ async def post_demo_run(
     if client.script_running:
         return DemoRunAck(started=False, detail="scripted incident already running")
 
-    started = not (client.detection_running or client.fall_detected)
+    started = not (client.detection_running or client.signature_lost)
     if started:
         asyncio.create_task(client.run_detection())
         detail = "scripted detection started; no incident raised, waiting on a human tap"
@@ -429,9 +430,9 @@ async def post_demo_run(
         # Exactly the path POST /v1/incident takes. RaisedBy.USER is not a
         # label of convenience here: assert_human_released refuses anything
         # else on the way to the call.
-        incident = await client.raise_incident(IncidentType.FAINT, RaisedBy.USER, None)
+        incident = await client.raise_incident(IncidentType.FIRE, RaisedBy.USER, None)
         raised_incident_id = incident.incident_id
-        detail += "; simulated human tap raised a faint incident"
+        detail += "; simulated human tap raised a fire incident"
 
     return DemoRunAck(started=started, detail=detail, raised_incident_id=raised_incident_id)
 
