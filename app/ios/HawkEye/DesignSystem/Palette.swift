@@ -32,7 +32,8 @@ enum Palette {
     static let calm = Color(hex: 0x4FD1C5)
     /// A confirmed person, moving and breathing. Nothing is wrong.
     static let personMoving = Color(hex: 0x5BA8FF)
-    /// A person who is still but breathing. The loudest state in the product.
+    /// A person whose breathing signature we had and no longer have. The
+    /// loudest state in the product, and the only name for this colour.
     static let personUnresponsive = Color(hex: 0xFF3B4E)
     /// A perturbation with no respiration signature. Not a person.
     static let unconfirmed = Color(hex: 0x6E7889)
@@ -51,7 +52,6 @@ enum Palette {
 
     static let burglary = Color(hex: 0x8B7CFF)
     static let fire = Color(hex: 0xFF7A3D)
-    static let faint = Color(hex: 0xFF3B4E)
 
     /// Active call state.
     static let live = Color(hex: 0xFF3B4E)
