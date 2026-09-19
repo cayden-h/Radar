@@ -10,11 +10,14 @@ this project is. A notice is unrecallable once it is an SMS on someone's phone.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from hawkeye_backend.models.common import Provenance, Source
 from hawkeye_backend.models.notice import Notice, NoticeSeverity
 from hawkeye_backend.models.state import InteriorState, Presence, PresenceState
+
+logger = logging.getLogger(__name__)
 
 # agents/intruder decides this from roster plus device association, which is an
 # inference over other readings rather than a measurement. DERIVED is the honest
@@ -52,10 +55,23 @@ def _is_unexpected(p: Presence) -> bool:
 
 
 def _room_name(state: InteriorState, zone: str) -> str:
-    """The name a resident reads, falling back to the raw key rather than to ''."""
+    """The name a resident reads, falling back to a derived name rather than to ''.
+
+    Zones are a closed set fixed at enrollment, so hitting the fallback means
+    something is genuinely wrong upstream (a zone renamed or dropped from the
+    floorplan without the sensing side catching up). A resident reading a
+    guessed room name during a real incident is the same category of problem
+    as a fabricated measurement, so the fallback is logged rather than silent.
+    """
     for room in state.floorplan.rooms:
         if room.zone == zone:
             return room.name
+    logger.warning(
+        "zone %r is not in the enrolled floorplan for site %r; "
+        "falling back to a derived room name",
+        zone,
+        state.site_id,
+    )
     return zone.replace("_", " ").capitalize()
 
 
@@ -67,15 +83,28 @@ class NoticeDetector:
     1. A presence is a confirmed person with `expected is False`.
     2. It has held that way continuously for `hold_s`.
     3. `calibration.healthy` is true.
-    4. No notice has yet been raised for that `presence_id`.
+    4. No notice has yet been raised for that `presence_id` since it was last
+       seen qualifying within `forget_after_s`.
 
-    And then never again for that `presence_id`.
+    Once per presence, while it is here - not once per `presence_id`, ever.
+    `presence_id` is session-scoped (see `Presence.presence_id`) and can be
+    recycled after a sensor restart, and a genuine re-entry hours after the
+    same person left must notify again. A fired mark is therefore forgotten
+    once the presence has been absent for `forget_after_s`; if it, or a
+    different person reusing the same id, appears after that it is a new
+    event.
     """
 
-    def __init__(self, hold_s: float = 5.0) -> None:
+    def __init__(self, hold_s: float = 5.0, forget_after_s: float = 900.0) -> None:
+        if hold_s < 0 or forget_after_s < 0:
+            raise ValueError("hold_s and forget_after_s must not be negative")
         self.hold_s = hold_s
+        self.forget_after_s = forget_after_s
         self._since: dict[str, datetime] = {}
-        self._fired: set[str] = set()
+        # Last seen "qualifying" timestamp for every presence_id that has
+        # fired, so a mark can lapse. Refreshed on every tick the id still
+        # qualifies, whether or not it has already fired.
+        self._fired: dict[str, datetime] = {}
 
     def observe(self, state: InteriorState) -> list[Notice]:
         """Feed one interior state tick. Returns the notices it raised, if any."""
@@ -88,10 +117,22 @@ class NoticeDetector:
             return []
 
         now = state.captured_at
+
+        # A presence gone long enough is gone. Forget its fired mark so a
+        # genuine re-entry (or a recycled id) notifies again rather than being
+        # suppressed forever.
+        for presence_id in list(self._fired):
+            last_seen = self._fired[presence_id]
+            if (now - last_seen).total_seconds() > self.forget_after_s:
+                del self._fired[presence_id]
+
+        # `presence_id` is assumed unique within a single frame; if two shared
+        # one, only the last would survive this comprehension.
         qualifying = {p.presence_id: p for p in state.presences if _is_unexpected(p)}
 
         # A presence that stopped qualifying, or left the frame entirely,
-        # restarts from zero if it comes back. It does not lose its fired mark.
+        # restarts from zero if it comes back. It does not lose its fired mark
+        # (that is handled above, on a longer timescale).
         for presence_id in list(self._since):
             if presence_id not in qualifying:
                 del self._since[presence_id]
@@ -99,11 +140,12 @@ class NoticeDetector:
         raised: list[Notice] = []
         for presence_id, p in qualifying.items():
             if presence_id in self._fired:
+                self._fired[presence_id] = now
                 continue
             first = self._since.setdefault(presence_id, now)
             if (now - first).total_seconds() < self.hold_s:
                 continue
-            self._fired.add(presence_id)
+            self._fired[presence_id] = now
             self._since.pop(presence_id, None)
             raised.append(self._notice(state, p))
         return raised

@@ -182,3 +182,52 @@ def test_the_body_uses_the_room_name_from_the_floorplan():
     raised = d.observe(frame(presence(), at_s=5))
 
     assert raised[0].body == "Not accounted for. Living room."
+
+
+def test_a_presence_that_returns_after_a_long_absence_notifies_again():
+    """Leaving and coming back hours later is a new event, not the same one.
+
+    The rule is "once per presence, while it is here", not "once per presence,
+    ever". A resident who was told at 9pm that someone was in the house should
+    be told again when they come back at 1am.
+    """
+    d = NoticeDetector(hold_s=5.0, forget_after_s=900.0)
+    d.observe(frame(presence(), at_s=0))
+    assert len(d.observe(frame(presence(), at_s=5))) == 1
+
+    # Gone for twenty minutes.
+    assert d.observe(frame(at_s=1200)) == []
+
+    d.observe(frame(presence(), at_s=1300))
+    assert len(d.observe(frame(presence(), at_s=1305))) == 1
+
+
+def test_a_brief_dropout_does_not_re_notify():
+    """CSI loses people behind walls for seconds at a time. That is not a re-entry."""
+    d = NoticeDetector(hold_s=5.0, forget_after_s=900.0)
+    d.observe(frame(presence(), at_s=0))
+    assert len(d.observe(frame(presence(), at_s=5))) == 1
+
+    # Out of sight for thirty seconds, then back.
+    d.observe(frame(at_s=20))
+    d.observe(frame(presence(), at_s=50))
+
+    assert d.observe(frame(presence(), at_s=60)) == []
+
+
+def test_fired_marks_do_not_accumulate_forever():
+    """The bookkeeping is bounded by who is actually around, not by history."""
+    d = NoticeDetector(hold_s=5.0, forget_after_s=900.0)
+    for i in range(20):
+        t = i * 100.0
+        d.observe(frame(presence(f"p{i}"), at_s=t))
+        d.observe(frame(presence(f"p{i}"), at_s=t + 5))
+
+    # Long after the last one, one more tick retires everything stale.
+    d.observe(frame(at_s=10_000))
+
+    # `_fired` is a private attribute. Reaching into it is the clearest way to
+    # assert the bookkeeping is actually bounded rather than merely appearing
+    # bounded from the outside, so this is a deliberate exception to not
+    # testing internals.
+    assert len(d._fired) == 0
