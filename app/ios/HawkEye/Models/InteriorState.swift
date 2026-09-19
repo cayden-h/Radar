@@ -357,7 +357,11 @@ struct Floorplan: Codable, Sendable, Hashable {
     /// squeezing the roster off the screen or flattening to a letterbox.
     var cardAspect: CGFloat {
         guard widthM > 0, depthM > 0 else { return 1.12 }
-        return Swift.min(Swift.max(CGFloat(widthM / depthM), 1.0), 2.0)
+        // Clamped well below the widest real plans on purpose. A 2.2:1 plan
+        // in a 2.2:1 card is limited by the screen's width, leaving a dead
+        // band above the incident buttons. A squarer card is taller, so the
+        // drawing sits in a controlled margin instead of a stranded strip.
+        return Swift.min(Swift.max(CGFloat(widthM / depthM), 1.0), 1.55)
     }
 
     /// A metre position normalised into 0...1 of the plan.
@@ -384,11 +388,11 @@ struct Floorplan: Codable, Sendable, Hashable {
         rooms: [
             Room(zone: "main_closet", name: "Closet",
                  polygon: [[0, 0], [1.9, 0], [1.9, 1.9], [0, 1.9]]),
-            Room(zone: "main_bath", name: "Main bath",
+            Room(zone: "main_bath", name: "Bath 1",
                  polygon: [[1.9, 0], [3.7, 0], [3.7, 1.9], [1.9, 1.9]]),
-            Room(zone: "second_bath", name: "Second bath",
+            Room(zone: "second_bath", name: "Bath 2",
                  polygon: [[3.7, 0], [5.8, 0], [5.8, 1.9], [3.7, 1.9]]),
-            Room(zone: "linen_closet", name: "Linen closet",
+            Room(zone: "linen_closet", name: "Linen",
                  polygon: [[5.8, 0], [6.9, 0], [6.9, 1.9], [5.8, 1.9]]),
             Room(zone: "dining_room", name: "Dining room",
                  polygon: [[6.9, 0], [10.8, 0], [10.8, 3.1], [6.9, 3.1]]),
