@@ -20,10 +20,12 @@ from hawkeye_backend.models.events import (
     EventPayload,
     IncidentEvent,
     InstructionEvent,
+    NoticeEvent,
     StateEvent,
     TranscriptEvent,
     VerificationEvent,
 )
+from hawkeye_backend.notices import NoticeDetector, NoticeSink, StreamSink, deliver
 from hawkeye_backend.store import InMemoryStore, Store
 
 logger = logging.getLogger(__name__)
@@ -32,24 +34,56 @@ logger = logging.getLogger(__name__)
 class HubRuntime:
     """Holds everything with a lifetime longer than one request."""
 
-    def __init__(self, settings: Settings, store: Store, bus: EventBus, client: MasterClient) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        store: Store,
+        bus: EventBus,
+        client: MasterClient,
+        detector: NoticeDetector | None = None,
+        notice_sinks: list[NoticeSink] | None = None,
+    ) -> None:
         self.settings = settings
         self.store = store
         self.bus = bus
         self.client = client
         self.started_at = time.monotonic()
+        self.detector = detector or NoticeDetector(
+            hold_s=settings.notice_hold_s,
+            forget_after_s=settings.notice_forget_after_s,
+        )
+        # The stream sink is always present, so the in-app banner never depends
+        # on Twilio being configured or on Twilio being up.
+        self.notice_sinks: list[NoticeSink] = [StreamSink(self.emit_notice)]
+        self.notice_sinks.extend(notice_sinks or [])
 
     @property
     def uptime_s(self) -> float:
         return time.monotonic() - self.started_at
 
     async def emit(self, payload: EventPayload, incident_id: str | None = None) -> None:
-        """Sequence, persist, publish. The only way an event reaches the app."""
+        """Sequence, persist, publish. The only way an event reaches the app.
+
+        Because it is the only way, it is also the right place to run the notice
+        detector: neither master client needs to know notices exist, and a
+        future third client gets them for free.
+        """
         seq = await self.store.next_seq()
         env = Envelope(seq=seq, payload=payload, incident_id=incident_id)
         await self._persist(env)
         await self.store.append_event(env)
         await self.bus.publish(env)
+
+        # After publishing, so the frame the notice describes is already on the
+        # wire when the notice arrives. Only StateEvent feeds the detector, which
+        # is what bounds the recursion through emit_notice to one level.
+        if isinstance(payload, StateEvent):
+            for notice in self.detector.observe(payload.state):
+                await deliver(notice, self.notice_sinks)
+
+    async def emit_notice(self, event: NoticeEvent) -> None:
+        """The stream sink's callback. Separate so the recursion is visible."""
+        await self.emit(event)
 
     async def _persist(self, env: Envelope) -> None:
         """Write the typed record behind an event into the store."""
@@ -67,6 +101,8 @@ class HubRuntime:
                 await self.store.append_verification(payload.result)
             case ContextEvent():
                 await self.store.append_context(payload.note)
+            # NoticeEvent has no typed record of its own: it is already in the
+            # event log via append_event, and the app reads it off the stream.
             case _:
                 pass
 
@@ -76,6 +112,12 @@ class HubRuntime:
 
     async def stop(self) -> None:
         await self.client.stop()
+        # The runtime owns the sinks, so it closes them. TwilioSink only closes
+        # an HTTP client it created itself, so this is safe for an injected one.
+        for sink in self.notice_sinks:
+            closer = getattr(sink, "aclose", None)
+            if closer is not None:
+                await closer()
 
     def in_memory_store(self) -> InMemoryStore | None:
         """The in-memory store, when that is what is configured.
