@@ -108,6 +108,60 @@ def test_heart_rate_is_never_the_personhood_test(feed, roster):
             assert assertion.severity_ceiling.value == "INFORMATIONAL"
 
 
+# ------------------------------------------------------- responsiveness
+
+
+def test_a_signature_that_was_never_there_is_not_a_lost_signature(feed, roster):
+    """A zone that never resolved breathing must not claim breathing was lost.
+
+    This is the whole reason the transition is the signal. An empty room and a
+    room holding someone whose breathing we cannot resolve look identical on
+    minute one; only the transition separates them.
+    """
+    agent = PeopleAgent(feed, roster)
+    observation = warm(agent, feed, 40)
+
+    assert values(observation, "people.respiration_lost") == []
+
+
+def test_a_signature_that_disappears_is_reported_with_its_elapsed_time(feed, roster):
+    """Breathing was resolvable here, and now it is not. Say so, with the clock."""
+    agent = PeopleAgent(feed, roster)
+    # Still and breathing, not moving: a moving body's respiration is not
+    # recoverable on a 1x1 link, so there would be no signature to lose.
+    feed.occupy("main_bedroom", bpm=15.0)
+    warm(agent, feed, 35)
+
+    # Long enough that the 30s analysis window has fully flushed the breathing
+    # frames, and then some: the claim is about elapsed time since the last
+    # signature, so the test has to let real time pass after it goes.
+    feed.vacate("main_bedroom")
+    observation = warm(agent, feed, 70)
+
+    gone = float(values(observation, "people.respiration_lost")[0])
+    assert gone > 30.0, "the clock runs from the last signature, not from this tick"
+
+
+def test_a_lost_signature_is_never_a_finding_that_breathing_stopped(feed, roster):
+    """The most urgent uncertainty this system can produce, and it stays one."""
+    agent = PeopleAgent(feed, roster)
+    # Still and breathing, not moving: a moving body's respiration is not
+    # recoverable on a 1x1 link, so there would be no signature to lose.
+    feed.occupy("main_bedroom", bpm=15.0)
+    warm(agent, feed, 35)
+
+    feed.vacate("main_bedroom")
+    observation = warm(agent, feed, 40)
+
+    reasons = [u.reason for u in observation.unknowns if u.field == "people.respiration"]
+    assert any("NOT a finding" in r for r in reasons)
+
+    bases = [a.basis for a in observation.assertions if a.field == "people.respiration_lost"]
+    assert not any("collapse" in b.lower() for b in bases), (
+        "the collapse reader is gone; this claim must stand on its own"
+    )
+
+
 # ------------------------------------------------------- location and count
 
 

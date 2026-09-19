@@ -156,7 +156,12 @@ class RespirationReader:
                     # where absence is worth escalating rather than shrugging
                     # at. It is still not a claim that the person is gone or
                     # dead; it is a claim that something changed and somebody
-                    # should look. The collapse reader is the cross-check.
+                    # should look.
+                    #
+                    # This is the signal a dispatcher acts on: it is what
+                    # decides whether to expect a response from whoever is in
+                    # this room. A presence that never resolved a signature
+                    # tells us nothing and produces nothing here.
                     gone_s = (newest.captured_at - memory.last_breathing_at).total_seconds()
                     assertions.append(
                         Assertion(
@@ -168,15 +173,28 @@ class RespirationReader:
                             basis=(
                                 f"A respiration signature was present in this zone {gone_s:.0f}s "
                                 f"ago at {memory.last_bpm:.0f} BPM and is no longer resolvable. "
-                                "Cross-check the collapse state before concluding anything."
+                                "Something changed here and somebody should look."
                                 if memory.last_bpm is not None
                                 else (
                                     "A respiration signature was present here and is no longer "
-                                    "resolvable."
+                                    "resolvable. Something changed here and somebody should look."
                                 )
                             ),
                             presence_id=memory.presence_id,
                             provenance=provenance,
+                        )
+                    )
+                    unknowns.append(
+                        Unknown(
+                            field="people.respiration",
+                            zone_scope=zone,
+                            reason=(
+                                "A respiration signature was present in this zone and is no "
+                                "longer resolvable. This is NOT a finding that the person is "
+                                "not breathing - shallow breathing and range limits look "
+                                "identical. It is the most urgent uncertainty this system can "
+                                "produce."
+                            ),
                         )
                     )
                 continue
