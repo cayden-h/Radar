@@ -127,3 +127,25 @@ async def test_an_expected_resident_raises_nothing():
     await rt.emit(StateEvent(state=frame(30, expected=True)))
 
     assert rec.seen == []
+
+
+async def test_a_broken_detector_does_not_break_the_event_pipeline():
+    """A notice is an addition to the event stream, never a risk to it.
+
+    `emit` is the single path every event takes to reach the app. If a bug in
+    the detector could propagate out of it, one bad tick would stop transcript
+    lines and verification results reaching the resident mid-call.
+    """
+
+    class Exploding:
+        def observe(self, state):
+            raise RuntimeError("bookkeeping is wrong")
+
+    rt = a_runtime([])
+    rt.detector = Exploding()
+    sub = await rt.bus.subscribe()
+
+    await rt.emit(StateEvent(state=frame(0)))  # must not raise
+
+    assert not sub.queue.empty()
+    assert isinstance(sub.queue.get_nowait().payload, StateEvent)

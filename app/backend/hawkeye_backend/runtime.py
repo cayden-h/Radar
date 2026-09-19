@@ -77,8 +77,19 @@ class HubRuntime:
         # After publishing, so the frame the notice describes is already on the
         # wire when the notice arrives. Only StateEvent feeds the detector, which
         # is what bounds the recursion through emit_notice to one level.
+        #
+        # Guarded for the same reason `deliver` guards each sink, one level up:
+        # `emit` is the single path every event takes to reach the app, and a
+        # notice is an addition on top of that pipeline. A bug in the detector
+        # must not be able to stop a transcript line or a verification result
+        # reaching the resident during a live call.
         if isinstance(payload, StateEvent):
-            for notice in self.detector.observe(payload.state):
+            try:
+                notices = self.detector.observe(payload.state)
+            except Exception:
+                logger.exception("notice detector failed on seq=%d", seq)
+                notices = []
+            for notice in notices:
                 await deliver(notice, self.notice_sinks)
 
     async def emit_notice(self, event: NoticeEvent) -> None:
@@ -114,6 +125,9 @@ class HubRuntime:
         await self.client.stop()
         # The runtime owns the sinks, so it closes them. TwilioSink only closes
         # an HTTP client it created itself, so this is safe for an injected one.
+        # Duck-typed rather than declared on NoticeSink: a sink that holds no
+        # resource, like StreamSink, should not be forced to implement a no-op
+        # aclose just to satisfy the protocol. Revisit if a third sink arrives.
         for sink in self.notice_sinks:
             closer = getattr(sink, "aclose", None)
             if closer is not None:
