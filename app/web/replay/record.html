@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en" data-page="record">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hawk Eye - incident record</title>
+<link rel="stylesheet" href="console.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <a class="back" href="./" aria-label="All records">&larr;</a>
+    <div>
+      <h1 id="title">Incident record</h1>
+      <p class="sub" id="subtitle">Loading&hellip;</p>
+    </div>
+  </div>
+  <div class="topmeta">
+    <span class="badge" id="livebadge" hidden>RECORDING</span>
+    <span class="badge sealed" id="sealbadge" hidden>SEALED</span>
+    <a class="btn" id="export" href="#" download>Export for police</a>
+    <button class="btn ghost" id="printbtn" type="button">Print</button>
+  </div>
+</header>
+
+<main class="record">
+  <section class="panel map">
+    <div class="panelhead">
+      <h2>Interior</h2>
+      <span class="stamp" id="framestamp">&mdash;</span>
+    </div>
+    <div class="mapbox"><svg id="plan" viewBox="0 0 148 68" preserveAspectRatio="xMidYMid meet"></svg></div>
+    <div class="scrub">
+      <button class="btn ghost play" id="play" type="button" aria-label="Play">&#9654;</button>
+      <input id="slider" type="range" min="0" max="0" value="0" step="1" aria-label="Frame">
+      <span class="stamp" id="frameidx">0 / 0</span>
+    </div>
+    <p class="note">
+      The floor plan was drawn once during enrollment. It is not sensed: walls are the
+      static baseline the radio subtracts in order to see people.
+    </p>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="panel log">
+    <div class="panelhead">
+      <h2>Record</h2>
+      <div class="filters" id="filters"></div>
+    </div>
+    <ol class="entries" id="entries"></ol>
+  </section>
+
+  <section class="panel rf">
+    <div class="panelhead">
+      <h2>Radio</h2>
+      <span class="stamp" id="rfstamp">derived telemetry &middot; raw CSI not recorded</span>
+    </div>
+    <div class="rfstrip">
+      <h3>Capture rate</h3>
+      <svg id="rfrate" viewBox="0 0 800 88" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="rfstrip">
+      <h3>Respiration</h3>
+      <svg id="rfresp" viewBox="0 0 800 88" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="rfmeta" id="rfmeta"></div>
+  </section>
+
+  <section class="panel chain">
+    <div class="panelhead">
+      <h2>Chain</h2>
+      <button class="btn" id="verify" type="button">Verify in this browser</button>
+    </div>
+    <div id="verdict" class="verdict idle">Not checked yet.</div>
+    <dl class="kv" id="chainkv"></dl>
+    <p class="note">
+      Verification runs in your browser over the record as served, so a pass does not
+      depend on the server vouching for itself. A pass means no entry has been edited,
+      reordered, inserted or removed since it was written. It does not mean the system
+      that wrote the record wrote it honestly: that needs a transparency log, and the
+      log is not wired.
+    </p>
+  </section>
+</main>
+
+<script src="console.js"></script>
+<script>HawkEye.record();</script>
+</body>
+</html>

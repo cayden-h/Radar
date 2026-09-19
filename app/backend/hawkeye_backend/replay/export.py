@@ -165,14 +165,14 @@ def _chain_txt(record: ReplayRecord) -> str:
         f"# {record.site_address}",
         f"# root {record.root_hash}",
         "#",
-        "# seq  timestamp                        kind         actor                summary",
+        "# seq  timestamp                        kind         actor                        summary",
         "",
     ]
     for entry in record.entries:
-        actor = (entry.actor or "-")[:20]
+        actor = (entry.actor or "-")[:28]
         summary = entry.summary.replace("\n", " ")
         lines.append(
-            f"{entry.seq:>5}  {entry.at.isoformat()}  {entry.kind:<12} {actor:<20} {summary}"
+            f"{entry.seq:>5}  {entry.at.isoformat()}  {entry.kind:<12} {actor:<28} {summary}"
         )
         lines.append(f"       hash {entry.entry_hash}")
         lines.append(f"       prev {entry.prev_hash or '(genesis)'}")

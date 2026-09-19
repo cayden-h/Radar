@@ -220,19 +220,96 @@ async def post_context(request: Request, incident_id: str, body: ContextRequest)
         raise HTTPException(status_code=503, detail=f"agent mesh unavailable: {exc}") from exc
 
 
+@router.get("/replay", response_model=ReplayIndex, summary="Index of recorded incidents")
+async def get_replay_index(request: Request) -> ReplayIndex:
+    """What the replay console lists. Newest first.
+
+    Only incidents this hub actually recorded appear here. An incident it saw
+    mid-flight but never saw raised is deliberately absent rather than listed
+    with a partial chain, because a record that silently omits its own beginning
+    has the shape of a doctored one.
+    """
+    runtime = _runtime(request)
+    settings = runtime.settings
+    records: list[ReplaySummary] = []
+    for session in runtime.recorder.sessions():
+        incident = await runtime.store.get_incident(session.incident_id)
+        end = session.sealed_at or utc_now()
+        record = session.to_record()
+        records.append(
+            ReplaySummary(
+                incident_id=session.incident_id,
+                incident_type=incident.incident_type.value if incident else "unknown",
+                address=session.site_address,
+                opened_at=session.opened_at,
+                sealed=session.sealed,
+                sealed_at=session.sealed_at,
+                seal_reason=session.seal_reason,
+                duration_s=round((end - session.opened_at).total_seconds(), 2),
+                entries=len(session),
+                frames_dropped=session.frames_dropped,
+                verifications=len(record.verifications),
+                discarded=sum(
+                    1 for v in record.verifications if v.decision.value == "DISCARDED"
+                ),
+                root_hash=session.root_hash,
+            )
+        )
+    return ReplayIndex(
+        hub_name=settings.hub_name,
+        mode=settings.mode,
+        site_address=settings.site_address,
+        caller_ansname=settings.caller_ansname,
+        records=records,
+    )
+
+
+def _session_or_404(request: Request, incident_id: str):
+    """The recorded session, or a 404 naming what is missing."""
+    session = _runtime(request).recorder.get(incident_id)
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail=f"no recorded session for {incident_id}"
+        )
+    return session
+
+
 @router.get(
     "/incident/{incident_id}/replay",
     response_model=ReplayRecord,
     summary="The sealed post-incident record",
 )
-async def get_replay(request: Request, incident_id: str) -> ReplayRecord:
-    """From agents/replay in live mode; assembled locally in simulated mode.
+async def get_replay(
+    request: Request,
+    incident_id: str,
+    since_seq: int = Query(
+        default=0,
+        ge=0,
+        description=(
+            "Return only entries after this sequence. The replay console polls with "
+            "it once a second while a record is still open, so an unsealed record is "
+            "tailed rather than refetched."
+        ),
+    ),
+) -> ReplayRecord:
+    """The record written as the incident happened.
+
+    Three sources, in order of authority. The hub's own recorder holds the
+    record it wrote entry by entry, and that is preferred whenever it exists.
+    `agents/replay` owns it in live mode and is asked next. Failing both, the
+    store assembles one after the fact, which is a reconstruction and proves
+    less; it stays only so incidents raised before the recorder existed still
+    resolve.
 
     Every verification is in here, accepted and discarded alike. The discarded
     ones are the point: the operator could not check us live, but an investigator
     can check this afterward, and swatting investigations are entirely post-hoc.
     """
     runtime = _runtime(request)
+    session = runtime.recorder.get(incident_id)
+    if session is not None:
+        return session.to_record(since_seq=since_seq)
+
     try:
         record = await runtime.client.fetch_replay(incident_id)
     except MasterUnavailable as exc:
@@ -245,12 +322,64 @@ async def get_replay(request: Request, incident_id: str) -> ReplayRecord:
         raise HTTPException(status_code=404, detail=f"no replay record for {incident_id}")
     built = await store.build_replay(
         incident_id,
-        caller_ansname=runtime.settings.master_ansname.replace("master.", "caller."),
+        caller_ansname=runtime.settings.caller_ansname,
         site_address=runtime.settings.site_address,
     )
     if built is None:
         raise HTTPException(status_code=404, detail=f"unknown incident: {incident_id}")
     return built
+
+
+@router.get(
+    "/incident/{incident_id}/replay/verify",
+    response_model=ChainVerdict,
+    summary="Recompute the record's hash chain",
+)
+async def verify_replay(request: Request, incident_id: str) -> ChainVerdict:
+    """What an investigator runs, and what the console runs again client-side.
+
+    A pass means nobody has edited, reordered, inserted or removed an entry since
+    it was written. It does not mean the system that wrote the record wrote it
+    honestly; that is the transparency log's job and the log is not wired.
+    """
+    session = _session_or_404(request, incident_id)
+    intact, detail, failed_seq = session.verify()
+    return ChainVerdict(
+        incident_id=incident_id,
+        intact=intact,
+        detail=detail,
+        failed_seq=failed_seq,
+        entries=len(session),
+        root_hash=session.root_hash,
+        sealed=session.sealed,
+    )
+
+
+@router.get(
+    "/incident/{incident_id}/replay/export",
+    summary="The bundle a detective is handed",
+    response_class=Response,
+)
+async def export_replay(request: Request, incident_id: str) -> Response:
+    """A zip: the record, a readable chain, a standalone verifier, and a README.
+
+    Exports an unsealed record too, clearly marked as unsealed. An investigator
+    asking for the record mid-incident is a real scenario and refusing would be
+    worse than handing over something honestly labelled.
+    """
+    session = _session_or_404(request, incident_id)
+    exported_at = utc_now()
+    payload = build_export(session.to_record(), exported_at)
+    stamp = exported_at.strftime("%Y%m%dT%H%M%SZ")
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="hawkeye-{incident_id}-{stamp}.zip"'
+            )
+        },
+    )
 
 
 @router.post("/demo/run", response_model=DemoRunAck, summary="Run the scripted detection")

@@ -32,11 +32,11 @@ and that step is not wired yet.
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from hawkeye_backend.models.common import Provenance, Source, utc_now
+from hawkeye_backend.replay.chain import canonical
 from hawkeye_backend.verification.envelope import Severity
 
 from agents.core.base import Agent
@@ -80,12 +80,23 @@ class Entry:
 
 
 def _hash(body: dict[str, object]) -> str:
-    # sort_keys and a fixed separator, so the hash is over a canonical form.
-    # Two processes serializing the same entry differently would produce a chain
-    # that looks tampered with, and that is far likelier to bite as an ordinary
-    # bug than as an attack - the same reasoning as the card's JCS.
-    encoded = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    """SHA-256 over the canonical serialization of one entry body.
+
+    The serializer is `hawkeye_backend.replay.chain.canonical`, shared with the
+    hub's recorder and with the `verify.py` shipped in a police export, so that
+    sort order and separators cannot drift between them. Two processes
+    serializing the same entry differently produce a chain that looks tampered
+    with, and that is far likelier to bite as an ordinary bug than as an attack.
+
+    **The body shape here is deliberately not the hub's.** This agent puts
+    `previous_hash` inside the hashed body; the hub wraps the body as
+    `{"prev": ..., "entry": ...}`. Both are chains and both detect the same
+    edits, but a record written by one does not verify under the other, and
+    nothing is expected to move between them: this agent's chain is what a live
+    mesh produces, the hub's is what the app and the export already speak.
+    Converge them only alongside a migration, never quietly.
+    """
+    return hashlib.sha256(canonical(body).encode("utf-8")).hexdigest()
 
 
 class ReplayAgent(Agent):

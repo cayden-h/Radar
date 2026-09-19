@@ -10,9 +10,12 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from hawkeye_backend import __version__, api
 from hawkeye_backend.bus import EventBus
@@ -25,6 +28,11 @@ from hawkeye_backend.runtime import HubRuntime
 from hawkeye_backend.store import build_store
 
 logger = logging.getLogger(__name__)
+
+#: The replay console. A static directory, not a build artifact: no bundler, no
+#: CDN, nothing to install. `app/backend/hawkeye_backend/main.py` sits three
+#: levels under `app/`, and the console lives at `app/web/replay`.
+REPLAY_SITE = Path(__file__).resolve().parents[2] / "web" / "replay"
 
 
 def build_client(settings: Settings) -> MasterClient:
@@ -101,6 +109,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.runtime = build_runtime(settings)
     app.include_router(api.router)
+
+    # The replay console. Mounted last so it cannot shadow an API route, and
+    # behind a flag because serving a human surface is a deployment decision.
+    if settings.replay_site_enabled and REPLAY_SITE.is_dir():
+        app.mount(
+            "/replay",
+            StaticFiles(directory=REPLAY_SITE, html=True),
+            name="replay-console",
+        )
+
+        @app.get("/", include_in_schema=False)
+        async def root() -> RedirectResponse:
+            return RedirectResponse(url="/replay/")
+
+        logger.info("replay console served at /replay from %s", REPLAY_SITE)
+    elif settings.replay_site_enabled:
+        logger.warning("replay console enabled but %s does not exist", REPLAY_SITE)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:

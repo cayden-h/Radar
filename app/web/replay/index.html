@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en" data-page="index">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hawk Eye - incident records</title>
+<link rel="stylesheet" href="console.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"></span>
+    <div>
+      <h1>Incident records</h1>
+      <p class="sub" id="hubline">Loading&hellip;</p>
+    </div>
+  </div>
+  <div class="topmeta" id="topmeta"></div>
+</header>
+
+<main class="wrap">
+  <section class="preamble">
+    <p>
+      Each record below was opened the moment a person in the house raised an incident,
+      and sealed when the 911 call ended. Entries are hash-chained: changing any one of
+      them changes every hash after it.
+    </p>
+    <p class="caution">
+      No transparency-log receipt is attached yet, so a record is tamper-evident to
+      whoever holds it and to nobody else. The export says so too.
+    </p>
+  </section>
+
+  <div id="records" class="cards"></div>
+  <div id="empty" class="empty" hidden>
+    <h2>Nothing recorded yet</h2>
+    <p>
+      A record opens when a person raises an incident from the app, and never
+      on the system&rsquo;s own initiative. Nothing here records itself.
+    </p>
+    <p class="hint">
+      To produce one against the simulated hub:
+      <code>curl -X POST "http://127.0.0.1:8787/v1/demo/run?simulate_human_tap=true"</code>
+    </p>
+  </div>
+</main>
+
+<script src="console.js"></script>
+<script>HawkEye.index();</script>
+</body>
+</html>
