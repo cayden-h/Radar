@@ -20,6 +20,7 @@ from hawkeye_backend.models.incident import (
     Instruction,
     TranscriptLine,
 )
+from hawkeye_backend.models.notice import Notice
 from hawkeye_backend.models.state import InteriorState
 from hawkeye_backend.models.verification import VerificationResult
 
@@ -31,6 +32,7 @@ class EventKind(StrEnum):
     INSTRUCTION = "instruction"
     VERIFICATION = "verification"
     CONTEXT = "context"
+    NOTICE = "notice"
     HELLO = "hello"
     ERROR = "error"
 
@@ -91,6 +93,17 @@ class ContextEvent(BaseModel):
     note: ContextNote
 
 
+class NoticeEvent(BaseModel):
+    """A notice was raised: something the resident should know about.
+
+    Does not create an incident and does not dial. `app/CLAUDE.md`: "An alert is
+    information a person acts on. It is not a call."
+    """
+
+    kind: Literal[EventKind.NOTICE] = EventKind.NOTICE
+    notice: Notice
+
+
 class HelloEvent(BaseModel):
     """First frame on every connection. Tells the client what it just joined."""
 
@@ -120,6 +133,7 @@ EventPayload = Annotated[
     | InstructionEvent
     | VerificationEvent
     | ContextEvent
+    | NoticeEvent
     | HelloEvent
     | ErrorEvent,
     Field(discriminator="kind"),
@@ -147,3 +161,23 @@ EnvelopeAdapter: TypeAdapter[Envelope] = TypeAdapter(Envelope)
 def envelope(seq: int, payload: EventPayload, incident_id: str | None = None) -> Envelope:
     """Wrap a payload. Kept as a function so the seq source stays in one place."""
     return Envelope(seq=seq, payload=payload, incident_id=incident_id)
+
+
+__all__ = [
+    "ContextEvent",
+    "Envelope",
+    "EnvelopeAdapter",
+    "ErrorEvent",
+    "EventKind",
+    "EventPayload",
+    "HelloEvent",
+    "IncidentEvent",
+    "IncidentPhase",
+    "InstructionEvent",
+    "Notice",
+    "NoticeEvent",
+    "StateEvent",
+    "TranscriptEvent",
+    "VerificationEvent",
+    "envelope",
+]
