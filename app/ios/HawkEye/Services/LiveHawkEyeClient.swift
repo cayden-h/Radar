@@ -20,6 +20,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     private(set) var transcript: [TranscriptLine] = []
     private(set) var instructions: [Instruction] = []
     private(set) var verifications: [VerificationResult] = []
+    private(set) var notices: [Notice] = []
     private(set) var hello: HubHello?
     private(set) var link: LinkState = .offline
     private(set) var missedFrames = false
@@ -59,6 +60,10 @@ final class LiveHawkEyeClient: HawkEyeClienting {
 
         PairingStore.remember(hub.id)
         openStream()
+    }
+
+    func dismissNotice(_ id: String) {
+        notices.removeAll { $0.id == id }
     }
 
     func disconnect() {
@@ -164,6 +169,9 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             // Newest first. Discards included, and they are the point.
             verifications.removeAll { $0.id == result.id }
             verifications.insert(result, at: 0)
+        case .notice(let notice):
+            notices.removeAll { $0.id == notice.id }
+            notices.insert(notice, at: 0)
         case .context(let note):
             // Echoed back so the app can confirm delivery. The incident carries
             // the authoritative list.

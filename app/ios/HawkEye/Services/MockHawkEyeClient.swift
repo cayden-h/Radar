@@ -43,6 +43,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
     private(set) var transcript: [TranscriptLine] = []
     private(set) var instructions: [Instruction] = []
     private(set) var verifications: [VerificationResult] = []
+    private(set) var notices: [Notice] = []
     private(set) var hello: HubHello?
     private(set) var link: LinkState = .offline
     private(set) var missedFrames = false
@@ -61,6 +62,12 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// presence: unconfirmed at first, then a confirmed person the system did
     /// not expect, then a track moving room to room toward the resident.
     @ObservationIgnored private var enteredAt: Date?
+
+    /// Set once the burglary notice has been raised, so dismissing it from the
+    /// UI does not make `raiseNoticeIfDue` fire again on the next tick. The
+    /// array being non-empty is not a fit signal for "already raised": a
+    /// dismissal empties it, and the sensor loop runs at 4 Hz.
+    @ObservationIgnored private var hasRaisedNotice = false
 
     @ObservationIgnored private var tick: Double = 0
     @ObservationIgnored private var lineCounter = 0
@@ -95,10 +102,12 @@ final class MockHawkEyeClient: HawkEyeClienting {
         detectionTask?.cancel(); detectionTask = nil
         collapsedAt = nil
         enteredAt = nil
+        hasRaisedNotice = false
         incident = nil
         transcript = []
         instructions = []
         verifications = []
+        notices = []
         hello = nil
         link = .offline
     }
@@ -109,6 +118,10 @@ final class MockHawkEyeClient: HawkEyeClienting {
         guard incident == nil else { return }
         detectionTask?.cancel()
         open(type, raisedBy: .user)
+    }
+
+    func dismissNotice(_ id: String) {
+        notices.removeAll { $0.id == id }
     }
 
     func sendContext(_ text: String) async throws {
@@ -147,6 +160,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
                 guard let self else { return }
                 self.tick += 0.25
                 self.interior = self.state(at: self.tick)
+                self.raiseNoticeIfDue()
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
@@ -404,6 +418,60 @@ final class MockHawkEyeClient: HawkEyeClienting {
         }
 
         return position(plan, legs[legs.count - 1].zone)
+    }
+
+    // MARK: The notice
+
+    /// The burglary scenario's one notice.
+    ///
+    /// Scripted against the same elapsed-time constants the presence generator
+    /// uses, so it lands `Config.mockNoticeHoldSeconds` after the intruder
+    /// acquires respiration, which is what the hub's detector does given the
+    /// same frames. The mock does not re-implement the rule.
+    ///
+    /// Guarded by `hasRaisedNotice` rather than `notices.isEmpty`: dismissing
+    /// the notice from the UI (`dismissNotice`) empties `notices`, and this
+    /// runs every 250ms off the sensor loop, so an emptiness check would raise
+    /// it right back on the very next tick. Once raised, it stays raised for
+    /// the rest of this entry, same as `enteredAt` staying set once the
+    /// intruder is inside.
+    private func raiseNoticeIfDue() {
+        guard Config.mockScenario == .burglary else { return }
+        guard !hasRaisedNotice else { return }
+        guard let entry = enteredAt else { return }
+        let elapsed = Date().timeIntervalSince(entry)
+        let due = Config.mockIntruderIdentifiedAfter + Config.mockNoticeHoldSeconds
+        guard elapsed >= due else { return }
+        guard let intruder = interior.presences.first(where: \.isUnexpected) else { return }
+
+        // `roomName(of:)` lowercases for mid-sentence transcript use ("in the
+        // living room"); the notice's `room` field mirrors the floorplan's
+        // own display casing ("Living room"), per `event-notice.json`.
+        let lowered = roomName(of: intruder.presenceID)
+        let room = lowered.prefix(1).uppercased() + lowered.dropFirst()
+
+        hasRaisedNotice = true
+        notices.insert(
+            Notice(
+                noticeID: "ntc-\(intruder.presenceID)",
+                severity: .attention,
+                title: "Unexpected person",
+                body: "Not accounted for. \(room).",
+                zone: intruder.zone,
+                room: room,
+                presenceID: intruder.presenceID,
+                raisedAt: Date(),
+                provenance: Provenance(
+                    source: .agentInference,
+                    producer: "agents/intruder",
+                    ansName: "intruder.hawkeye.invalid",
+                    detail: "presence surplus against roster and device association",
+                    sourceClass: .derived,
+                    simulated: false
+                )
+            ),
+            at: 0
+        )
     }
 
     // MARK: The detection
@@ -1067,8 +1135,10 @@ final class MockHawkEyeClient: HawkEyeClienting {
         transcript = []
         instructions = []
         verifications = []
+        notices = []
         collapsedAt = nil
         enteredAt = nil
+        hasRaisedNotice = false
         // The house keeps being watched. Resolving an incident does not stop
         // the sensing layer, because nothing spawns on incident.
         startDetectionTimer()

@@ -113,6 +113,14 @@ enum Config {
     /// system did not expect.
     static let mockIntruderIdentifiedAfter: Double = 5
 
+    /// Seconds an unexpected presence must hold before it becomes a notice.
+    ///
+    /// Mirrors `HAWKEYE_NOTICE_HOLD_S` on the hub, whose default is the same 5.
+    /// The mock scripts the notice rather than re-deriving the rule in Swift:
+    /// the rule lives in `hawkeye_backend/notices/detector.py` and two copies
+    /// of a rule is how they drift.
+    static let mockNoticeHoldSeconds: Double = 5
+
     /// `.burglary` only. The intruder's route through the apartment, as
     /// `(zone, seconds dwelled there)`, walked in order from the zone they are
     /// first seen in. Positions are interpolated between zone centroids across

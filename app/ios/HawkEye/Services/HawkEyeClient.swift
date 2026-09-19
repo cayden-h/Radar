@@ -30,6 +30,15 @@ protocol HawkEyeClienting: AnyObject {
     /// especially: the refusal path is the thing worth showing.
     var verifications: [VerificationResult] { get }
 
+    /// Notices raised by the sensing agents, newest first.
+    ///
+    /// A notice is information the resident acts on. It does not raise an
+    /// incident and it does not dial; a human tap still does that.
+    var notices: [Notice] { get }
+
+    /// Dismiss one. Local to this device: the notice stays in the sealed log.
+    func dismissNotice(_ id: String)
+
     /// What the hub said about itself on the `hello` frame.
     var hello: HubHello? { get }
 
