@@ -3,8 +3,12 @@
 Researched 2026-09-19. One brief per agent: what it needs to know, what thresholds it acts on, and what it must not claim.
 
 **Restructured 2026-09-19** when the roster was cut from nine agents to five.
-Nothing was deleted; the briefs for `biometrics`, `occupancy` and `collapse` are now sections of `agents/people`, `environment` is a section of `agents/master`, and `guidance` is a section of `agents/caller`.
+Nothing was deleted in that merge; the briefs for `biometrics`, `occupancy` and `collapse` became sections of `agents/people`, `environment` a section of `agents/master`, and `guidance` a section of `agents/caller`.
 The merge rationale is in `agents/CLAUDE.md`; the domain facts below are unchanged, because the physics did not move.
+
+**Fall detection was then cut on 2026-09-19** and the collapse reader was deleted.
+What replaced it is responsiveness: `people.respiration_lost`, the seconds since a breathing signature was last resolvable on a presence that previously had one.
+The fall statistics are not deleted either - they are kept, as history, in the Faint section of `incidents.md`, because a decision you cannot explain is a decision you cannot defend.
 
 Architecture and trust rules live in `agents/CLAUDE.md`. Signal-level detail lives in `sensor/CLAUDE.md`.
 This file is the domain knowledge underneath both.
@@ -18,10 +22,10 @@ Priority tiers match `agents/CLAUDE.md`.
 
 ## agents/people [tier 1]
 
-**Question:** how many people, where, in what state, and is anyone down?
+**Question:** how many people, where, in what state, and should a dispatcher expect an answer?
 
 The load-bearing agent, and the only consumer of the CSI stream.
-Three readers in a fixed order each tick: respiration, then presence, then collapse. Each depends on the one before.
+Two readers in a fixed order each tick: respiration, then presence. The second depends on the first.
 
 ### Personhood, respiration and heart rate
 
@@ -34,10 +38,10 @@ Three readers in a fixed order each tick: respiration, then presence, then colla
 - Heart rate is refused outright while the zone is moving. Movement is broadband and puts energy across the whole spectrum including that band; a peak found under those conditions is a peak in the movement, not in anybody's chest.
 
 **Escalation-relevant:** respiration outside the normal band, or absent where a presence was previously breathing, is the signal that turns an occupancy report into a medical emergency.
-"Unresponsive occupant in the main bedroom" originates here.
+"I had a breathing signature in the main bedroom four minutes ago and I do not have one now" originates here.
 
 **Must not claim:** that absence of respiration proves absence of a person. Shallow breathing, breath-holding, and range limits all degrade toward invisible.
-Cross-check the collapse reader and escalate uncertainty rather than resolving it silently. Reporting nothing is safer than reporting a number outside the supported range.
+Escalate the uncertainty rather than resolving it silently. Reporting nothing is safer than reporting a number outside the supported range.
 
 **Must not claim:** that heart rate is the personhood test. It is not, at any confidence.
 
@@ -59,27 +63,25 @@ The roster answer is produced whether or not the radio works. If CSI is dead and
 **Must not claim:** person re-identification. RuView flags it experimental and data-gated.
 **Must not claim:** an exact sensed count, or coordinates.
 
-### Falls, and the clinical variable
+### Responsiveness, and what replaced the fall clock
 
-**This is where the strongest statistics belong.** See the faint/fall section of `incidents.md`.
+**The question a dispatcher needs answered is whether to expect a response from a room**, and that is narrower than "did someone fall".
 
-- 43,020 deaths from preventable falls among adults 65+ in 2024. Fall deaths up 51% in ten years.
-- **A "long lie" is clinically defined as being unable to get up for more than one hour.** Use that definition; it is not ours, it is the literature's.
-- **53% of older fall patients were still on the floor when the ambulance arrived.**
-- **Half of those who lay more than an hour died within six months, even absent injury from the fall itself.**
-- 28% of community-dwelling older adults live alone; 42% of women 75+.
+`people.respiration_lost` carries the seconds since a breathing signature was last resolvable on a presence that previously had one.
+**The transition is the signal.** A presence that never resolved a signature produces nothing, because shallow breathing, breath-holding and range limits are indistinguishable from an empty room, and a claim that cannot tell those apart tells a dispatcher nothing.
 
-**The design consequence:** `still_down_s` is not a diagnostic detail, it is the clinical variable.
-The literature's threshold is 60 minutes, and every minute below that is outcome we are buying back. Surface it, escalate on it, and say it aloud on the 911 call.
-**Stamp it from the transient, not from the moment the agent became confident.** "She went down four minutes ago" is the sentence a dispatcher needs; "we decided twenty seconds ago" is not.
+**Stamp it from the last resolvable signature, not from the moment the agent became confident.** "I had breathing there four minutes ago" is the sentence a dispatcher needs; "we decided twenty seconds ago" is not.
 
-**Debounce is the whole engineering problem.** Sitting down fast, lying down to sleep, and a child playing all look like a fall for an instant.
-The signature is collapse **followed by** absence of normal movement, cross-checked against the respiration verdict.
-A system that calls 911 when someone flops onto a couch is worse than no system.
+- 28% of community-dwelling older adults live alone; 42% of women 75+. There is often nobody in the building to answer for them.
+- House fire toxic gases can render someone unconscious in under a minute, often before they know there is a fire, and a modern room is unsurvivable in under three. Figures and sources in `incidents.md`.
 
-One implementation trap, because it fails silently: measure the stillness over frames **after** the transient, never over a window that still contains it. Measuring across it reads the fall itself as movement and discards the candidate one tick later.
+**Must not claim:** that a person has stopped breathing. A signature that is no longer resolvable is a reason to look, never a finding about a body.
 
-Upstream gives us this: RuView ships fall detection at sub-200ms and exposes `fall-risk`, `no-movement`, `bed-exit`.
+**Must not claim:** anything at all about a presence that never established a breathing signature. A moving body swamps its own chest sinusoid with broadband motion, so someone who goes from walking to gone leaves no transition to report. That limit is the price of the claim being worth anything.
+
+**Fall detection was cut on 2026-09-19.** Debounce was the whole engineering problem and it never got better: sitting down fast, lying down to sleep and a child playing all look like a fall for an instant, and a system that calls 911 when someone flops onto a couch is worse than no system.
+RuView does ship fall detection upstream, at sub-200ms, with `fall-risk`, `no-movement` and `bed-exit`. We are not using it.
+The statistics that motivated the original design are kept in the Faint section of `incidents.md`.
 
 ---
 
@@ -121,14 +123,21 @@ See `incidents.md` for full burglary figures.
 
 Classification should visibly combine signals rather than switch on one:
 
-| Observation | Classification |
-|---|---|
-| Fall + elevated CO | Fire incident with a casualty, not a faint |
-| Fall + normal air + no other presence | Faint, and nobody is coming to help |
-| Unexpected presence + resident in a different room | Burglary in progress with occupants home |
-| Unexpected presence + house registered empty | Burglary, no occupants at risk |
+| Observation                                           | Classification                           |
+|-------------------------------------------------------|------------------------------------------|
+| Elevated CO + a lost breathing signature              | Fire, with someone who may not respond   |
+| Elevated CO + a still, breathing presence             | Fire, with someone who is not moving     |
+| Elevated CO + every resolved presence up and breathing | Fire, everyone on their feet             |
+| Elevated CO + no presence resolved at all             | Fire, occupancy unknown                  |
+| Unexpected presence + resident in a different room    | Burglary in progress with occupants home |
+| Unexpected presence + house registered empty          | Burglary, no occupants at risk           |
 
-The second row is the one to lead with in the demo. It is the case where the statistics say the outcome is decided by discovery time.
+`agents/master/classify.py` quotes this table in its module docstring. The two must match exactly; change them together.
+
+**The first row is the one to lead with in the demo**, and it is the only row built from two independent modalities: CSI resolved the breathing, a separate gas sensor read the air. Two views of one CSI stream agreeing is not corroboration; this is.
+
+The second row ranks below it deliberately. A lost signature means something changed; a still, breathing presence means something has not, and a radio that sees stillness and breathing cannot separate unconsciousness from sleep.
+The fourth row exists because "every presence the radio resolves is breathing and moving" is vacuously true over an empty set, and an empty set is exactly what an unreachable or fully-discarded `people` produces. That row says so out loud rather than reassuring a dispatcher about a building nothing has told us anything about.
 
 **Strictest verification point in the system.** Every accepted claim carries source identity, Trust Index score at that instant, and a verification result. Anything unverifiable is discarded and logged as discarded.
 
@@ -163,7 +172,7 @@ CO is also the correct signal on the merits: smoke inhalation alone is 35% of re
 
 **Say it precisely:** possible with the right hardware. Never "CSI can detect gas."
 
-**What absorbing it cost, stated rather than glossed:** read locally, the reading skips the verification gate, because master is both its producer and its consumer. It is labelled unverified-by-construction, capped at CORROBORATING however high the number climbs, and never speakable on its own. Every Fire classification requires a CSI-derived collapse alongside it.
+**What absorbing it cost, stated rather than glossed:** read locally, the reading skips the verification gate, because master is both its producer and its consumer. It is labelled unverified-by-construction, capped at CORROBORATING however high the number climbs, and never speakable on its own. The two corroborated Fire rows each require a CSI-derived respiration claim alongside it.
 
 ---
 
@@ -177,7 +186,7 @@ What a 911 dispatcher cannot get from any existing system, and can get from us:
 
 - Number of occupants and their locations, room by room.
 - Whether each is breathing.
-- How long since someone went down.
+- How long since a breathing signature that was resolvable in a room stopped being resolvable, which is what decides whether to expect an answer from it.
 - Whether an intruder and a resident are in different rooms.
 
 Fire crews already know the house is burning. **What nobody knows is who is still inside and where**, and that is the entire value of the call.
@@ -196,17 +205,20 @@ Absorbed from `agents/guidance` on 2026-09-19. Same agent, second audience.
 
 **Question:** what does the frightened person in the house do next.
 
-**Safety rules, not style preferences. Bad first-aid instruction is real-world harm.**
+**Safety rules, not style preferences. A bad safety instruction is real-world harm.**
 
-- Stay inside well-established public protocols only: hands-only CPR, recovery position, stop-the-bleed. Do not improvise medical advice.
+**There is no patient-care protocol, and the absence is deliberate.** CPR and the recovery position went with the Faint incident type on 2026-09-19.
+Neither surviving incident type is one where staying to help is correct guidance: during a fire the protocol is to leave and stay out, and during a burglary it is to stay hidden and not confront anyone.
+
+- Stay inside well-established public protocols only: fire-ground guidance, and the dispatcher's own words. Do not improvise medical advice.
 - **Always defer to the dispatcher.** If the operator is giving instructions, relay theirs rather than generating competing ones. Dispatchers are trained in emergency medical dispatch protocols; the agent is not. Enforced: relaying anything sets a deferral flag and the agent stops generating from that point.
-- Never instruct an action that could injure the patient or the user. **Moving a fall victim is the canonical example**, and it appears in the protocol table as an explicit "do not" rather than being absent.
+- Never instruct an action that could injure the user or the person they are worried about. The protocol table carries its do-nots explicitly rather than leaving them absent: do not go back into a fire, do not go looking during a burglary, do not confront anyone.
 - "Wait for responders" is frequently the correct answer. Make sure the agent can give it.
 - Fire guidance follows the timeline in `incidents.md`: one to two minutes to escape, modern rooms unsurvivable in under three. Guidance should be to leave, not to investigate.
 
 **Match operator speech on meaning, not exact strings.** A dispatcher will not say the phrase anyone hardcoded. "Units are rolling" and "I've got help on the way" are the same fact.
 
-**Relay half is high value. First-aid half is the one to cut if time runs out.**
+**Relay half is high value. The safety-instruction half is the one to cut if time runs out.**
 
 `agents/caller/guidance.py` is the only place medical text exists in the system. The iOS client contains none and must not acquire any.
 

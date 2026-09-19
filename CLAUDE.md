@@ -36,21 +36,27 @@ Five always-running agents interpret that signal and act on it.
 When a person decides to call, one of them places the phone call to a 911 operator and holds a conversation in plain English.
 Another talks the resident through what to do while it happens.
 
-Three incident types: **Burglary, Fire, Faint.** Each is raised by a human, from the iOS app.
+Two incident types: **Burglary and Fire.** Each is raised by a human, from the iOS app.
+Faint was the third until 2026-09-19, when fall detection was cut.
+It was the weakest link in the chain, a debounce problem dressed as a clinical variable: sitting down fast, lying down to sleep and a child playing all look like a fall for an instant.
+What a dispatcher actually needs is narrower and defensible, and respiration already answered it.
 
 **Hawk Eye never calls 911 on its own.** Settled 2026-09-19.
 The sensing agents detect, classify and inform. They do not dial. A person decides that emergency services are needed, and only then does `agents/caller` place the call.
 
 This is a deliberate limit, and it is the right one. An AI that autonomously summons armed responders to a physical address is a liability problem, a false-positive problem, and an ethics problem, and a false positive here costs a real dispatch that some other emergency needed.
 
-What the agents do is make sure that **when a human does make that call, the dispatcher gets verified information nobody else could give them**: how many people are in the building, which rooms they are in, whether each of them is breathing, and how long since one of them went down.
+What the agents do is make sure that **when a human does make that call, the dispatcher gets verified information nobody else could give them**: how many people are in the building, which rooms they are in, and whether each of them still has a resolvable breathing signature, which is what decides whether responders should expect an answer from that room.
 
-That information is what the research is about.
-**Half of older adults who lie on the floor more than an hour after a fall die within six months, even where the fall caused no injury.** 53% are still on the floor when the ambulance arrives.
-In a house fire, toxic gases can render someone unconscious in under a minute, often before they know there is a fire.
-28% of older adults live alone; among women over 75, 42%.
+The signal is `people.respiration_lost`: elapsed seconds since a breathing signature was last resolvable on a presence that previously had one.
+**The transition is the signal.** A presence that never resolved a signature carries no information, because shallow breathing, breath-holding and range limits are indistinguishable from an empty room.
+A lost signature is a reason to look. It is never a finding that someone has stopped breathing, and nothing in this system may say otherwise.
 
-The fall is not what kills. **The time to discovery is, and so is arriving without knowing who is inside.** Figures and sources in `docs/research/incidents.md`.
+The fire figures carry the urgency, and they are the ones that survive contact with what we can actually measure.
+In a house fire, toxic gases can render someone unconscious in under a minute, often before they know there is a fire, and a modern room is unsurvivable in under three.
+28% of older adults live alone; among women over 75, 42%, so there is often nobody in the building to answer for them.
+
+**Responders arriving at a building do not know who is inside or whether those people can answer.** That is the gap, and it is the one thing this system can honestly close. Figures and sources in `docs/research/incidents.md`.
 
 ### The two human boundaries
 
@@ -81,7 +87,7 @@ This is the track owner's own model, client agent to server agent, applied where
 
 Before it says one word to a human being, the caller verifies the source of every claim it is about to repeat.
 The same holds in reverse: when the operator asks a question, the caller answers it only from sources it just verified, live, rather than from cached state it cannot vouch for.
-It is about to tell emergency services that a child is unresponsive in a back bedroom.
+It is about to tell emergency services that a child in a back bedroom had a breathing signature four minutes ago and does not have one now.
 If the agent that produced that claim is not who it says it is, or is running code that changed since it registered, the caller is the last thing standing between a compromised sensor and an armed response to someone's address.
 
 Version-bound certificates make code drift detectable.
@@ -118,7 +124,8 @@ It is also the right closing line: the moment a dispatch center can resolve an A
                                                      ▼                │
                                                   people              │
                                       count, location, personhood,    │
-                                      respiration, movement, falls    │
+                                      respiration, movement,          │
+                                      responsiveness                  │
                                                      │                │
                                                  ANS │                │
                                                      ▼                │
@@ -131,7 +138,7 @@ It is also the right closing line: the moment a dispatch center can resolve an A
                                              master (coordinator)  ◄───
                                        verifies every claim, discards
                                        what it cannot, classifies
-                                       Burglary / Fire / Faint
+                                       Burglary / Fire
                                          │                    │
                                      ANS │                ANS │
                                          ▼                    ▼
@@ -253,7 +260,7 @@ The repo documents an explicit extension contract: implement the `port.Signal` i
 There is no `port.Hydrator`; the interface **is** the HTTP boundary, and producers are treated as untrusted processes on the far side of it.
 
 Shipping one of the three missing dimensions is the strongest available differentiator on this track.
-Our sensing layer is a natural evidence producer for **safety**: a physical-world signal that an agent's claims match what is actually happening in the building. An agent that reported an unresponsive occupant to emergency services where no sensor corroborates one is behaving unsafely, and that is an observation worth posting.
+Our sensing layer is a natural evidence producer for **safety**: a physical-world signal that an agent's claims match what is actually happening in the building. An agent that told emergency services an occupant had stopped returning a breathing signature where no sensor corroborates one is behaving unsafely, and that is an observation worth posting.
 See `ans/CLAUDE.md`.
 
 Trust Index also returns a `recommendedProfile` policy hint: UNTRUSTED, READ_ONLY, TRANSACTIONAL, FIDUCIARY.
@@ -313,7 +320,7 @@ That path is still the project's largest single risk. See `sensor/CLAUDE.md` for
 Two things in `sensor/CLAUDE.md` are easy to miss and both fail quietly rather than loudly:
 
 - **The Pi's network path is wired, always.** `nexmon_csi` holds the WiFi interface in monitor mode, so there is no station interface while capturing. The Cat5 cable is not a convenience.
-- **CSI only updates when frames cross the monitored channel.** Without a traffic generator you get beacons at roughly 10 Hz, which barely resolves breathing and never resolves heart rate or a fall transient, with every component reporting healthy. `sudo ping -i 0.01 <gateway>` from the MacBook fixes it.
+- **CSI only updates when frames cross the monitored channel.** Without a traffic generator you get beacons at roughly 10 Hz, which barely resolves breathing and never resolves heart rate or a short motion transient, with every component reporting healthy. `sudo ping -i 0.01 <gateway>` from the MacBook fixes it.
 - **Geometry.** The Pi measures the channel between whoever transmitted and itself. Router and Pi go on **opposite sides** of the sensed space, with people in between. Side by side on one table produces a flat capture that looks exactly like a failed firmware patch.
 
 `sensor/CLAUDE.md` carries the full topology for both the house shoot and the venue fallback, the router configuration table, and the power and subnet constraints.
@@ -331,6 +338,7 @@ Some capabilities are demonstrated rather than measured.
 The gas reading is the clear case: no gas sensor exists, so `agents/master` reads a simulated one. It was `agents/environment` until 2026-09-19.
 **The floor plan is the second case:** the system does not map walls and cannot, because walls are the static baseline it subtracts to see people. The room model is drawn once and room labels come from a one-time enrollment walk. See `sensor/CLAUDE.md`.
 **The headcount is the third case:** a 1x1 radio resolves presence, not an exact number of people. Two people within about a metre merge into one. The count on screen and on the call comes from device association against the known roster; the radio answers which room and whether that presence is breathing. Limits under `agents/people`.
+**Responsiveness is the fourth case, and it is a limit rather than a simulation:** a breathing signature that is no longer resolvable is reported as exactly that, never as a person who has stopped breathing. Shallow breathing, breath-holding and range limits all produce the same reading.
 
 The rule for all of them:
 
@@ -380,11 +388,12 @@ Do not re-propose these.
 
 Researched 2026-09-19, every figure sourced. See **`docs/research/`**:
 
-- `incidents.md` - Fire, Burglary, Faint: annual figures, what actually kills people, and the synthesis for each
+- `incidents.md` - Fire and Burglary: annual figures, what actually kills people, and the synthesis for each. The Faint section is kept as history, recording the figures that motivated the original design and the 2026-09-19 decision to cut fall detection
 - `agent-briefs.md` - per-agent domain briefs and the thresholds each acts on
 - `footage.md` - B-roll sourcing and licensing rules for the video
 
-The headline is the **long lie**: the fall is not what kills, the time to discovery is, and that is the clinical outcome Hawk Eye moves.
+The headline is **responsiveness**: responders arriving at a building do not know who is inside or whether those people can answer, and that is what Hawk Eye tells them.
+It used to be the long lie, which was about falls. The system no longer detects falls, so that headline retired with the Faint incident type on 2026-09-19.
 
 ### Agent-trust data
 

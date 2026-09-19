@@ -47,7 +47,8 @@ Every other mention of `useMocks` in the codebase is a comment.
 
 **With `useMocks = true`** the app fabricates hubs on the Connect screen, moves presences through the house, lands a scripted detection, and runs a scripted two-way 911 call once a human taps.
 
-**Second switch, same file:** `Config.mockScenario` picks which incident the script runs, `.burglary` or `.faint`.
+**Second switch, same file:** `Config.mockScenario` picks which incident the script runs, `.burglary` or `.fire`.
+There was a third scenario until 2026-09-19, when that incident type and fall detection were cut. Its choreography is kept and rekeyed onto Fire: the presence it drives now loses its breathing signature rather than going down.
 Both are complete, both run off the same sensor loop and the same detection timer, and burglary is the default because it is the demo.
 Burglary adds a fourth presence that walks into the living room unconfirmed.
 Once respiration is acquired it is a person, and roster plus device association makes it an unexpected one: two registered residents on the roster, both resident phones associated with the network, and **at least one more presence than those devices account for**.
@@ -136,7 +137,7 @@ When there is, it feeds `agents/people`, which is the only CSI consumer, and `in
 
 Two failure modes from the hardware guides are worth repeating, because both report healthy while producing useless data:
 
-- Without the traffic generator, CSI updates only on beacons at roughly 10 Hz, which never resolves a heart rate or a fall transient.
+- Without the traffic generator, CSI updates only on beacons at roughly 10 Hz, which never resolves a heart rate or a short motion transient.
 - With the router and the Pi on the same side of the room, the capture goes flat and looks exactly like a failed firmware patch.
 
 ## The gas sensor, which stays simulated

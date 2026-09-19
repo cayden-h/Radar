@@ -85,7 +85,7 @@ SPEED=0.35 ./scripts/demo.sh   # rehearsal speed
 PORT=9000 ./scripts/demo.sh
 ```
 
-That boots the hub in simulated mode, curls `/v1/hub` and `/v1/state`, connects to the websocket, runs the scripted detection, waits, taps Faint the way the app would, watches the call that tap releases, posts a mid-incident context note as the resident, and then fetches the sealed replay record.
+That boots the hub in simulated mode, curls `/v1/hub` and `/v1/state`, connects to the websocket, runs the scripted detection, waits, taps Fire the way the app would, watches the call that tap releases, posts a mid-incident context note as the resident, and then fetches the sealed replay record.
 
 The pause in the middle is the product.
 The detection raises no incident and dials nothing; the tap is what starts the call.
@@ -120,7 +120,7 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_MASTER_BASE_URL` | `http://127.0.0.1:8900` | Live mode only. Where `agents/master` is. |
 | `HAWKEYE_MASTER_TIMEOUT_S` | `5.0` | Live mode only. |
 | `HAWKEYE_SIM_SPEED` | `1.0` | Simulated mode only. Multiplies every scripted delay. |
-| `HAWKEYE_SIM_AUTOSTART` | `false` | Simulated mode only. Run the **detection** on boot, so a demo rig comes up already showing the fall. It cannot start a call. |
+| `HAWKEYE_SIM_AUTOSTART` | `false` | Simulated mode only. Run the **detection** on boot, so a demo rig comes up already showing the lost breathing signature. It cannot start a call. |
 | `HAWKEYE_STORE_BACKEND` | `memory` | `memory` or `mongodb`. See the storage seam below. |
 | `HAWKEYE_MONGODB_URI` | empty | MongoDB Atlas connection string, when that lands. |
 
@@ -233,7 +233,7 @@ Full example: [`schema/hub.json`](schema/hub.json). Abridged:
 }
 ```
 
-`sensor.frame_rate_hz` against `min_useful_frame_rate_hz` is the field that catches the quiet failure named in `sensor/CLAUDE.md`: without a traffic generator you get beacons at roughly 10 Hz, which barely resolves breathing and never resolves a fall transient, with every component reporting healthy.
+`sensor.frame_rate_hz` against `min_useful_frame_rate_hz` is the field that catches the quiet failure named in `sensor/CLAUDE.md`: without a traffic generator you get beacons at roughly 10 Hz, which barely resolves breathing and never resolves a short motion transient, with every component reporting healthy.
 
 `reachability` is one of `reachable`, `unreachable`, `degraded`, `simulated`.
 It is not a verification result: verification is per-claim and lives on the stream, because an agent trusted ninety seconds ago may not be trusted now.
@@ -263,7 +263,7 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
       "presence_class": "adult",
       "class_basis": "respiration_rate",
       "expected": true,
-      "still_down_s": 96.0,
+      "respiration_lost_s": 96.0,
       "provenance": {
         "source": "ruview-sim",
         "producer": "sensor/",
@@ -290,16 +290,17 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
 | `state` | Means | What the app does with it |
 |---|---|---|
 | `confirmed_moving` | Moving and breathing. A person, confirmed. | Normal presence. |
-| `confirmed_still` | Still but breathing. A person who is not responding. | **The loudest thing on screen.** This is the state the whole system exists for. |
+| `confirmed_still` | Still but breathing. A person who has not moved. | Prominent. The radio cannot separate unconsciousness from sleep and the label must not imply it can. |
 | `unconfirmed` | A perturbation with no respiration signature. | Render as a perturbation, not a person. A curtain is not an intruder. |
 | `unknown` | Not resolved yet. | Absence of respiration is not proof of absence of a person; a presence that has not been resolved sits here rather than being called `unconfirmed`. |
 
 `position.zone` is the honest answer and is what the agents reason over.
 `position.x` and `position.y` are a zone centroid so the 3D view has somewhere to draw. They are not a localization claim; do not promise coordinates.
 
-`still_down_s` is the clinical variable, not a diagnostic detail.
-A long lie is over an hour, 53% of older fall patients are still on the floor when the ambulance arrives, and half of those down over an hour die within six months even where the fall caused no injury.
-Surface it.
+`respiration_lost_s` is the field that decides whether a dispatcher should expect an answer from a room.
+It is the seconds since a breathing signature was last resolvable on a presence that **previously had one**: the transition is the signal, and a presence that never resolved a signature carries none, because shallow breathing, breath-holding and range limits are indistinguishable from an empty room.
+It is never a finding that breathing has stopped. Surface it, with that limit attached.
+It replaced `still_down_s` on 2026-09-19, when fall detection was cut.
 
 Returns 503 when the agent mesh is unreachable in live mode.
 
@@ -405,14 +406,14 @@ The resident raises an incident from the app. One tap.
 
 **This is the only path to a call.**
 Hawk Eye never calls 911 on its own; settled 2026-09-19.
-`collapse` and `environment` still detect, and their detections surface on the stream as interior state the app renders as an alert: the presence moves to `confirmed_still`, `still_down_s` climbs and does not reset, the CO reading rises.
+The agents still sense continuously, and what they find surfaces on the stream as interior state the app renders as an alert: the presence's respiration goes to no signature, `respiration_lost_s` climbs and does not reset, the CO reading rises.
 An alert is information a person acts on. It is not a call.
 
 The request carries `raised_by: user` and nothing else is accepted downstream: `assert_human_released` in `master/base.py` refuses a `SYSTEM`-raised incident on every path that can end in a phone call.
 `RaisedBy.SYSTEM` stays in the enum for wire compatibility and for records raised before that decision.
 
 What the detection buys is an informed tap rather than an autonomous one.
-By the time the resident presses Faint, the hub already knows who is down, in which room, whether they are breathing, and for how long.
+By the time the resident presses Fire, the hub already knows who is in the house, in which room, whether they are breathing, and how long since a signature that was resolvable there stopped being resolvable.
 
 Request ([`schema/request-raise-incident.json`](schema/request-raise-incident.json)):
 
@@ -420,7 +421,7 @@ Request ([`schema/request-raise-incident.json`](schema/request-raise-incident.js
 { "incident_type": "burglary", "note": "Someone is in the kitchen." }
 ```
 
-`incident_type` is `burglary`, `fire`, or `faint`. `note` is optional and goes down the same channel as the "what is happening" box.
+`incident_type` is `burglary` or `fire`. `note` is optional and goes down the same channel as the "what is happening" box.
 
 Response, `202 Accepted` ([`schema/response-raise-incident.json`](schema/response-raise-incident.json)):
 
@@ -434,7 +435,7 @@ The resident should not be staring at a spinner while an agent decides things.
 ```sh
 curl -X POST localhost:8787/v1/incident \
   -H 'content-type: application/json' \
-  -d '{"incident_type":"faint"}'
+  -d '{"incident_type":"fire"}'
 ```
 
 ### `POST /v1/incident/{id}/context`
@@ -484,7 +485,7 @@ Full example: [`schema/replay.json`](schema/replay.json). Abridged:
       "seq": 1,
       "at": "2026-09-20T04:12:33Z",
       "kind": "incident",
-      "summary": "faint raised by user",
+      "summary": "fire raised by user",
       "detail": { },
       "entry_hash": "9a1e26430b4002eb...",
       "prev_hash": null
@@ -512,7 +513,7 @@ In simulated mode the hub assembles the record from its own buffer, in the same 
 Drives the scripted detection and then stops. **Simulated mode only; 404s in live mode, deliberately.**
 
 The default is detection only, because that is what the system does on its own.
-The fall appears in `state`, `still_down_s` climbs, CO rises, and no `incident` or `transcript` event is emitted at all.
+The lost signature appears in `state`, `respiration_lost_s` climbs, CO rises, and no `incident` or `transcript` event is emitted at all.
 The system notices and waits.
 
 ```sh
@@ -520,7 +521,7 @@ curl -X POST localhost:8787/v1/demo/run
 # {"started":true,"detail":"scripted detection started; no incident raised, waiting on a human tap","raised_incident_id":null}
 ```
 
-`?simulate_human_tap=true` additionally raises a Faint incident exactly as `POST /v1/incident` would, with `raised_by: user`, so one curl exercises detection and call end to end.
+`?simulate_human_tap=true` additionally raises a Fire incident exactly as `POST /v1/incident` would, with `raised_by: user`, so one curl exercises detection and call end to end.
 The parameter is named for what it is standing in for, which is a person.
 Without it this endpoint cannot start a call, and with it the thing being faked is the tap, not the system's authority to dial.
 
@@ -542,7 +543,7 @@ app/backend/
   pyproject.toml            uv / pip project, Python 3.13
   requirements.txt          plain-pip fallback
   README.md                 this file
-  scripts/demo.sh           boots simulated mode, runs the detection, taps Faint, watches the call
+  scripts/demo.sh           boots simulated mode, runs the detection, taps Fire, watches the call
   schema/                   generated example payloads, one per endpoint and event kind
   tools/
     gen_schema.py           regenerates schema/ from the live models

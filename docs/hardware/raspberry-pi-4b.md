@@ -322,7 +322,7 @@ sudo timeout 10 tcpdump -i wlan0 dst port 5500 -w /dev/null 2>&1 | tail -3
 ```
 
 Target is 100+ per second.
-10 Hz is the floor and it is not enough for collapse or heart rate.
+10 Hz is the floor and it is not enough for a short motion transient or for heart rate.
 
 ### Dead output
 

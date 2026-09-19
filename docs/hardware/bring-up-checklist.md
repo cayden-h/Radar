@@ -387,7 +387,7 @@ Do this the moment Phase 6 passes. Not after one more thing.
   ```sh
   sudo tcpdump -i wlan0 dst port 5500 -w /home/hawkeye/csi-session-$(date +%Y%m%d-%H%M).pcap
   ```
-  Expect: a growing pcap. Let it run through a representative sequence, including a fall.
+  Expect: a growing pcap. Let it run through a representative sequence, including someone going still and staying still.
 
 - [ ] Pull the pcap off the Pi and store it with the disk image.
 

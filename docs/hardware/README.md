@@ -35,7 +35,7 @@ See `sensor/CLAUDE.md`.
 | microSD card | The whole working system lives here | [raspberry-pi-4b.md](raspberry-pi-4b.md) | It corrupts at 4am and there is no `dd` image. Image the card the moment CSI flows. |
 | USB-C 5V/3A supply | Pi power | [assembly-and-placement.md](assembly-and-placement.md) | Powered from a router or laptop USB port instead, the Pi browns out under load and corrupts the SD card rather than rebooting visibly. |
 | TP-Link Archer AX1450 | The transmitter whose channel the Pi measures | [router-archer-ax1450.md](router-archer-ax1450.md) | Auto channel or band steering is left on. The generator wanders off the monitored channel, or the router hops mid-take, and the capture is empty while every component reports healthy. |
-| The MacBook | Traffic generator, plus dev machine and venue Internet Sharing host | [macbook-traffic-generator.md](macbook-traffic-generator.md) | Nobody starts the ping. CSI updates only on beacons at roughly 10 Hz, which is too coarse for collapse and heart rate, and the pipeline reports healthy the whole time. |
+| The MacBook | Traffic generator, plus dev machine and venue Internet Sharing host | [macbook-traffic-generator.md](macbook-traffic-generator.md) | Nobody starts the ping. CSI updates only on beacons at roughly 10 Hz, which is too coarse for a short motion transient and for heart rate, and the pipeline reports healthy the whole time. |
 | Physical placement | Determines whether people are in the measured path at all | [assembly-and-placement.md](assembly-and-placement.md) | Router and Pi end up side by side on one table. The capture goes flat and looks exactly like a failed firmware patch, so you spend the night debugging the wrong thing. |
 
 ## Do this in this order

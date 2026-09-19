@@ -31,9 +31,14 @@ Two components that read the same input, hold the same state, and always run in 
 |---|---|---|
 | `biometrics` | `people` | Personhood is what makes a presence a person. Everything `people` says is conditioned on it |
 | `occupancy` | `people` | Same CSI window, same rolling baseline, same tick |
-| `collapse` | `people` | A fall is a state a *person* is in, and it needs the respiration verdict to interpret |
+| `collapse` | `people` | A fall is a state a *person* is in, and it needed the respiration verdict to interpret |
 | `environment` | `master` | A sensor attached to the host has no counterparty to authenticate |
 | `guidance` | `caller` | `caller` is the agent that talks to humans, and there are two of them on a live incident |
+
+**Fall detection was then cut outright on 2026-09-19**, after the merge, and the `collapse` reader was deleted with it.
+It was the weakest link in the chain: a debounce problem dressed as a clinical variable, where sitting down fast, lying down to sleep and a child playing all look like a fall for an instant.
+The question a dispatcher actually needs answered is narrower and defensible - whether the people inside can respond - and respiration already answered it.
+What `people` carries now is `people.respiration_lost`: seconds since a breathing signature was last resolvable on a presence that previously had one.
 
 **What the merge did not touch is the line the ANS story runs along.**
 Every hop that carries a claim from something that senses, to something that decides, to something that speaks, is still a hop between independently registered agents.
@@ -52,7 +57,7 @@ Two of the merges cost something, and both costs are stated where they live rath
 **Every agent runs continuously.** Nothing spawns on incident.
 
 This is a requirement, not an optimization. It is what allows the system to notice things nobody asked it to look for:
-an unidentified person in the house at 3am, a resident who went down and has not gotten up, CO climbing while everyone sleeps.
+an unidentified person in the house at 3am, a breathing signature that was there a minute ago and is not now, CO climbing while everyone sleeps.
 
 An architecture that only wakes on a button press cannot do the thing that makes this project worth building.
 
@@ -76,7 +81,7 @@ master ──POST /a2a {nonce}──►  people     "what do you have right now?
 
 It also collapses two code paths into one. The steady-state tick and the operator fan-out are the same mechanism, so the beat that matters in the demo is exercised continuously rather than only during a call.
 
-The cost is up to one second of detection latency. Against a `still_down_s` measured in minutes, that is nothing.
+The cost is up to one second of detection latency. Against a `people.respiration_lost` clock measured in minutes, that is nothing.
 
 ### The challenge
 
@@ -127,7 +132,8 @@ Add mTLS at the proxy once the agents are reachable, and update `x-security-note
                         ▼                     │                │
                      people                   │                │
               count, location, personhood,    │                │
-              respiration, movement, falls    │                │
+              respiration, movement,          │                │
+              responsiveness                  │                │
                         │                     │                │
                         │ ANS                 │                │
                         ▼                     │                │
@@ -168,17 +174,19 @@ They are also **published on each agent's card** under `x-hawkeye.mustNotClaim`,
 
 #### agents/people **[tier 1]**
 
-How many people are in the building, where each one is, whether each one is breathing, and whether one of them is on the floor.
+How many people are in the building, where each one is, whether each one is breathing, and whether a dispatcher should expect an answer from any of them.
 
 **The load-bearing agent, and the only consumer of the CSI stream.** If only one sensing agent works, make it this one.
 
-Three readers run in a fixed order each tick, because each depends on the one before:
+Two readers run in a fixed order each tick, because the second depends on the first:
 
 ```
-respiration  ->  is this a person, breathing at what rate, moving or not
+respiration  ->  is this a person, breathing at what rate, moving or not,
+                 and how long since a signature we had went missing
 presence     ->  which zone, how many, what coarse class
-collapse     ->  did one of them go down, and for how long
 ```
+
+There was a third, `collapse`, until 2026-09-19. It is gone and so is fall detection.
 
 ##### The personhood verdict
 
@@ -196,10 +204,11 @@ Breathing moves the chest wall roughly 5-12mm; a heartbeat moves it a few tenths
 RuView lists heart rate at 40-120 BPM. Treat it as a stretch goal and as a good number to say on the 911 call. Respiration at 0.1-0.5 Hz carries the verdict.
 
 It separates three states a headcount cannot tell apart: moving, still but breathing, and neither.
-"Unresponsive occupant in the main bedroom" is the most valuable sentence this system can say to a dispatcher, and it comes from here.
+"I had a breathing signature in the main bedroom four minutes ago and I do not have one now" is the most valuable sentence this system can say to a dispatcher, and it comes from here.
+Note the shape of that sentence. It reports a measurement and a clock, and it stops there.
 
 **Do not treat absence of respiration as absence of a person.** Shallow breathing, breath-holding, and range limits all degrade toward invisible.
-The collapse reader is the cross-check, and uncertainty is escalated rather than resolved silently.
+There is no cross-check reader any more, so the uncertainty is escalated rather than resolved silently: a signature that was present and is now gone raises an `Unknown` on `people.respiration`, the most urgent uncertainty this system can produce.
 
 ##### Location and class
 
@@ -228,7 +237,7 @@ RuView says the same in its own terms: single-node deployments have limited spat
 | **Two people within ~1m** | **Reads as one.** Occlusion plus overlapping Fresnel geometry |
 | One moving, one still | The mover dominates; the still one is near-invisible to motion |
 
-That last row is our actual scenario, which is why the respiration reader rather than motion is what finds the person on the floor.
+That last row is our actual scenario, which is why the respiration reader rather than motion is what finds the person who has stopped moving.
 
 **Respiration is a better route to a count than motion is.** Two people breathing at different rates give two spectral peaks in the 0.1-0.5 Hz band, and two resolvable peaks is real evidence of two bodies. Two people breathing at similar rates, say both near 15 BPM, produce overlapping peaks a single link cannot separate, and it only works while they are still.
 
@@ -237,26 +246,28 @@ A small room cuts both ways: a 3m router-to-Pi span is in the sweet spot and SNR
 **Therefore: take the count from the roster, not the radio.** Device association tells us two residents are home with certainty, because it comes from the network. See `docs/research/identity.md`. The radio then only has to answer *which room* and *is this one breathing*, which it can.
 Where a sensed count is reported at all, it carries a confidence, is phrased as "at least", and is capped at CORROBORATING so it can never move anybody on its own.
 
-##### Falls, and the clinical variable
+##### Responsiveness, and why it replaced fall detection
 
-Someone was upright, is now down, and has not gotten up.
+Someone had a breathing signature, and now they do not.
 
-Upstream supports this directly. RuView ships fall detection at sub-200ms and exposes `fall-risk`, `no-movement`, and `bed-exit`.
+`people.respiration_lost` carries the elapsed seconds since a breathing signature was last resolvable on a presence that previously had one.
+**The transition is the signal.** A presence that never resolved a signature produces nothing here, because shallow breathing, breath-holding and range limits are indistinguishable from an empty room, and a claim that cannot tell those apart is worth nothing to a dispatcher.
 
-It backs the Faint incident type as an **information source, not a trigger.**
+This is what a dispatcher actually needs: whether to expect an answer from a room.
+It is a narrower claim than "someone fell", and unlike that one it is defensible from the physics.
 
-It also owns the project's strongest statistics. A **long lie** is clinically defined as being unable to get up for over an hour; **53% of older fall patients are still on the floor when the ambulance arrives**, and **half of those down over an hour die within six months even absent injury from the fall.**
-That makes `still_down_s` the clinical variable, not a diagnostic detail. Surface it, escalate on it, say it on the call.
+**It is stamped from the last resolvable signature, not from the moment the agent became confident.** The sentence that matters to a dispatcher is "I had breathing there four minutes ago", not "we decided twenty seconds ago".
 
-**It is stamped from the transient, not from the moment the agent became confident.** The sentence that matters to a dispatcher is "she went down four minutes ago", not "we decided twenty seconds ago".
+**A lost signature is never a finding that someone has stopped breathing**, it is a reason to look, and that limit is published on the card under `x-hawkeye.mustNotClaim` and tested.
+The escalated `Unknown` on `people.respiration` says so in the claim itself.
 
-`people` does not raise a 911 call. It surfaces the detection in the app and stamps `still_down_s` onto the incident record, so that when a human does call, the dispatcher learns the fall happened four minutes ago rather than being told "I found her like this."
+`people` does not raise a 911 call. It surfaces the loss in the app and stamps the clock onto the incident record, so that when a human does call, the dispatcher learns the signature went missing four minutes ago rather than being told "I found her like this."
 
-The critical detail is debounce. Sitting down fast, lying down to sleep, and a child playing all look like a fall for an instant.
-The signature is collapse **followed by** absence of normal movement, cross-checked against the respiration verdict, and **nothing leaves the agent during the debounce window.**
-A system that calls 911 when someone flops onto a couch is worse than no system.
-
-One implementation detail that is easy to get wrong and fails silently: **stillness is measured over frames after the transient, never over a window that still contains it.** Measuring across it reads the fall itself as movement and drops the candidate one tick after it is created - the person is on the floor and the agent has just concluded they got up.
+**Fall detection was cut on 2026-09-19 and `agents/people/collapse.py` was deleted.**
+Debounce was the whole engineering problem and it never got better: sitting down fast, lying down to sleep and a child playing all look like a fall for an instant, and a system that calls 911 when someone flops onto a couch is worse than no system.
+RuView does ship fall detection upstream, at sub-200ms, with `fall-risk`, `no-movement` and `bed-exit`; we are not using it.
+The statistics that used to justify the feature are kept, as history, in `docs/research/incidents.md`.
+Saying "we cut the feature whose false-positive rate we could not defend" is a stronger answer to a judge than a demo that flags the couch.
 
 #### agents/intruder **[tier 1]**
 
@@ -297,7 +308,22 @@ For the burglary incident type this is the agent that matters: **where the intru
 
 The incident coordinator. Classifies what is happening, aggregates what the sensing agents report, and routes to `caller` and `replay`.
 
-Incident types: **Burglary, Fire, Faint.** **All three are user-triggered from the iOS app.**
+Incident types: **Burglary and Fire.** **Both are user-triggered from the iOS app.**
+Faint was the third until 2026-09-19; it went with fall detection.
+
+The classification table, which `agents/master/classify.py` quotes in its own docstring and `docs/research/agent-briefs.md` holds in full:
+
+| Observation | Verdict | Confidence |
+|---|---|---|
+| Elevated CO + a lost breathing signature | Fire, with someone in that room who may not be able to respond | 0.8 |
+| Elevated CO + a still, breathing presence | Fire, with someone who is not moving. This cannot distinguish unconsciousness from sleep and says so | 0.65 |
+| Elevated CO + every resolved presence up and breathing | Fire, and the moment to leave | 0.6 |
+| Elevated CO + no presence resolved at all | Fire, occupancy unknown. Says explicitly that this is also what an unreachable or fully-discarded `people` looks like | 0.45 |
+| Unexpected presence + residents also in the building | Burglary in progress with occupants home | 0.6 |
+| Unexpected presence + house registered empty | Burglary, no occupants at risk | 0.7 |
+
+**The top two rows are the ones to lead with, and they are the only rows built from two independent modalities**: CSI resolved the breathing, a separate simulated gas sensor read the air.
+Two views of one CSI stream agreeing is not corroboration; this is.
 
 `master` never initiates a 911 call. Sensing agents inform it continuously; it classifies and holds state; a human tap is what releases `caller` to dial.
 Detections surface as alerts in the app so a person can act on them, which is the whole point of detecting them. They do not dial.
@@ -316,12 +342,12 @@ Real here: the agent, its ANS registration, its certificate, its card, its place
 Simulated: the number. It carries the literal string `demo-trigger` so a simulated reading cannot be presented as measured by accident.
 
 `environment` was its own agent until 2026-09-19. Absorbing it has a cost and the cost is named in `agents/master/environment.py` rather than glossed: **read locally, the reading skips the gate**, because there is no counterparty to authenticate.
-What matters is that it is labelled unverified-by-construction rather than quietly inheriting master's FIDUCIARY standing. Its severity is capped at CORROBORATING no matter how high the number climbs, it is never speakable to an operator on its own, and every Fire classification requires a CSI-derived collapse alongside it.
+What matters is that it is labelled unverified-by-construction rather than quietly inheriting master's FIDUCIARY standing. Its severity is capped at CORROBORATING no matter how high the number climbs, it is never speakable to an operator on its own, and the two corroborated Fire rows each require a CSI-derived respiration claim alongside it.
 
 Why CO and not oxygen: **CSI cannot sense gas composition.** Oxygen absorption is a ~60 GHz phenomenon, which is why 802.11ad lives there; the BCM43455c0 is a 2.4/5 GHz radio. See `sensor/CLAUDE.md`.
 
-CO is the better signal anyway. It is what incapacitates people in structure fires before flame reaches them, and it is the likeliest reason someone faints in a house that is not visibly burning.
-`people` says someone went down; the air reading proposes why. **Different modalities agreeing is real corroboration; two views of one CSI stream agreeing is not** - and that is precisely why this one is not a CSI consumer.
+CO is the better signal anyway. It is what incapacitates people in structure fires before flame reaches them, and it is the likeliest reason someone in a house that is not visibly burning stops responding.
+`people` says a breathing signature went missing; the air reading proposes why. **Different modalities agreeing is real corroboration; two views of one CSI stream agreeing is not** - and that is precisely why this one is not a CSI consumer.
 
 **Say it precisely: this is possible with the right hardware.** Never "CSI can detect gas." The claim is about the architecture, not the radio, and that distinction is what makes it survive a question.
 Swapping in a real MQ-7 on the Pi's GPIO is a driver behind an interface that already exists, and nothing above it changes.
@@ -361,7 +387,7 @@ The reasoning is short: an agent that can change the dispatch address is a swatt
 Also generate a `traceparent` at incident open and propagate it to every agent. See the transparency-log section of `ans/CLAUDE.md` for why.
 
 Classification is the interesting part and should be visible.
-A fall plus elevated CO is a fire incident with a casualty, not a faint.
+Elevated CO plus a breathing signature that has gone missing is a fire with an occupant who may not be able to respond, not two separate incidents.
 An unexpected presence plus a resident in a different room is a burglary, not a visitor.
 Show that reasoning; it is what makes the system look like it is thinking rather than switching.
 
@@ -376,7 +402,7 @@ The phone half is below; the resident half is under "the resident's side of the 
 **Outbound.** Reports the incident in plain English. Every claim it speaks has a verified source or it does not get spoken.
 
 **Inbound.** The operator talks back, mid-call, in English.
-"Is the child still breathing?" "Anyone in the garage?" "How long since they went down?"
+"Is the child still breathing?" "Anyone in the garage?" "How long since you had breathing from that room?"
 `caller` parses each question, fans it out through `master` as ANS-verified queries, and speaks the result.
 
 Rules for the inbound path:
@@ -409,7 +435,7 @@ This is not an optimisation. Putting the call on the resident's phone means iOS 
 |---|---|---|---|
 | **Watching** | off | none | Default for Burglary. Transcript only. |
 | **Whispering** | **open** | **none** | Hiding, but needs to be heard |
-| **Full voice** | open | on | Faint, Fire, or Burglary once safe |
+| **Full voice** | open | on | Fire, or Burglary once safe |
 
 **Whisper mode is the one worth building.** The resident's voice reaches the call; nothing comes back through the speaker. They speak and read the replies on screen.
 
@@ -472,7 +498,7 @@ Add **voice barge-in** alongside the button: if a human starts speaking, the age
 
 **Rule: the agent never talks over a human.** Not the operator, not the resident. Either speaks, it yields. That one rule covers most of the failure modes here.
 
-After takeover the agent stops speaking **on the call** but keeps feeding the app: CO reading, room, respiration, `still_down_s`. **The resident becomes the voice and the agent becomes the teleprompter.** That is better than the agent guessing what a frightened person wants said.
+After takeover the agent stops speaking **on the call** but keeps feeding the app: CO reading, room, respiration, and the seconds since a breathing signature was last resolvable. **The resident becomes the voice and the agent becomes the teleprompter.** That is better than the agent guessing what a frightened person wants said.
 
 Three controls, kept visually distinct because someone panicking will hit the biggest one:
 
@@ -528,18 +554,23 @@ Keeping them in one agent removes a failure this system cannot afford: two indep
 Two jobs, and they are the same job: telling a frightened person what to do next.
 
 1. **Relay.** What the operator and responders have said, translated into what it means for the user. "Units are two minutes out. Stay where you are, unlock the front door if you can do it safely."
-2. **First aid.** Instructions for the situation at hand. CPR, recovery position, cover your nose and stay low, do not move someone who fell.
+2. **Safety instructions.** What to do in the situation at hand. Get out and stay out, stay low, do not confront anyone, wait for responders.
 
-Handle this carefully. First-aid instructions delivered badly are a real-world harm, not a demo bug.
+**There is no patient-care protocol in the table, and the absence is deliberate.**
+CPR and the recovery position went with the Faint incident type on 2026-09-19.
+Neither surviving incident type is one where staying to help is correct guidance: during a fire the resident's protocol is to leave and stay out, and during a burglary it is to stay hidden and not confront anyone.
+Telling a resident to stay in a burning building and do CPR would be a worse instruction, not a missing one.
 
-- Stay inside well-established public guidance. Hands-only CPR, recovery position, stop-the-bleed. Do not improvise medical advice.
+Handle this carefully. Safety instructions delivered badly are a real-world harm, not a demo bug.
+
+- Stay inside well-established public guidance. Fire-ground protocol, and the dispatcher's own words. Do not improvise medical advice.
 - **Always defer to the operator.** If the dispatcher is giving instructions, relay theirs rather than generating competing ones. Dispatchers are trained for exactly this and the agent is not. This is enforced: relaying anything sets a deferral flag, and from that point the agent relays rather than generates.
-- Never tell a user to do something that could hurt them or the patient. Moving a fall victim is the classic example, and it appears in the protocol table as an explicit "do not" rather than being absent.
+- Never tell a user to do something that could hurt them or the person they are worried about. The protocol table carries the do-nots explicitly rather than leaving them absent: do not go back into a fire, do not go looking during a burglary, do not confront anyone.
 - Say "wait for responders" when that is the right answer, which is often.
 
 **`agents/caller/guidance.py` is the only place medical text exists in the entire system.** The iOS client contains none and must not acquire any: hardcoding first-aid copy in a view puts it outside the one component that gets reviewed against these rules.
 
-The relay half is the high-value one. The first-aid half is the one to cut if time runs out.
+The relay half is the high-value one. The safety-instruction half is the one to cut if time runs out.
 #### agents/replay **[tier 2]**
 
 The incident recorder. Logs what happened, in order, with who said it and whether it verified.
@@ -645,7 +676,7 @@ Each publishes an agent card, and the cards must be kept current. Public agents 
 
 Two of them, carrying different claims. See `media/CLAUDE.md` for the split.
 
-**The video, recorded at home.** Live CSI, real walls, a real fall. The only honest venue for the physical claims.
+**The video, recorded at home.** Live CSI, real walls, a real person whose breathing signature goes missing. The only honest venue for the physical claims.
 
 **The live demo at judging.** This is the one the track is actually scored on, and it needs no hardware:
 the agents are hosted and reachable, so ANS verification, the agent cards on the Trust Index, the `fraud.webmesh.ai` probes, the refusal, the ElevenLabs call, and the operator question fan-out all run from a laptop on any network.
@@ -661,12 +692,12 @@ Worth knowing if a judge asks why you are not demoing the rest: a baseline captu
 
 Full sequence, as filmed:
 
-1. `people` fires a collapse. Someone went down in the main bedroom and has not moved. The app raises an alert; **no call is placed.**
-2. `intruder` and the roster corroborate. **Keep the sensed claim to one resolved presence**, and take the headcount from the roster rather than the radio: two residents registered, both phones associated, and an occupant in the west bedroom breathing at 6 a minute. An exact sensed count of two or three is beyond a 1x1 link; see the counting limits under `agents/people`.
-3. **A human taps Faint.** This is the only thing that releases `caller` to dial, and saying so on stage is a feature, not an apology.
+1. `people` loses a breathing signature. It had one in the main bedroom and it no longer does, and the clock starts from the last resolvable frame. The app raises an alert; **no call is placed.**
+2. `intruder` and the roster corroborate. **Keep the sensed claim to one resolved presence**, and take the headcount from the roster rather than the radio: two residents registered, both phones associated, and an occupant in the west bedroom who was breathing at 6 a minute. An exact sensed count of two or three is beyond a 1x1 link; see the counting limits under `agents/people`.
+3. **A human taps Fire.** This is the only thing that releases `caller` to dial, and saying so on stage is a feature, not an apology.
 4. `master` classifies, verifies every source, discards what it cannot verify, and routes.
 5. `caller` dials. ElevenLabs voice to a human operator, reporting only verified claims - including the forty seconds that elapsed before anyone tapped.
-   The line that wins the demo is about **one** person: "an occupant in the west bedroom, down four minutes, breathing at six a minute." That needs exactly one resolved presence, which is what the hardware can give.
+   The line that wins the demo is about **one** person: "I had a breathing signature from an occupant in the west bedroom four minutes ago and I do not have one now, and that is not the same as them having stopped breathing." That needs exactly one resolved presence, which is what the hardware can give.
 6. The resident watches a live transcript on their phone while `caller` tells them what to do. One agent, both audiences, one picture of the incident.
 7. **The operator asks a follow-up in plain English.** "Is the child still breathing?" The question fans out as ANS-verified queries, live, and comes back as a spoken answer. This is the beat that shows ANS working during the call rather than before it.
    Then **the resident taps TAKE OVER and the agent goes silent mid-sentence.** Five seconds of footage that answers the room's biggest doubt about this entire project: what if the AI says something wrong. A human starts the call, a human can take it, a human can end it. The agent only ever holds the microphone on loan.
