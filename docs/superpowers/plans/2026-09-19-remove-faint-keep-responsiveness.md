@@ -1622,6 +1622,15 @@ not have today**, and it is the one thing this system can honestly provide.
 
 The nine-to-five merge table lists `collapse -> people`. Keep that history - it is accurate - but append a line recording that fall detection was cut on 2026-09-19 and why: it was the weakest link, a debounce problem dressed as a clinical variable, and respiration already answered the question that mattered. Update the `people` agent contract to list personhood, location and responsiveness, and the `master` contract's classification table to the two Fire rows and two Burglary rows from Task 3.
 
+- [ ] **Step 3b: Fix the two first-aid sentences in `agents/CLAUDE.md`**
+
+Task 5 corrected these exact two sentences in `guidance.py` and flagged that `agents/CLAUDE.md`'s `caller` section still carries the old prose:
+
+- "CPR, recovery position, cover your nose and stay low, do not move someone who fell" - CPR and the recovery position are no longer in the protocol table at all. Replace with what the table actually holds: get out and stay out, stay low, do not confront, wait for responders.
+- "Moving a fall victim is the classic example, and it appears in the protocol table as an explicit 'do not'" - it does not appear there any more. Rewrite the safety rule around the do-nots that remain: do not go back into a fire, do not go and look during a burglary, do not confront anyone. Keep the rule itself; only its example changes.
+
+Say plainly, near the protocol discussion, that there is no patient-care protocol and that the absence is deliberate: neither surviving incident type is one where staying to help is correct guidance.
+
 - [ ] **Step 4: Rewrite `docs/research/agent-briefs.md` and `docs/research/incidents.md`**
 
 `agent-briefs.md` holds the classification table that `classify.py`'s docstring quotes - they must match exactly. Update it to the four rows in Task 3.
