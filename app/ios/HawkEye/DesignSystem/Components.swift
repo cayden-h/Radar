@@ -95,3 +95,69 @@ struct PressableStyle: ButtonStyle {
 extension ButtonStyle where Self == PressableStyle {
     static var pressable: PressableStyle { PressableStyle() }
 }
+
+/// A press-and-hold control for every risky or irreversible action in the
+/// app: raising an incident, ending a call. Per `app/CLAUDE.md`, these use a
+/// 1.5s hold with continuous visual feedback rather than a modal dialog,
+/// because a modal makes a panicking user find and hit a second target, and a
+/// hold gives release-to-cancel on the target they already found.
+///
+/// Feedback is **purely visual** — no haptics, no sound — so it behaves
+/// correctly in silent mode, where a confirmation that buzzes would defeat
+/// the mode it is confirming inside of.
+struct HoldToConfirmButton<Label: View>: View {
+    var duration: TimeInterval = 1.5
+    var tint: Color
+    var cornerRadius: CGFloat = Radius.md
+    var accessibilityLabel: String
+    var action: () -> Void
+    @ViewBuilder var label: () -> Label
+
+    @State private var progress: CGFloat = 0
+    @State private var holding = false
+
+    var body: some View {
+        label()
+            .overlay(alignment: .bottom) {
+                GeometryReader { geo in
+                    Rectangle()
+                        .fill(tint.opacity(0.4))
+                        .frame(height: geo.size.height * progress)
+                }
+                .allowsHitTesting(false)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in beginHoldIfNeeded() }
+                    .onEnded { _ in cancelHold() }
+            )
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityHint("Double tap and hold for \(Int(duration)) seconds to confirm")
+            .accessibilityAction {
+                // VoiceOver cannot perform a timed hold gesture, so a double
+                // tap fires the action immediately for that audience.
+                action()
+            }
+    }
+
+    private func beginHoldIfNeeded() {
+        guard !holding else { return }
+        holding = true
+        withAnimation(.linear(duration: duration)) { progress = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            guard holding else { return }
+            holding = false
+            progress = 0
+            action()
+        }
+    }
+
+    private func cancelHold() {
+        guard holding else { return }
+        holding = false
+        withAnimation(Motion.snappy) { progress = 0 }
+    }
+}
