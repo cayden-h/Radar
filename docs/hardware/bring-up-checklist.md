@@ -22,6 +22,12 @@ Timebox agreed: `TBD - decide and record here.`
 
   No further hardware is being purchased. If something is missing, the answer is the fallback ladder, not a store.
 
+- [ ] Note what is deliberately **not** on that list: a monitor, a keyboard, a mouse, and an HDMI cable.
+
+  The Pi runs headless for the entire project and none of those are needed.
+  The MacBook is the Pi's screen, over SSH on the Cat5.
+  Phase 2 sets that up, and it has to be set up before first boot rather than after.
+
 ---
 
 ## Phase 1: the router
@@ -69,12 +75,54 @@ Do this first. The Pi's capture parameters have to match the router's channel ex
 
 ---
 
-## Phase 2: flash and boot the Pi
+## Phase 2: flash and boot the Pi, headless
+
+There is no monitor, no keyboard, and no mouse on the Pi at any point in this project.
+Everything below is either done on the MacBook or over SSH from the MacBook.
+The credentials have to be written onto the card **before** first boot, because there is no screen on which to type them afterwards.
+
+### Flash the card
 
 - [ ] Identify a Raspberry Pi OS **Legacy, 32-bit** image whose kernel is 4.19, 5.4, or 5.10. Record the exact filename in [raspberry-pi-4b.md](raspberry-pi-4b.md).
-- [ ] Flash with Raspberry Pi Imager. In the settings editor: set hostname, enable SSH, set username and password, and **leave Wi-Fi empty**.
+
+  Imager hides these under "Raspberry Pi OS (other)".
+  A release name is not evidence. Only `uname -r` on first boot is.
+
+- [ ] In Raspberry Pi Imager, choose Device: Raspberry Pi 4, then the image above, then the microSD card.
+- [ ] **Before writing**, open the settings editor (the gear icon, or "Edit Settings" on the "use OS customisation?" prompt) and set every row of this table.
+
+  | Setting | Value | Why it matters |
+  |---|---|---|
+  | Hostname | `hawkeye-pi` | This is how you find the Pi. Without it you are reading DHCP leases off the router all weekend. |
+  | Enable SSH | on, password or public key | This is the only way in. Forgetting it means reflashing. |
+  | Username | `hawkeye` | Every path in these guides assumes it. Changing it means editing the build steps. |
+  | Password | `TBD - decide and record here.` | Write it down and tell the team before you write the card. |
+  | Configure wireless LAN | **off, empty** | The Pi's network path is the Cat5. A configured `wpa_supplicant` fights `nexmon_csi` for `wlan0` in Phase 6. |
+  | Locale and timezone | whatever is convenient | Does not affect CSI. |
+
+- [ ] Write, and let it verify. Do not skip the verify.
+
+- [ ] If you already flashed without the settings editor, do the manual equivalent rather than reflashing.
+
+  ```sh
+  # The boot partition is bootfs on recent images and boot on older ones.
+  # Check what actually mounted rather than assuming.
+  ls /Volumes/
+
+  touch /Volumes/bootfs/ssh
+  echo "hawkeye:$(openssl passwd -6)" > /Volumes/bootfs/userconf.txt
+  ```
+  Expect: an `ssh` file and a `userconf.txt` on the boot partition.
+  Do **not** create `wpa_supplicant.conf`.
+
+### First boot, which you cannot watch
+
 - [ ] Insert the card. Plug the USB ethernet adapter into the Pi and the Cat5 from adapter to a router LAN port.
 - [ ] Power the Pi from the kit's 5V/3A wall supply. Never from a router or laptop USB port.
+
+  A brownout under load corrupts the card silently. It does not reboot where you can see it.
+
+- [ ] Wait about 60 seconds. First boot resizes the filesystem and reboots itself once, so it is slower than every boot after it.
 - [ ] Pi is reachable over the wire.
 
   ```sh
@@ -82,6 +130,10 @@ Do this first. The Pi's capture parameters have to match the router's channel ex
   ssh hawkeye@hawkeye-pi.local
   ```
   Expect: replies, then a shell prompt. If mDNS fails, find the lease in Advanced > Network > DHCP Server > DHCP Client List.
+
+  If nothing appears in the lease list either, the Pi did not get far enough to reach the network.
+  See "The Pi never appears on the network" at the bottom of this file.
+  Do not start swapping cables until you have read the boot partition back on the MacBook.
 
 - [ ] **The kernel check. This one decides the night.**
 
@@ -105,6 +157,50 @@ Do this first. The Pi's capture parameters have to match the router's channel ex
 
   Reserved address: `TBD - decide and record here.`
 
+  Note the MAC belongs to the adapter, not the Pi's onboard ethernet, and not `wlan0`.
+  Reserving the wrong one produces a Pi that moves address after a reboot and looks like it died.
+
+### Make the MacBook the console
+
+The Pi's screen is a terminal on your Mac. Set it up once, now, rather than during Phase 6 when something is on fire.
+
+- [ ] Install `tmux` on the Pi so a long-running build or capture survives a dropped SSH session.
+
+  ```sh
+  sudo apt-get update && sudo apt-get install -y tmux
+  tmux new -s bringup
+  ```
+  Expect: a status bar at the bottom of the terminal.
+  Detach with `ctrl-b d`, reattach with `tmux a -t bringup`.
+
+  Run Phase 4's build and Phase 6's capture inside tmux.
+  Without it, closing the laptop lid kills them.
+
+- [ ] Confirm you can open a second session at the same time, so you can watch one thing while doing another.
+
+  ```sh
+  # in a second MacBook terminal tab
+  ssh hawkeye@hawkeye-pi.local 'uptime'
+  ```
+  Expect: a load average, and your first session unaffected.
+
+- [ ] Decide how code gets onto the Pi, and use only that way.
+
+  ```sh
+  # push from the MacBook, fastest to iterate
+  rsync -av --exclude '.git' sensor/ hawkeye@hawkeye-pi.local:~/sensor/
+
+  # or pull on the Pi, which makes "what is actually running" answerable
+  ssh hawkeye@hawkeye-pi.local 'cd ~/VTHacks && git pull && git rev-parse --short HEAD'
+  ```
+  Expect: files present on the Pi under `~/sensor/`.
+
+  Mixing the two is how you spend an hour debugging code the Pi is not running.
+
+- [ ] Optional, and worth the five minutes: connect VS Code to the Pi with Remote-SSH, host `hawkeye-pi.local`.
+
+  That gives an editor, a file tree, and a terminal on the Pi in one window, which is the whole of what a monitor would have given you.
+
 ---
 
 ## Phase 3: place the hardware
@@ -122,6 +218,8 @@ Do this before building, so the first CSI you ever see comes from a geometry tha
 ## Phase 4: build nexmon_csi
 
 Start this, then do Phase 5 while it compiles.
+Run all of it inside the tmux session from Phase 2.
+The nexmon base build takes long enough that a dropped SSH session during it is a real risk, and losing it means starting the compile over.
 
 - [ ] Hold the kernel packages so nothing upgrades them.
 
@@ -337,6 +435,38 @@ Work the troubleshooting table in the relevant guide first:
 - Band, channel, steering, subnet: [router-archer-ax1450.md](router-archer-ax1450.md)
 - Packet rate, throttling, Internet Sharing: [macbook-traffic-generator.md](macbook-traffic-generator.md)
 - Flat signal with a healthy packet rate: [assembly-and-placement.md](assembly-and-placement.md)
+
+### The Pi never appears on the network
+
+This is the one failure a monitor would have made obvious, so work it deliberately rather than by swapping cables.
+
+1. Confirm the Pi has power and is doing something.
+
+   The red PWR LED solid means power is good.
+   The green ACT LED should flicker as it reads the card.
+   Solid green and never flickering means it is not booting off the card at all.
+
+2. Confirm it is not a network problem before assuming it is a boot problem.
+
+   Check the router's DHCP client list for any new lease.
+   Try the Pi's onboard ethernet port with the Cat5 directly, temporarily, to rule out the USB adapter.
+
+3. Read the card back on the MacBook. This is the substitute for a screen.
+
+   ```sh
+   # power the Pi down, pull the card, insert it into the MacBook
+   ls /Volumes/bootfs/ssh /Volumes/bootfs/userconf.txt
+   ```
+   Expect: both present. If `ssh` is missing, SSH was never enabled and the card must be redone.
+   If a `wpa_supplicant.conf` is present, delete it.
+
+4. If the card looks right and it still never appears, reflash rather than debugging further.
+
+   A card that fails verification writes an image that boots partway and stops, which looks exactly like a dead Pi.
+
+A USB-TTL serial console on the GPIO header would show the boot log directly and settle this in seconds.
+We do not own one and nothing further is being purchased, so the card readback above is the documented recovery route.
+If someone on the team already owns a USB-TTL adapter, say so and this section gets a faster first step.
 
 If none of those fixes it and the timebox has expired, **the fallback ladder is in `sensor/CLAUDE.md`.**
 
