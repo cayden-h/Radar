@@ -25,6 +25,7 @@ from hawkeye_backend.models.events import (
     IncidentEvent,
     IncidentPhase,
     InstructionEvent,
+    NoticeEvent,
     StateEvent,
     TranscriptEvent,
     VerificationEvent,
@@ -48,6 +49,7 @@ from hawkeye_backend.models.incident import (
     TranscriptLine,
     TranscriptSpeaker,
 )
+from hawkeye_backend.models.notice import Notice, NoticeSeverity
 from hawkeye_backend.models.state import (
     Calibration,
     EnvironmentReading,
@@ -566,6 +568,33 @@ def main() -> None:
             ),
             "Something went wrong. Never a silently dropped frame.",
         ),
+        (
+            "event-notice.json",
+            Envelope(
+                seq=48,
+                at=at(10.0),
+                incident_id=None,
+                payload=NoticeEvent(
+                    notice=Notice(
+                        notice_id="ntc-p4",
+                        severity=NoticeSeverity.ATTENTION,
+                        title="Unexpected person",
+                        body="Not accounted for. Living room.",
+                        zone="living_room",
+                        room="Living room",
+                        presence_id="p4",
+                        raised_at=datetime(2026, 9, 19, 21, 4, 11, 142000, tzinfo=UTC),
+                        provenance=Provenance(
+                            source=Source.AGENT_INFERENCE,
+                            producer="agents/intruder",
+                            ansname=ANSNAME["agents/intruder"],
+                            detail="presence surplus against roster and device association",
+                        ),
+                    )
+                ),
+            ),
+            "A notice was raised: something the resident should know about.",
+        ),
     ]
     for name, env, note in envelopes:
         write(name, env, note)
@@ -613,6 +642,7 @@ def main() -> None:
                 "instruction",
                 "verification",
                 "context",
+                "notice",
                 "error",
             ],
         },

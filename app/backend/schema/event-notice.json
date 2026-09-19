@@ -1,0 +1,30 @@
+{
+  "$note": "A notice was raised: something the resident should know about.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 48,
+    "at": "2026-09-20T04:12:43Z",
+    "incident_id": null,
+    "payload": {
+      "kind": "notice",
+      "notice": {
+        "notice_id": "ntc-p4",
+        "severity": "attention",
+        "title": "Unexpected person",
+        "body": "Not accounted for. Living room.",
+        "zone": "living_room",
+        "room": "Living room",
+        "presence_id": "p4",
+        "raised_at": "2026-09-19T21:04:11.142000Z",
+        "provenance": {
+          "source": "agent-inference",
+          "producer": "agents/intruder",
+          "ansname": "intruder.hawkeye.invalid",
+          "detail": "presence surplus against roster and device association",
+          "source_class": "derived",
+          "simulated": false
+        }
+      }
+    }
+  }
+}
