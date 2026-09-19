@@ -24,7 +24,16 @@ struct NoticeBanner: View {
                 Text(notice.title)
                     .font(TypeScale.caption)
                     .foregroundStyle(Palette.personUnexpected)
-                Text(notice.body)
+                // The time is load-bearing, not decoration. A notice records
+                // where someone was when it was raised, and the presence keeps
+                // moving after that, so without a timestamp the banner reads as
+                // a live position that disagrees with the roster underneath it.
+                // "Living room" over a roster row saying "Kitchen" looks like a
+                // bug; "Living room, 2:01" reads as the history it is.
+                //
+                // The SMS already says the time for the same reason. Two
+                // renderings of one notice should not disagree about what it is.
+                Text("\(notice.body) \(Self.clock.string(from: notice.raisedAt))")
                     .font(TypeScale.caption)
                     .foregroundStyle(Palette.inkMuted)
             }
@@ -52,6 +61,17 @@ struct NoticeBanner: View {
                 .strokeBorder(Palette.personUnexpected.opacity(0.42), lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(notice.title). \(notice.body)")
+        .accessibilityLabel(
+            "\(notice.title). \(notice.body) Raised at \(Self.clock.string(from: notice.raisedAt))."
+        )
     }
+
+    /// Wall-clock time, local, no seconds. Built once: a `DateFormatter` per
+    /// render is expensive and this view redraws on every state tick.
+    private static let clock: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        f.dateStyle = .none
+        return f
+    }()
 }
