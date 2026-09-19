@@ -31,6 +31,8 @@ struct HomeView: View {
                     InteriorView(state: client.interior)
                         .frame(maxWidth: .infinity)
                         .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
+                        .frame(minHeight: 120)
+                        .layoutPriority(1)
 
                     // The honesty rule applied to the drawing. The plan is
                     // authored, not discovered: walls are the static baseline the
@@ -336,7 +338,17 @@ private struct IncidentBar: View {
                         }
                         .foregroundStyle(type.tint)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 88)
+                        // Kept at the original 74pt. The map panel above has no
+                        // ScrollView backing it and is deliberately the one
+                        // flexible element that shrinks to give the roster room
+                        // when a fourth row (the unexpected person) appears —
+                        // see the comment on InteriorView's call site in
+                        // HomeView.body. A taller button here was tried and
+                        // pushed that shrink calculation past zero, collapsing
+                        // the map entirely during exactly the burglary demo's
+                        // climax frame. The icon roundel only needs ~62pt, so
+                        // this still fits with room to spare.
+                        .frame(height: 74)
                         .background(
                             RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
                                 .fill(type.tint.opacity(0.10))
