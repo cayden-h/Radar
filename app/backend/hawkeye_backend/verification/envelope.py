@@ -98,6 +98,22 @@ class PossessionProof(BaseModel):
     method: str = Field(description="The `htm` analogue: how the claim is being submitted.")
     target: str = Field(description="The `htu` analogue: the submission endpoint, normalized.")
     proof_id: str = Field(description="The `jti` analogue. Single use.")
+    nonce: str = Field(
+        description=(
+            "Server-supplied challenge, the DPoP `nonce` analogue. **The verifier issues "
+            "this, not the presenter**, and that asymmetry is the whole point of it: a "
+            "claim is bound to a specific question this master asked at a specific "
+            "moment, rather than to a moment the producer chose for itself.\n\n"
+            "It is what makes the mesh pull-only rather than push. An agent cannot "
+            "produce a usable claim unbidden, so a compromised sensing agent cannot "
+            "prepare a batch of plausible claims in advance and fire them at an incident; "
+            "every one has to answer a challenge it could not have predicted.\n\n"
+            "Required, never optional. A proof with an empty nonce is refused, because "
+            "'the verifier did not ask for one' and 'the presenter omitted it' must not "
+            "be the same wire representation."
+        ),
+        min_length=1,
+    )
     issued_at: datetime = Field(default_factory=utc_now)
     content_digest: str = Field(description="base64url SHA-256 over canonicalize(envelope).")
     public_key: str = Field(description="base64url raw Ed25519 public key of the presenter.")

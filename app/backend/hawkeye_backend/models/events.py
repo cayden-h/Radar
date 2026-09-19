@@ -68,7 +68,7 @@ class TranscriptEvent(BaseModel):
 
 
 class InstructionEvent(BaseModel):
-    """One instruction from agents/guidance."""
+    """One instruction from agents/caller."""
 
     kind: Literal[EventKind.INSTRUCTION] = EventKind.INSTRUCTION
     instruction: Instruction

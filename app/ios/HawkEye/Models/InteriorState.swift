@@ -27,7 +27,7 @@ enum PresenceState: String, Codable, Sendable, Hashable, CaseIterable {
     ///
     /// Absence of respiration is not proof of absence of a person. Shallow
     /// breathing and range limits both degrade toward invisible, which is why
-    /// `agents/collapse` is cross-checked before this verdict is trusted, and
+    /// `agents/people` is cross-checked before this verdict is trusted, and
     /// why the UI never says "nobody there".
     case unconfirmed
 
@@ -43,7 +43,7 @@ enum PresenceState: String, Codable, Sendable, Hashable, CaseIterable {
     /// when a frame omits the field, so the app degrades to a defensible answer
     /// instead of drawing nothing.
     ///
-    /// Respiration is the arbiter of personhood, per `agents/biometrics`.
+    /// Respiration is the arbiter of personhood, per `agents/people`.
     /// Movement alone cannot tell these states apart.
     static func derive(
         moving: Bool,
@@ -422,7 +422,7 @@ struct InteriorState: Codable, Sendable, Hashable {
     var sensorIdentity: String = ""
     var calibration: Calibration = Calibration()
     var presences: [Presence] = []
-    /// Null when `agents/environment` has not reported.
+    /// Null when `agents/master` has not reported.
     var environment: EnvironmentReading?
     var floorplan: Floorplan = .home
     var activeIncidentID: String?

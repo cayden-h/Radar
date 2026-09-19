@@ -23,7 +23,7 @@ protocol HawkEyeClienting: AnyObject {
     /// The live 911 transcript, oldest first.
     var transcript: [TranscriptLine] { get }
 
-    /// Instructions from `agents/guidance`, oldest first.
+    /// Instructions from `agents/caller`, oldest first.
     var instructions: [Instruction] { get }
 
     /// ANS verification results, newest first. Discarded claims included, and

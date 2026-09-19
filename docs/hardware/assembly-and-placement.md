@@ -284,7 +284,7 @@ Counting is the weak capability on a 1x1 radio. Run this before any shot that im
 8. Both lie still. Can two respiration peaks be resolved in the 0.1-0.5 Hz band, or do they overlap?
 
 **Step 8 decides whether "two people" appears anywhere in the video.** If the peaks overlap, do not claim a sensed count.
-Take the headcount from device association against the roster instead and let the radio answer which room and whether that presence is breathing. See `agents/CLAUDE.md` under `agents/occupancy`.
+Take the headcount from device association against the roster instead and let the radio answer which room and whether that presence is breathing. See `agents/CLAUDE.md` under `agents/people`.
 
 **Step 3 decides where the fall is staged.** Respiration is the shortest-range capability the demo depends on, so it sets the geometry.
 Motion will work almost anywhere and is not the constraint.
@@ -314,7 +314,7 @@ Everything in this list changes the channel in ways that have nothing to do with
 | Microwave ovens, in use | Broadband interference in the 2.4GHz band. Fatal to a 2.4GHz fallback capture, and a nuisance even at 5GHz. |
 | Cordless phone bases, baby monitors, Bluetooth-heavy clusters | Co-channel interference and uncontrolled traffic. |
 | Other people's Wi-Fi on the same channel | Contaminates the capture. This is why the channel is chosen after a scan. |
-| Fans, oscillating or ceiling | Periodic motion. A fan is exactly the kind of non-human periodic perturbation `agents/biometrics` is supposed to reject, so do not make its job harder for no reason during a take. |
+| Fans, oscillating or ceiling | Periodic motion. A fan is exactly the kind of non-human periodic perturbation `agents/people` is supposed to reject, so do not make its job harder for no reason during a take. |
 | Pets wandering through, unless they are in the script | Same reason. |
 | The Pi inside a metal case | Detunes the internal antenna. |
 

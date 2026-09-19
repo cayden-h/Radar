@@ -1,5 +1,5 @@
 {
-  "$note": "One instruction from agents/guidance.",
+  "$note": "One instruction from agents/caller.",
   "$generated_by": "tools/gen_schema.py",
   "example": {
     "seq": 1210,
@@ -18,8 +18,8 @@
         "defers_to_operator": false,
         "provenance": {
           "source": "agent-inference",
-          "producer": "agents/guidance",
-          "ansname": "guidance.hawkeye.invalid",
+          "producer": "agents/caller",
+          "ansname": "caller.hawkeye.invalid",
           "detail": null,
           "source_class": "derived",
           "simulated": false

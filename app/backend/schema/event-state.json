@@ -114,8 +114,8 @@
           "confidence": 0.88,
           "provenance": {
             "source": "demo-trigger",
-            "producer": "agents/environment",
-            "ansname": "environment.hawkeye.invalid",
+            "producer": "agents/master",
+            "ansname": "master.hawkeye.invalid",
             "detail": "no gas sensor was purchased; an MQ-7 on GPIO through an MCP3008 drops in behind this",
             "source_class": "simulated",
             "simulated": true
@@ -153,7 +153,7 @@
             },
             {
               "zone": "main_bath",
-              "name": "Main bath",
+              "name": "Bath 1",
               "polygon": [
                 [
                   1.9,
@@ -175,7 +175,7 @@
             },
             {
               "zone": "second_bath",
-              "name": "Second bath",
+              "name": "Bath 2",
               "polygon": [
                 [
                   3.7,
@@ -197,7 +197,7 @@
             },
             {
               "zone": "linen_closet",
-              "name": "Linen closet",
+              "name": "Linen",
               "polygon": [
                 [
                   5.8,

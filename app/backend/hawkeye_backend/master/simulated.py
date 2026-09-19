@@ -3,7 +3,7 @@
 Set HAWKEYE_MODE=simulated and this drives the demo in two halves, because the
 product works in two halves.
 
-First the detection: `agents/collapse` sees an adult go down in the main
+First the detection: `agents/people` sees an adult go down in the main
 bedroom, the presence goes to `confirmed_still`, `still_down_s` starts climbing
 and does not reset, and the CO reading rises. That is expressed purely in
 interior state. **No incident is created and nothing is dialled.** Hawk Eye
@@ -112,8 +112,8 @@ CSI = Provenance(
 )
 GAS = Provenance(
     source=Source.DEMO_TRIGGER,
-    producer="agents/environment",
-    ansname=ANSNAME["agents/environment"],
+    producer="agents/master",
+    ansname=ANSNAME["agents/master"],
     detail="no gas sensor was purchased; an MQ-7 on GPIO through an MCP3008 drops in behind this",
 )
 CALLER_VOICE = Provenance(
@@ -121,7 +121,7 @@ CALLER_VOICE = Provenance(
 )
 OPERATOR = Provenance(source=Source.OPERATOR_AUDIO, producer="911 PSAP operator")
 GUIDANCE = Provenance(
-    source=Source.AGENT_INFERENCE, producer="agents/guidance", ansname=ANSNAME["agents/guidance"]
+    source=Source.AGENT_INFERENCE, producer="agents/caller", ansname=ANSNAME["agents/caller"]
 )
 RESIDENT = Provenance(source=Source.USER_INPUT, producer="app/ios")
 
@@ -557,8 +557,8 @@ class SimulatedMasterClient:
     async def run_detection(self) -> None:
         """The detection, and nothing else. No incident. No call.
 
-        `agents/collapse` sees an adult go down in the main bedroom and
-        `agents/environment` sees carbon monoxide climb. Both surface here as
+        `agents/people` sees an adult go down in the main bedroom and
+        `agents/master` sees carbon monoxide climb. Both surface here as
         interior state on the 2 Hz tick: the presence moves to
         `confirmed_still`, `still_down_s` starts climbing and does not reset,
         and `environment.co_ppm` rises.
@@ -581,7 +581,7 @@ class SimulatedMasterClient:
 
     async def _run_detection(self) -> None:
         await self._sleep(1.0)
-        # agents/collapse debounces before it calls anything a collapse: a
+        # agents/people debounces before it calls anything a collapse: a
         # system that alarms when somebody flops onto a couch is worse than no
         # system. The fall is only an event once normal movement stays absent.
         self._apply_fall()
@@ -688,10 +688,10 @@ class SimulatedMasterClient:
             claims.append(
                 await self._verify(
                     incident_id,
-                    "agents/occupancy",
+                    "agents/people",
                     "The resident who raised this is in the second bedroom. The unexpected presence "
                     "is in the living room. They are in different rooms.",
-                    "occupancy.zones",
+                    "people.zones",
                     "resident second_bedroom, unexpected living_room",
                 )
             )
@@ -707,9 +707,9 @@ class SimulatedMasterClient:
             claims.append(
                 await self._verify(
                     incident_id,
-                    "agents/environment",
+                    "agents/master",
                     "Carbon monoxide is elevated at 142 parts per million.",
-                    "environment.co_ppm",
+                    "master.co_ppm",
                     "142 ppm (source: demo-trigger, simulated)",
                 )
             )
@@ -717,9 +717,9 @@ class SimulatedMasterClient:
             claims.append(
                 await self._verify(
                     incident_id,
-                    "agents/occupancy",
+                    "agents/people",
                     "Two confirmed occupants: one adult in the kitchen, one child in the second bedroom.",
-                    "occupancy.count",
+                    "people.count",
                     "2 confirmed",
                 )
             )
@@ -733,19 +733,19 @@ class SimulatedMasterClient:
         # The refusal beat runs on every path, because it is the submission.
         await self._verify(
             incident_id,
-            "agents/occupancy",
+            "agents/people",
             "A further occupant is unresponsive in the corridor outside the front door and is not breathing.",
-            "biometrics.respiration",
+            "people.respiration",
             "no respiration, building corridor",
-            ansname="occupancy.hawkeye-secure.invalid",
+            ansname="people.hawkeye-secure.invalid",
             profile=TrustProfile.UNTRUSTED,
             checks=[
                 VerificationCheck(
                     name="ans.resolve",
                     passed=False,
                     detail=(
-                        "occupancy.hawkeye-secure.invalid is not the ANSName registered for "
-                        "agents/occupancy. The registered name is occupancy.hawkeye.invalid."
+                        "people.hawkeye-secure.invalid is not the ANSName registered for "
+                        "agents/people. The registered name is people.hawkeye.invalid."
                     ),
                 ),
                 VerificationCheck(
@@ -817,7 +817,7 @@ class SimulatedMasterClient:
     async def _run_collapse_call(self, incident: Incident) -> None:
         """The case the whole system exists for. A human tapped Faint.
 
-        By this point `agents/collapse` has usually already surfaced the fall as
+        By this point `agents/people` has usually already surfaced the fall as
         interior state and the resident tapped knowing who was down and for how
         long. `_apply_fall` covers the other order, where the tap comes first.
         """
@@ -833,36 +833,36 @@ class SimulatedMasterClient:
         self._co_ppm = max(self._co_ppm, 94.0)
         collapse_claim = await self._verify(
             incident_id,
-            "agents/collapse",
+            "agents/people",
             "An adult occupant went down in the main bedroom and has not gotten up.",
-            "collapse.event",
+            "people.event",
             "fall, still_down_s=6",
             presence_id="p1",
         )
         await self._sleep(0.9)
         breathing_claim = await self._verify(
             incident_id,
-            "agents/biometrics",
+            "agents/people",
             "That occupant is breathing, shallowly, at 9 breaths per minute.",
-            "biometrics.respiration",
+            "people.respiration",
             "breathing, 9 bpm",
             presence_id="p1",
         )
         await self._sleep(0.9)
         occupancy_claim = await self._verify(
             incident_id,
-            "agents/occupancy",
+            "agents/people",
             "Two confirmed occupants in the building: one adult in the main bedroom, one child in the second bedroom.",
-            "occupancy.count",
+            "people.count",
             "2 confirmed, 1 unconfirmed perturbation",
         )
         await self._sleep(0.9)
         self._co_ppm = max(self._co_ppm, 186.0)
         co_claim = await self._verify(
             incident_id,
-            "agents/environment",
+            "agents/master",
             "Carbon monoxide is elevated and climbing: 186 parts per million.",
-            "environment.co_ppm",
+            "master.co_ppm",
             "186 ppm (source: demo-trigger, simulated)",
         )
 
@@ -872,19 +872,19 @@ class SimulatedMasterClient:
         #    that would escalate the response. This is the submission.
         impostor_claim = await self._verify(
             incident_id,
-            "agents/occupancy",
+            "agents/people",
             "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
-            "biometrics.respiration",
+            "people.respiration",
             "no respiration, building corridor",
-            ansname="occupancy.hawkeye-secure.invalid",
+            ansname="people.hawkeye-secure.invalid",
             profile=TrustProfile.UNTRUSTED,
             checks=[
                 VerificationCheck(
                     name="ans.resolve",
                     passed=False,
                     detail=(
-                        "occupancy.hawkeye-secure.invalid is not the ANSName registered for "
-                        "agents/occupancy. The registered name is occupancy.hawkeye.invalid."
+                        "people.hawkeye-secure.invalid is not the ANSName registered for "
+                        "agents/people. The registered name is people.hawkeye.invalid."
                     ),
                 ),
                 VerificationCheck(
@@ -998,9 +998,9 @@ class SimulatedMasterClient:
         await self._sleep(0.8)
         live_claim = await self._verify(
             incident_id,
-            "agents/biometrics",
+            "agents/people",
             "Live query: the child in the second bedroom is breathing at 26 breaths per minute, elevated.",
-            "biometrics.respiration",
+            "people.respiration",
             "breathing, 26 bpm",
             presence_id="p2",
             reason=(
@@ -1026,15 +1026,15 @@ class SimulatedMasterClient:
         await self._sleep(0.9)
         await self._verify(
             incident_id,
-            "agents/occupancy",
+            "agents/people",
             "Live query: is there an occupant in the corridor outside the front door?",
-            "occupancy.zone.building_corridor",
+            "people.zone.building_corridor",
             "no answer",
             checks=[
                 VerificationCheck(
                     name="ans.resolve",
                     passed=True,
-                    detail="occupancy.hawkeye.invalid resolved to the registered certificate.",
+                    detail="people.hawkeye.invalid resolved to the registered certificate.",
                 ),
                 VerificationCheck(
                     name="cert.version_binding",

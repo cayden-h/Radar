@@ -102,7 +102,7 @@ enum Config {
     /// them to be there.
     static let mockDetectionAfter: Duration? = .seconds(14)
 
-    /// `.faint` only. How long `agents/collapse` waits after a fall transient
+    /// `.faint` only. How long `agents/people` waits after a fall transient
     /// before calling it a collapse. A system that alarms when someone flops
     /// onto a couch is worse than no system.
     static let mockFaintDebounce: Duration = .seconds(6)

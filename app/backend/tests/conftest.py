@@ -28,6 +28,11 @@ MASTER = "ans://v1.0.0.master.hawkeye.example"
 TARGET = "https://master.hawkeye.example/v1/claims"
 INCIDENT = "inc-2026-09-19-0001"
 
+# The challenge master issued for the fan-out these fixtures answer. Server
+# supplied in production; a constant here so a test that is probing some other
+# property does not have to think about it.
+NONCE = "chal-0001"
+
 
 class Agent:
     """A sensing agent that can sign claims and proofs."""
@@ -62,7 +67,7 @@ class Agent:
             audience=MASTER,
             incident_id=INCIDENT,
             zone_scope="main_bedroom",
-            field="biometrics.respiration",
+            field="people.respiration",
             value="absent",
             severity_ceiling=Severity.DISPATCHABLE,
             proof_key_thumbprint=self.thumbprint,
@@ -76,12 +81,15 @@ class Agent:
         sig = self._key.sign(canonicalize(env.model_dump(mode="json")))
         return SignedClaim(envelope=env, signature=b64u_encode(sig))
 
-    def sign_proof(self, env: ClaimEnvelope, *, proof_id="prf-0001", target=TARGET, **overrides):
+    def sign_proof(
+        self, env: ClaimEnvelope, *, proof_id="prf-0001", target=TARGET, nonce=NONCE, **overrides
+    ):
         digest = b64u_encode(hashlib.sha256(canonicalize(env.model_dump(mode="json"))).digest())
         body = dict(
             method="POST",
             target=target,
             proof_id=proof_id,
+            nonce=nonce,
             issued_at=utc_now(),
             content_digest=digest,
             public_key=b64u_encode(self.public_key.public_bytes(Encoding.Raw, PublicFormat.Raw)),
@@ -102,7 +110,7 @@ class Agent:
 @pytest.fixture
 def sensor() -> Agent:
     """A FIDUCIARY sensing agent. The well-behaved one."""
-    return Agent("ans://v1.0.0.biometrics.hawkeye.example", TrustProfile.FIDUCIARY)
+    return Agent("ans://v1.0.0.people.hawkeye.example", TrustProfile.FIDUCIARY)
 
 
 @pytest.fixture

@@ -14,13 +14,13 @@
         "claim": {
           "claim_id": "clm-001",
           "statement": "An adult occupant went down in the main bedroom and has not gotten up.",
-          "field": "collapse.event",
+          "field": "people.event",
           "value": "fall, still_down_s=6",
           "presence_id": "p1"
         },
         "agent": {
-          "name": "agents/collapse",
-          "ansname": "collapse.hawkeye.invalid",
+          "name": "agents/people",
+          "ansname": "people.hawkeye.invalid",
           "certificate_version": "v1.4.2+sha256:9f1c...a30b",
           "trust_index": {
             "integrity": 0.94,
@@ -42,7 +42,7 @@
           {
             "name": "ans.resolve",
             "passed": true,
-            "detail": "collapse.hawkeye.invalid resolved to the registered certificate."
+            "detail": "people.hawkeye.invalid resolved to the registered certificate."
           },
           {
             "name": "cert.version_binding",

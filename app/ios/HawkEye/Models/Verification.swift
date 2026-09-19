@@ -75,7 +75,7 @@ struct TrustIndexScore: Codable, Sendable, Hashable {
 
 /// The agent that made the claim.
 struct SourceAgent: Codable, Sendable, Hashable {
-    /// Agent directory name, e.g. `agents/biometrics`.
+    /// Agent directory name, e.g. `agents/people`.
     var name: String
     /// The ANSName the claim was presented under.
     var ansName: String

@@ -222,7 +222,7 @@ Full example: [`schema/hub.json`](schema/hub.json). Abridged:
   "agents": [
     {
       "name": "agents/people",
-      "ansname": "collapse.hawkeye.invalid",
+      "ansname": "people.hawkeye.invalid",
       "tier": 1,
       "reachability": "reachable",
       "latency_ms": 18.4
@@ -360,7 +360,7 @@ This is the part the project is judged on, so it is a first-class API concept ra
     },
     "agent": {
       "name": "agents/people",
-      "ansname": "occupancy.hawkeye-secure.invalid",
+      "ansname": "people.hawkeye-secure.invalid",
       "certificate_version": "v1.4.2+sha256:4d77...0e91",
       "trust_index": {
         "integrity": 0.0,

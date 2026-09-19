@@ -400,4 +400,4 @@ The venue demo runs on replayed CSI, so this file is not a backup, it is the pri
 
 - It does not see through walls "like a camera." It resolves coarse, room-level zones, not coordinates.
 - It does not identify people. Presence IDs are stable within a session only.
-- It does not sense gas. Not CO, not oxygen, not smoke as a chemical. That is `agents/environment`, it reads a separate sensor interface, and on this build that reading is simulated and labeled `demo-trigger`.
+- It does not sense gas. Not CO, not oxygen, not smoke as a chemical. That is the air-quality reading `agents/master` takes, it comes through a separate sensor interface, and on this build that reading is simulated and labeled `demo-trigger`.

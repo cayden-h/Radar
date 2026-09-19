@@ -59,7 +59,7 @@
             "type": "string"
           },
           "field": {
-            "description": "Which part of interior state it asserts, e.g. 'biometrics.respiration'.",
+            "description": "Which part of interior state it asserts, e.g. 'people.respiration'.",
             "title": "Field",
             "type": "string"
           },
@@ -507,7 +507,7 @@
         "type": "string"
       },
       "Instruction": {
-        "description": "One thing agents/guidance is telling the resident to do.",
+        "description": "One thing agents/caller is telling the resident to do.",
         "properties": {
           "instruction_id": {
             "title": "Instruction Id",
@@ -567,7 +567,7 @@
         "type": "object"
       },
       "InstructionEvent": {
-        "description": "One instruction from agents/guidance.",
+        "description": "One instruction from agents/caller.",
         "properties": {
           "kind": {
             "const": "instruction",
@@ -632,7 +632,7 @@
               }
             ],
             "default": null,
-            "description": "Null when agents/environment has not reported."
+            "description": "Null when agents/master has not reported."
           },
           "floorplan": {
             "$ref": "#/$defs/Floorplan"
@@ -659,6 +659,113 @@
         ],
         "title": "InteriorState",
         "type": "object"
+      },
+      "Notice": {
+        "description": "One thing the resident should know about.",
+        "properties": {
+          "notice_id": {
+            "title": "Notice Id",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/$defs/NoticeSeverity"
+          },
+          "title": {
+            "description": "Short, factual, e.g. 'Unexpected person'.",
+            "title": "Title",
+            "type": "string"
+          },
+          "body": {
+            "description": "One line, composed by the producer from the zone and the floorplan's room name. Never the street address: the dispatch address is bound at registration and does not travel in a claim or in a notice. Enforced by construction in hawkeye_backend/notices/detector.py (Task 2), and asserted in the Twilio sink's tests (Task 3), rather than by a validator here - a heuristic content scan would fail on real room names.",
+            "title": "Body",
+            "type": "string"
+          },
+          "zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Floorplan zone key, when there is one.",
+            "title": "Zone"
+          },
+          "room": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The floorplan's display name for `zone`, e.g. 'Living room'. Resolved once by the producer so no consumer has to re-derive it or parse it back out of `body`.",
+            "title": "Room"
+          },
+          "presence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Session-scoped only. We do not do person re-identification.",
+            "title": "Presence Id"
+          },
+          "raised_at": {
+            "format": "date-time",
+            "title": "Raised At",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/$defs/Provenance",
+            "description": "Required. See the honesty rule."
+          }
+        },
+        "required": [
+          "notice_id",
+          "severity",
+          "title",
+          "body",
+          "provenance"
+        ],
+        "title": "Notice",
+        "type": "object"
+      },
+      "NoticeEvent": {
+        "description": "A notice was raised: something the resident should know about.\n\nDoes not create an incident and does not dial. `app/CLAUDE.md`: \"An alert is\ninformation a person acts on. It is not a call.\"",
+        "properties": {
+          "kind": {
+            "const": "notice",
+            "default": "notice",
+            "title": "Kind",
+            "type": "string"
+          },
+          "notice": {
+            "$ref": "#/$defs/Notice"
+          }
+        },
+        "required": [
+          "notice"
+        ],
+        "title": "NoticeEvent",
+        "type": "object"
+      },
+      "NoticeSeverity": {
+        "description": "How loudly the app should render it. Never a dispatch decision.",
+        "enum": [
+          "info",
+          "attention"
+        ],
+        "title": "NoticeSeverity",
+        "type": "string"
       },
       "Position": {
         "description": "Coarse position inside the floorplan.\n\n`zone` is the honest answer and is what the agents reason over. `x`/`y` exist\nonly so the 3D view has somewhere to draw; they are a zone centroid with\njitter, not a localization claim. Do not promise coordinates.",
@@ -762,7 +869,7 @@
               }
             ],
             "default": null,
-            "description": "Seconds down and not moving, from agents/collapse. The clinical variable: a long lie is over an hour, and half of those die within six months absent any injury.",
+            "description": "Seconds down and not moving, from agents/people. The clinical variable: a long lie is over an hour, and half of those die within six months absent any injury.",
             "title": "Still Down S"
           },
           "provenance": {
@@ -812,7 +919,7 @@
             "description": "What physically produced this reading. Required."
           },
           "producer": {
-            "description": "Which agent or component emitted it, e.g. 'agents/environment'.",
+            "description": "Which agent or component emitted it, e.g. 'agents/master'.",
             "title": "Producer",
             "type": "string"
           },
@@ -864,7 +971,7 @@
         "type": "object"
       },
       "RaisedBy": {
-        "description": "Who raised it.\n\nUSER is the only path to a call. Hawk Eye never dials 911 on its own;\nsettled 2026-09-19. A human tap is what releases `agents/caller` to dial,\nand `agents/collapse` and `agents/environment` surface their detections as\ninterior state the resident acts on rather than as a call.\n\nSYSTEM is kept for wire compatibility and for records raised before that\ndecision. It must never reach the dialing path: `assert_human_released` in\n`master/base.py` enforces that structurally rather than by convention.",
+        "description": "Who raised it.\n\nUSER is the only path to a call. Hawk Eye never dials 911 on its own;\nsettled 2026-09-19. A human tap is what releases `agents/caller` to dial,\nand `agents/people` and `agents/master` surface their detections as\ninterior state the resident acts on rather than as a call.\n\nSYSTEM is kept for wire compatibility and for records raised before that\ndecision. It must never reach the dialing path: `assert_human_released` in\n`master/base.py` enforces that structurally rather than by convention.",
         "enum": [
           "user",
           "system"
@@ -939,7 +1046,7 @@
         "description": "The agent that made the claim.",
         "properties": {
           "name": {
-            "description": "Agent directory name, e.g. 'agents/biometrics'.",
+            "description": "Agent directory name, e.g. 'agents/people'.",
             "title": "Name",
             "type": "string"
           },
@@ -1393,6 +1500,7 @@
             "hello": "#/$defs/HelloEvent",
             "incident": "#/$defs/IncidentEvent",
             "instruction": "#/$defs/InstructionEvent",
+            "notice": "#/$defs/NoticeEvent",
             "state": "#/$defs/StateEvent",
             "transcript": "#/$defs/TranscriptEvent",
             "verification": "#/$defs/VerificationEvent"
@@ -1417,6 +1525,9 @@
           },
           {
             "$ref": "#/$defs/ContextEvent"
+          },
+          {
+            "$ref": "#/$defs/NoticeEvent"
           },
           {
             "$ref": "#/$defs/HelloEvent"

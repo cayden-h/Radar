@@ -4,12 +4,14 @@ Hawk Eye. This file provides guidance to Claude Code (claude.ai/code) when worki
 
 ## Status
 
-The idea is locked as of 2026-09-18; the agent roster and demo format were settled 2026-09-19.
+The idea is locked as of 2026-09-18; the demo format was settled 2026-09-19.
+**The agent roster was cut from nine to five on 2026-09-19** and the five are built. See the architecture section and `agents/CLAUDE.md`.
 
 Written as of 2026-09-19:
 
 - **`app/ios/`** - the full iOS app. Generate with `cd app/ios && xcodegen generate`. Every file passes `swiftc -parse -swift-version 6`.
   Xcode 27.0 is installed as of 2026-09-19, so the app can now be built and run on the simulator and on a device; see the environment section below for the one-time `xcode-select` step.
+- **`agents/`** - all five agents, with their domain logic, their identities, their two cards each, **the A2A transport between them**, and a 74-test suite. `cd agents && python -m pytest -q`. Run the mesh with `python -m agents people --port 8101` and `HAWKEYE_PEERS=people=http://127.0.0.1:8101 python -m agents master --port 8100`.
 - **`app/backend/`** - the app-facing edge service.
 - **`docs/hardware/`** - step-by-step guides for every hardware item and a bring-up checklist.
 - **`docs/research/`**, `docs/fraud-13.md`, `docs/geo.md`, `docs/threat-landscape.md` - the three assigned research deliverables, plus the incident data.
@@ -17,10 +19,11 @@ Written as of 2026-09-19:
 Still outstanding, in rough order of risk:
 
 1. **The CSI capture path.** No hardware has been brought up yet. This is the largest single risk in the project. `docs/hardware/bring-up-checklist.md` is the path; `sensor/CLAUDE.md` has the fallback ladder and the point at which to stop.
-2. **The nine agents.** Contracts are written in `agents/CLAUDE.md`; the code is not.
-3. **ANS registration and hosting.** The deployment is currently broken, and the agents must be internet-reachable rather than on localhost. That is a hard requirement of the primary track, not a nicety.
-4. **Agent cards are not published.** The signing, drift and address-commitment code exists and is tested (`app/backend/hawkeye_backend/verification/card.py`); what is missing is real cards served at real hostnames. This is the surface the judge's own verifier inspects. `ans/CARD.md` is the spec and checklist.
-5. ~~The thirteen probe shapes are not implemented.~~ **Done 2026-09-19.** All thirteen, plus both bonus structural checks, implemented and passing in `app/backend/tests/` against `hawkeye_backend/verification/`. Results table in `docs/fraud-13.md`. Still to move from the hub into `agents/master` once master exists.
+2. ~~**The nine agents.**~~ ~~**The wire between the five agents.**~~ **Done 2026-09-19.** The roster was cut from nine to five (merge rationale in `agents/CLAUDE.md`), all five are written and tested, and the transport between them is built: **pull-only A2A JSON-RPC with a server-issued challenge**, claims verified against each producer's published trust card before anything downstream sees a field. Proved end to end over real HTTP in `agents/tests/test_wire.py`, refusals included: wrong key, unregistered agent, lookalike ANSName, replayed proof.
+   The design decisions and what they cost are in `agents/CLAUDE.md` under "How they talk to each other". Two worth carrying into the pitch: **pull rather than push, because it lets master control the nonce** so a claim binds to a question we asked rather than a moment the producer chose; and **mTLS is the second layer, not the first**, because it proves the connection where JWS proves the claim, and our threat model is a compromised agent whose connection is perfectly valid.
+3. **ANS registration and hosting.** The deployment is currently broken, and the agents must be internet-reachable rather than on localhost. That is a hard requirement of the primary track, not a nicety. **`agents/TODO.md` is the full work queue** for everything agent-side, in dependency order.
+4. **Agent cards are not published.** Both cards now build per agent as byte-stable artifacts (`cd agents && python scripts/build_cards.py`), every agent serves them, and `--check` fails on drift. What is missing is a registered domain, real certificates, a stapled transparency receipt, and the cards served at real hostnames. This is the surface the judge's own verifier inspects. `ans/CARD.md` is the spec and checklist.
+5. ~~The thirteen probe shapes are not implemented.~~ **Done 2026-09-19.** All thirteen, plus both bonus structural checks, implemented and passing in `app/backend/tests/` against `hawkeye_backend/verification/`. Results table in `docs/fraud-13.md`. `agents/master` now imports that package rather than reimplementing it; the remaining move is physical, and it is an import change.
 
 Re-run `/init` once the agents land so this file can describe actual build and test commands for them.
 
@@ -29,7 +32,7 @@ Re-run `/init` once the agents land so this file can describe actual build and t
 **Hawk Eye.** A home that speaks to 911 for you, and proves to the other agents involved that it is not lying.
 
 A Raspberry Pi connected to the home WiFi router reads Channel State Information and maps where people are inside the house, through walls and in darkness, with no camera and no microphone.
-Nine always-running agents interpret that signal and act on it.
+Five always-running agents interpret that signal and act on it.
 When a person decides to call, one of them places the phone call to a 911 operator and holds a conversation in plain English.
 Another talks the resident through what to do while it happens.
 
@@ -110,36 +113,45 @@ It is also the right closing line: the moment a dispatch center can resolve an A
 ## Architecture
 
 ```
-        router ──► sensor/ (Pi 4B + nexmon_csi) ──► CSI      gas (simulated)
-                                                    │               │
-        ┌──────────┬──────────┬────────────┬────────┴───┬───────────┘
-        ▼          ▼          ▼            ▼            ▼
-   occupancy   intruder  biometrics    collapse    environment
-   count +     unexpected heart rate,  faint,      CO, smoke
-   location    presence   breathing    fall        (not CSI)
-        └──────────┴──────────┴─────┬──────┴────────────┘
-                                    │ ANS
-                                    ▼
-                            master (coordinator)
-                     classifies Burglary / Fire / Faint
-                       │            │            │
-                   ANS │        ANS │        ANS │
-                       ▼            ▼            ▼
-                   caller       guidance      replay
-                       │            │            │
-        ElevenLabs     │            │ iOS app    │ sealed log
-           voice       ▼            ▼            ▼
-             911 operator       the user    post-incident review
+        router ──► sensor/ (Pi 4B + nexmon_csi) ──► CSI       gas (simulated)
+                                                     │                │
+                                                     ▼                │
+                                                  people              │
+                                      count, location, personhood,    │
+                                      respiration, movement, falls    │
+                                                     │                │
+                                                 ANS │                │
+                                                     ▼                │
+       roster + device association ──────────►   intruder             │
+                                            which body no device      │
+                                              accounts for            │
+                                                     │                │
+                                                 ANS │                │
+                                                     ▼                ▼
+                                             master (coordinator)  ◄───
+                                       verifies every claim, discards
+                                       what it cannot, classifies
+                                       Burglary / Fire / Faint
+                                         │                    │
+                                     ANS │                ANS │
+                                         ▼                    ▼
+                                      caller               replay
+                                       │    │                 │
+                          ElevenLabs   │    │ iOS app         │ sealed log
+                             voice     ▼    ▼                 ▼
+                                911 operator  the user   post-incident review
 ```
 
 **The boundary is the point.**
 Human to agent is plain English, both directions, at both ends. There is no ANS there and there cannot be, because the far ends are people.
 Agent to agent is ANS, every hop.
 
-`caller` and `guidance` are the translators. Nothing crosses a human boundary that was not verified first.
+`caller` is the translator, in both directions and to both audiences. Nothing crosses a human boundary that was not verified first.
 
-Nine agents rather than one, for **context separation and speed, not redundancy.** A judge will ask; that is the answer.
-All nine run continuously, which is what lets the system notice things nobody asked it to look for.
+Five agents rather than one, for **context separation and speed, not redundancy.** A judge will ask; that is the answer.
+All five run continuously, which is what lets the system notice things nobody asked it to look for.
+
+**It was nine until 2026-09-19.** The merge is worth being able to explain, because "we cut from nine to five" sounds like a retreat and is the opposite: an agent is a context boundary, not a task, and three components that read the same CSI window, share the same baseline, and always run in the same order are one agent with three steps. `biometrics`, `occupancy` and `collapse` became `people`; `environment` became an input to `master`; `guidance` became the resident-facing half of `caller`. **The hops that carry a claim from something that senses to something that decides to something that speaks are untouched**, which is the line the ANS story actually runs along. Full table and the two costs it carried in `agents/CLAUDE.md`.
 
 `master` is the trust boundary and `caller` is the only agent that acts on the outside world.
 Between them they are the last thing standing between a compromised sensor and an armed response to someone's address.
@@ -148,16 +160,17 @@ The conversation is two-way and live.
 An operator who asks "is the child still breathing?" causes a fan-out of ANS-verified queries to the sensing agents and gets an answer seconds later, in English.
 That loop is where ANS is visibly doing work during the demo rather than in a setup phase nobody watches.
 
-Nine agents, tiered by priority in `agents/CLAUDE.md`. Per-person agents are roadmap, not this weekend.
+Five agents, tiered by priority in `agents/CLAUDE.md`. Per-person agents are roadmap, not this weekend.
 
-Note that `environment` is deliberately not a CSI consumer.
+Note that the gas reading is deliberately not derived from CSI.
 Two independent sensing modalities agreeing is real corroboration; two views of one CSI stream agreeing is not.
+That is also why `intruder` was not merged into `people`: it reads `people` plus the network, which is different evidence with different failure modes, and one corroborating the other is worth something.
 
 See `agents/CLAUDE.md` for the agent contracts and `sensor/CLAUDE.md` for the capture path.
 
 ### The human-facing surface
 
-The app never talks to the nine agents directly.
+The app never talks to the five agents directly.
 It talks to one app-facing edge service, which talks to `master`.
 That keeps the ANS-verified agent mesh on one side of a line and the human surface on the other, which is the same line the whole architecture is built on.
 
@@ -315,9 +328,9 @@ Register through GoDaddy Registry and the MLH "Best Domain Name" prize comes alo
 Read it before wiring anything real in.
 
 Some capabilities are demonstrated rather than measured.
-`agents/environment` is the clear case: no gas sensor exists, so the reading is simulated.
+The gas reading is the clear case: no gas sensor exists, so `agents/master` reads a simulated one. It was `agents/environment` until 2026-09-19.
 **The floor plan is the second case:** the system does not map walls and cannot, because walls are the static baseline it subtracts to see people. The room model is drawn once and room labels come from a one-time enrollment walk. See `sensor/CLAUDE.md`.
-**The headcount is the third case:** a 1x1 radio resolves presence, not an exact number of people. Two people within about a metre merge into one. The count on screen and on the call comes from device association against the known roster; the radio answers which room and whether that presence is breathing. Limits under `agents/occupancy`.
+**The headcount is the third case:** a 1x1 radio resolves presence, not an exact number of people. Two people within about a metre merge into one. The count on screen and on the call comes from device association against the known roster; the radio answers which room and whether that presence is breathing. Limits under `agents/people`.
 
 The rule for all of them:
 

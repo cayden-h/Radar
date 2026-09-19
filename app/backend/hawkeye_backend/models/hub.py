@@ -25,7 +25,7 @@ class AgentReachability(BaseModel):
     because an agent that was trusted ninety seconds ago may not be trusted now.
     """
 
-    name: str = Field(description="Agent directory name, e.g. 'agents/collapse'.")
+    name: str = Field(description="Agent directory name, e.g. 'agents/people'.")
     ansname: str
     tier: int = Field(ge=1, le=3, description="Build priority tier from agents/CLAUDE.md.")
     reachability: Reachability

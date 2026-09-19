@@ -34,7 +34,7 @@ Appended 2026-09-19, after the slide copy:
 
 | File | What it holds |
 |---|---|
-| `architecture-diagrams.md` | The five architecture diagrams. Source of truth; change here, then push to Notion. |
+| `architecture-diagrams.md` | The five architecture diagrams. Source of truth; change here, then push to Notion. **Updated 2026-09-19 for the five-agent roster; the copies in Notion are stale until pushed.** |
 | `trust-layer-explained.md` | The trust layer, four diagrams plus the prose that makes them land. |
 
 **Flowchart 2 was wrong until 2026-09-19** and is worth knowing about, because the same error is easy to reintroduce in the deck and the video. It showed `master` releasing `caller` to dial with no human in between, which contradicts the settled decision and the shipped `assert_human_released()` guard. Detection is autonomous; the call is not.
@@ -43,6 +43,7 @@ Appended 2026-09-19, after the slide copy:
 `research/CLAUDE.md` is the index. The three findings that carry the pitch are at the top of it.
 
 **Open action item: write up the full agent list and responsibilities.** `agents/CLAUDE.md` is the working version; `docs/` gets the reader-facing one for the submission.
+**The roster changed on 2026-09-19**, from nine agents to five, and anything written before that date describes the old one. The merge and its rationale are in `agents/CLAUDE.md` under "Why five and not nine"; the short version is that `biometrics`, `occupancy` and `collapse` became `people`, `environment` became an input to `master`, and `guidance` became the resident-facing half of `caller`. **Pushing the corrected Mermaid diagrams to Notion is part of this action item**, because the copies there still show nine.
 
 This folder is not filler.
 The track owner named three research items as action items in his own briefing, and the team that shows up Sunday having actually done them is a different team from the one that shows up with only code.
@@ -176,12 +177,12 @@ Draft Saturday. Do not write it Sunday morning.
 
 Must include:
 - The demo video. It is the submission's centerpiece, not an attachment.
-- The agent roster and what each one is responsible for.
+- The agent roster and what each one is responsible for. Five agents, as of 2026-09-19.
 - A clear statement of what is ours versus what came from RuView (MIT). See the root file's upstream hygiene note.
 - The hero loop from `media/`.
 - **The three assigned research deliverables**, linked: `fraud-13.md`, `geo.md`, `threat-landscape.md`. The track owner named them as action items in his own briefing. A submission that links them is a different submission from one that only links code.
 - Honest scoping, stated rather than buried. See the honesty rule in the root `CLAUDE.md`. Name each of these explicitly:
-  - `agents/environment` reads a simulated gas sensor. No hardware was bought. The interface is real and a sensor drops in behind it.
+  - `agents/master` reads a simulated gas sensor. No hardware was bought. The interface is real and a sensor drops in behind it.
   - We do not do person re-identification. RuView flags it experimental and data-gated.
   - We do not detect fire. We detect who is inside and whether they are breathing.
   - We do not identify specific people. `agents/intruder` infers that a presence is unexpected from context, not from recognizing anyone. Be ready for "how do you tell a burglar from a roommate."

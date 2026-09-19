@@ -98,7 +98,7 @@ class Provenance(BaseModel):
 
     source: Source = Field(description="What physically produced this reading. Required.")
     producer: str = Field(
-        description="Which agent or component emitted it, e.g. 'agents/environment'."
+        description="Which agent or component emitted it, e.g. 'agents/master'."
     )
     ansname: str | None = Field(
         default=None,

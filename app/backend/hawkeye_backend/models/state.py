@@ -122,7 +122,7 @@ class Presence(BaseModel):
     still_down_s: float | None = Field(
         default=None,
         description=(
-            "Seconds down and not moving, from agents/collapse. The clinical variable: a long "
+            "Seconds down and not moving, from agents/people. The clinical variable: a long "
             "lie is over an hour, and half of those die within six months absent any injury."
         ),
     )
@@ -185,7 +185,7 @@ class InteriorState(BaseModel):
     calibration: Calibration
     presences: list[Presence]
     environment: EnvironmentReading | None = Field(
-        default=None, description="Null when agents/environment has not reported."
+        default=None, description="Null when agents/master has not reported."
     )
     floorplan: Floorplan
     active_incident_id: str | None = None

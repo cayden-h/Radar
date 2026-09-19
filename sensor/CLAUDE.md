@@ -16,7 +16,7 @@ If a value here and a value there disagree, this file wins and the guide is the 
 
 Turn WiFi Channel State Information from the home router into a small, stable structured answer to four questions, one per consuming CSI agent:
 
-- **Occupancy.** Whether presences exist and roughly where. **Not an exact headcount**: a 1x1 radio has no spatial diversity, two people within about a metre merge into one, and a still person beside a moving one is near-invisible. Report "at least N" with a confidence; take the actual headcount from device association against the roster instead. Limits and the reasoning are under `agents/occupancy`.
+- **Occupancy.** Whether presences exist and roughly where. **Not an exact headcount**: a 1x1 radio has no spatial diversity, two people within about a metre merge into one, and a still person beside a moving one is near-invisible. Report "at least N" with a confidence; take the actual headcount from device association against the roster instead. Limits and the reasoning are under `agents/people`.
 - **Body type.** Is each presence an adult, a child, or a pet.
 - **Biometrics.** Is each presence breathing, and at what rate.
 - **Collapse.** Did someone go down, and are they still down.
@@ -240,7 +240,7 @@ One field group per consuming agent, so a failure in one sensing capability does
 }
 ```
 
-`presence_id` is the join key across the CSI groups. `occupancy` and `classification` are consumed by `agents/occupancy` and `agents/intruder` together.
+`presence_id` is the join key across the CSI groups. `occupancy` and `classification` are consumed by `agents/people` and `agents/intruder` together.
 `environment` has no presence, because a gas reading is a property of the building.
 Every consumer must tolerate a missing group, an empty array, and a low confidence.
 
@@ -281,13 +281,13 @@ Not oxygen, not carbon monoxide, not smoke as a chemical.
 There is a genuine oxygen absorption band near 60 GHz, which is why 802.11ad operates there, but the BCM43455c0 is a 2.4/5 GHz radio and that physics is simply not available to us.
 Do not build an "oxygen sensing" claim on this hardware.
 
-This is why `agents/environment` reads a separate physical sensor.
+This is why `agents/master` reads a separate physical sensor.
 
 ## Air quality: simulated, and labeled as such
 
 Carbon monoxide, not oxygen. See the modality limits above for why CSI cannot do this at all.
 
-**No gas sensor is being purchased.** `agents/environment` ships with a simulated reading.
+**No gas sensor is being purchased.** `agents/master` ships with a simulated reading.
 
 Build the interface as though a sensor were behind it:
 
@@ -306,7 +306,7 @@ the agent, its ANS identity, and the contract are real; the sensor is not; swapp
 
 We are not building a validated fire detector in 36 hours and should not claim to.
 
-Take fire as an external input, from `agents/environment` or a demo trigger, and let CSI answer the question that actually matters: **who is still inside, where, and are they breathing.**
+Take fire as an external input, from the gas sensor `agents/master` reads or a demo trigger, and let CSI answer the question that actually matters: **who is still inside, where, and are they breathing.**
 
 Firefighters already know the house is on fire when they are dispatched.
 Nobody knows how many people are in the back bedroom.
@@ -358,8 +358,8 @@ Do not let it get tuned at 4am by whoever is nearest the keyboard. Write down th
 | Counting people | **Yes.** |
 | Room-level localization | **Yes.** |
 
-So `agents/collapse` and `agents/biometrics`, the two highest-value agents, are close to calibration-free.
-`agents/occupancy` is the one that genuinely needs the baseline.
+So the collapse and respiration readers inside `agents/people` are close to calibration-free.
+Its presence reader is the one part of the system that genuinely needs the baseline.
 
 This is also why the venue demo is movement-only: motion sensing is environment-independent, which is the whole reason it survives a crowded hall.
 
@@ -420,7 +420,7 @@ Three properties make this load-bearing rather than a nice extra:
 Chest wall displacement from breathing is roughly 5-12mm. From a heartbeat it is a few tenths of a millimeter: more than an order of magnitude smaller, usually buried under respiration harmonics, and generally requiring the subject to be close and still.
 RuView lists 40-120 BPM for heart rate. Treat it as a stretch goal and as a good number to say on the 911 call. Respiration at 0.1-0.5 Hz carries the personhood decision.
 
-Consequence for the agent layer: **`agents/biometrics` is the arbiter of what counts as a person**, not merely another reporting channel.
+Consequence for the agent layer: **the respiration reader in `agents/people` is the arbiter of what counts as a person**, not merely another reporting channel.
 A presence with a respiration signature is human. One without is furniture, noise, or a pet.
 
 Clinical thresholds, the long-lie definition, and the statistics behind all of this are in `docs/research/agent-briefs.md`.

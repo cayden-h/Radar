@@ -26,10 +26,10 @@ logger = logging.getLogger(__name__)
 
 
 class Agent(ABC):
-    """One of the nine.
+    """One of the five.
 
     Subclasses implement `tick`. Everything else - the loop, the latest
-    observation, the health reporting - is here so that nine agents behave
+    observation, the health reporting - is here so that five agents behave
     identically in the ways that are not their job.
     """
 
@@ -124,7 +124,17 @@ class Agent(ABC):
 
     async def _loop(self) -> None:
         while not self._stopping.is_set():
-            self.run_once()
+            # `tick` is synchronous by design - it takes inputs and returns an
+            # observation, so every agent is testable by calling one function
+            # with a fixture, with no event loop involved.
+            #
+            # But master's tick makes blocking HTTP calls to its peers, and
+            # running that on the event loop would stall this agent's own
+            # server for the duration: two peers at a three second timeout is
+            # six seconds during which the agent answers nothing, including the
+            # fan-out it is itself being asked for. So the tick runs in a
+            # thread and the loop stays free.
+            await asyncio.to_thread(self.run_once)
             await asyncio.sleep(self.interval_s)
 
     # --------------------------------------------------------------- reporting

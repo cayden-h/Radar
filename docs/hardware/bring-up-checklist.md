@@ -1,6 +1,6 @@
 # Bring-up checklist
 
-One linear path from unboxed hardware to "CSI frames are flowing and `agents/occupancy` sees a person."
+One linear path from unboxed hardware to "CSI frames are flowing and `agents/people` sees a person."
 
 Work top to bottom.
 Do not skip ahead.
@@ -400,7 +400,7 @@ Do this the moment Phase 6 passes. Not after one more thing.
 ## Phase 8: the agent sees a person
 
 - [ ] The `sensor/` layer is producing the output contract in `sensor/CLAUDE.md`, with a populated `occupancy` array.
-- [ ] `agents/occupancy` is consuming it and reporting at least one presence with a `zone` and a `confidence`.
+- [ ] `agents/people` is consuming it and reporting at least one presence with a `zone` and a `confidence`.
 - [ ] `calibration.healthy` is `true` and `baseline_age_s` is climbing sensibly.
 
   Remember that `occupancy` is the one tier 1 agent that genuinely needs a baseline, and the baseline is a rolling percentile with deliberately slow adaptation, not a calibration ritual.
@@ -420,7 +420,7 @@ All of these are true at the same time:
 4. Payloads are non-zero and visibly change when a person moves between the router and the Pi.
 5. A `dd` image of the working microSD exists on at least two machines.
 6. A recorded CSI session pcap exists, covering a representative sequence, stored with the image.
-7. `agents/occupancy` reports a presence when someone is in the space and stops reporting one when they leave.
+7. `agents/people` reports a presence when someone is in the space and stops reporting one when they leave.
 8. The channel, kernel version, router MAC, base64 blob, and image filename are all written down in these files rather than in someone's scrollback.
 
 Item 5 and item 6 are the ones people skip and the ones that save the weekend.

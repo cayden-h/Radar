@@ -23,7 +23,7 @@ Everything here is already owned.
 - The MacBook, used as the traffic generator and as the dev machine
 
 There is no gas sensor.
-`agents/environment` ships a simulated reading labeled `demo-trigger` in the data itself.
+`agents/master` reads a simulated gas sensor, labeled `demo-trigger` in the data itself.
 See `sensor/CLAUDE.md`.
 
 ## What each item is for
@@ -62,6 +62,7 @@ Use that one while you are actually doing the work, and the per-item guides when
 - [macbook-traffic-generator.md](macbook-traffic-generator.md) - why the ping matters and how to run and verify it
 - [assembly-and-placement.md](assembly-and-placement.md) - wiring, geometry, mounting, and power
 - [bring-up-checklist.md](bring-up-checklist.md) - one linear checklist from unboxed to CSI flowing
+- [no-uplink-setup.md](no-uplink-setup.md) - what to do when there is no ethernet wall jack, and the demo scope decisions that follow
 
 ## A physics note that belongs on every page
 

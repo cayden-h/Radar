@@ -1,16 +1,17 @@
 """The HTTP surface every agent serves, and the process that runs it.
 
-Identical across the nine, because none of what it does is an agent's job. What
+Identical across the five, because none of what it does is an agent's job. What
 differs between agents is `tick`, and that is the only thing that should differ.
 
 **The hard requirement this file exists for:** the agents must be hosted on the
 internet and reachable. The track owner said it directly; localhost does not
-count. Host them before they are finished - nine empty agents reachable tonight
-beats nine complete agents on a laptop Sunday morning, because the deploy path
+count. Host them before they are finished - five empty agents reachable tonight
+beats five complete agents on a laptop Sunday morning, because the deploy path
 is where the hours disappear.
 
 Surfaces:
 
+    /a2a                              the A2A JSON-RPC endpoint. Signed claims
     /.well-known/agent-card.json      the A2A card, bytes from disk
     /.well-known/agent.json           the same bytes, the alias the spec allows
     /.well-known/ans/trust-card.json  the ANS card, bytes from disk
@@ -22,16 +23,21 @@ fingerprint. Not re-serialized, not re-assembled, not templated. `ans/CARD.md`
 measure 2, and the reason is that `card_drift_watch` cannot tell a card we
 changed from a card someone else changed.
 
-`/v1/observation` is a read-only convenience for the app's verification feed and
-for a judge poking at a running agent. **It is not the inter-agent channel.**
-When agents start reading each other, they do it over a verified transport and
-the thing they exchange is a signed claim, not this. See `agents.core.ports`.
+`/a2a` is the inter-agent channel: `master` issues a challenge, the agent signs
+its current observation against it, and every claim is verified before anything
+downstream sees a field. `/v1/observation` is the unsigned read-only view of the
+same state, for the app's feed and for a judge poking at a running agent. **They
+are not interchangeable**, and an agent serving `/a2a` without a signer serves
+nothing there rather than serving claims nobody signed.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
@@ -39,6 +45,9 @@ from fastapi.responses import JSONResponse
 from agents.core.base import Agent
 from agents.core.cards import A2A_CARD_ALIAS, A2A_CARD_PATH, TRUST_CARD_PATH
 from agents.core.identity import AgentIdentity
+
+if TYPE_CHECKING:  # pragma: no cover
+    from agents.core.signing import ClaimSigner
 
 logger = logging.getLogger(__name__)
 
@@ -94,27 +103,48 @@ class _CardBytes:
         )
 
 
-def build_app(agent: Agent, *, card_dir: Path | None = None) -> FastAPI:
-    """Wrap an agent in the surface all nine share."""
+def build_app(
+    agent: Agent, *, card_dir: Path | None = None, signer: "ClaimSigner | None" = None
+) -> FastAPI:
+    """Wrap an agent in the surface all five share.
+
+    `signer` is what lets this agent answer on `/a2a`. Without one the endpoint
+    is simply absent, which is the honest failure: an agent that served claims
+    it could not sign would be advertising an identity it does not hold.
+    """
     identity: AgentIdentity = agent.identity
     cards = card_dir or (CARD_ROOT / identity.slug)
     a2a = _CardBytes(cards / "agent-card.json")
     trust = _CardBytes(cards / "trust-card.json")
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):  # noqa: ANN202 - FastAPI's own signature
+        # The agent starts with the process and stops with it. There is no
+        # "start on first request": every agent runs continuously, which is what
+        # lets the system notice an unidentified person in the house at 3am.
+        await agent.start()
+        yield
+        await agent.stop()
 
     app = FastAPI(
         title=identity.name,
         summary=identity.summary,
         version="0.1.0",
         docs_url="/docs",
+        lifespan=lifespan,
     )
 
-    @app.on_event("startup")
-    async def _startup() -> None:
-        await agent.start()
+    if signer is not None:
+        from agents.core.transport import a2a_router
 
-    @app.on_event("shutdown")
-    async def _shutdown() -> None:
-        await agent.stop()
+        app.include_router(a2a_router(agent, signer))
+    else:
+        logger.warning(
+            "%s has no signer, so it serves no /a2a endpoint. Its card advertises one; "
+            "fix that before publishing, because a card that overclaims is a signed, "
+            "published, machine-checkable lie.",
+            identity.name,
+        )
 
     @app.get(A2A_CARD_PATH, include_in_schema=False)
     @app.get(A2A_CARD_ALIAS, include_in_schema=False)

@@ -20,37 +20,27 @@ flowchart TD
 
     M -->|"802.11ac frames at 100 Hz"| R
     R -.->|"RF through walls and people"| P
-    P -->|"Channel State Information"| OCC
-    P --> INT
-    P --> BIO
-    P --> COL
-    G --> ENV
+    P -->|"Channel State Information"| PE
+    G --> MA
 
-    subgraph SENSE["Sensing agents - CSI consumers"]
-      OCC["occupancy<br/>count and location"]
+    subgraph SENSE["Sensing agents"]
+      PE["people<br/>count, location, personhood,<br/>respiration, movement, falls"]
       INT["intruder<br/>unexpected presence"]
-      BIO["biometrics<br/>heart rate, breathing"]
-      COL["collapse<br/>faint, fall"]
     end
 
-    subgraph SENSE2["Independent modality"]
-      ENV["environment<br/>CO, smoke"]
-    end
+    PE -->|ANS| INT
+    NET["roster + device association"] --> INT
 
-    OCC -->|ANS| MA
+    PE -->|ANS| MA
     INT -->|ANS| MA
-    BIO -->|ANS| MA
-    COL -->|ANS| MA
-    ENV -->|ANS| MA
 
-    MA["master<br/>trust boundary<br/>classifies Burglary / Fire / Faint"]
+    MA["master<br/>trust boundary<br/>reads the gas sensor directly<br/>classifies Burglary / Fire / Faint"]
 
-    MA -->|ANS| CA["caller"]
-    MA -->|ANS| GU["guidance"]
+    MA -->|ANS| CA["caller<br/>both human boundaries"]
     MA -->|ANS| RE["replay"]
 
     CA ==>|"plain English voice - NO ANS"| OP(["911 operator<br/>a person"])
-    GU ==>|"plain English - NO ANS"| US(["Resident<br/>iOS app"])
+    CA ==>|"plain English - NO ANS"| US(["Resident<br/>iOS app"])
     RE --> LOG[("SCITT transparency log<br/>sealed, append only")]
 
     classDef human fill:#7a1f1f,stroke:#ff6b6b,color:#fff
@@ -72,17 +62,17 @@ The detection is autonomous. **The call is not.**
 sequenceDiagram
     autonumber
     participant P as Pi / CSI
-    participant COL as collapse
-    participant BIO as biometrics
+    participant PE as people
     participant MA as master
     participant APP as Resident app
     participant CA as caller
     participant OP as 911 operator
 
-    P->>COL: fall transient
-    P->>BIO: respiration signature
-    COL->>MA: claim: occupant down, no movement 90s
-    BIO->>MA: claim: breathing 11/min, still
+    P->>PE: fall transient
+    P->>PE: respiration signature
+    PE->>PE: debounce - transient then stillness, cross-checked
+    PE->>MA: claim: occupant down, no movement 90s
+    PE->>MA: claim: breathing 11/min, still
     MA->>MA: verify ANSName + version-bound cert per claim
     MA->>MA: classify FAINT
     MA->>APP: ALERT - someone is down in the back bedroom
@@ -96,8 +86,8 @@ sequenceDiagram
     MA->>APP: transcript line + instruction
     OP->>CA: "Is the person still breathing?"
     CA->>MA: live query - not cached
-    MA->>BIO: ANS-verified query
-    BIO-->>MA: 11 breaths per minute
+    MA->>PE: ANS-verified query
+    PE-->>MA: 11 breaths per minute
     MA-->>CA: verified answer
     CA->>OP: "Yes. Eleven breaths a minute."
     MA->>APP: instruction: do not move them
@@ -150,7 +140,7 @@ flowchart LR
 
     H --> I["Live transcript of the 911 call"]
     H --> J["'What is happening' free text<br/>always visible"]
-    H --> K["Instructions from guidance"]
+    H --> K["Instructions from caller"]
     H --> L["Verification feed<br/>including what was DISCARDED"]
 
     classDef alarm fill:#7a1f1f,stroke:#ff6b6b,color:#fff

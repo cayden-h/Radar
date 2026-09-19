@@ -14,7 +14,7 @@ Three of the ten measures are implemented here and the rest are deployment:
 - **1, sign the card.** `sign_card` from `hawkeye_backend.verification.card`,
   which produces the JWS shape `fraud.webmesh.ai` uses, over the JCS
   canonicalization with `signatures` removed. One JCS implementation across all
-  nine agents, which is what `canonicalization_probe` is looking for.
+  five agents, which is what `canonicalization_probe` is looking for.
 - **4, attest the dispatch address without publishing it.** The card carries
   `sha256(salt || canonical_address)`; the salt and plaintext are sealed at
   registration and never served.

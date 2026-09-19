@@ -25,6 +25,7 @@ from hawkeye_backend.models.events import (
     IncidentEvent,
     IncidentPhase,
     InstructionEvent,
+    NoticeEvent,
     StateEvent,
     TranscriptEvent,
     VerificationEvent,
@@ -48,6 +49,7 @@ from hawkeye_backend.models.incident import (
     TranscriptLine,
     TranscriptSpeaker,
 )
+from hawkeye_backend.models.notice import Notice, NoticeSeverity
 from hawkeye_backend.models.state import (
     Calibration,
     EnvironmentReading,
@@ -86,8 +88,8 @@ CSI = Provenance(
 )
 GAS = Provenance(
     source=Source.DEMO_TRIGGER,
-    producer="agents/environment",
-    ansname=ANSNAME["agents/environment"],
+    producer="agents/master",
+    ansname=ANSNAME["agents/master"],
     detail="no gas sensor was purchased; an MQ-7 on GPIO through an MCP3008 drops in behind this",
 )
 CALLER_VOICE = Provenance(
@@ -95,7 +97,7 @@ CALLER_VOICE = Provenance(
 )
 OPERATOR = Provenance(source=Source.OPERATOR_AUDIO, producer="911 PSAP operator")
 GUIDANCE = Provenance(
-    source=Source.AGENT_INFERENCE, producer="agents/guidance", ansname=ANSNAME["agents/guidance"]
+    source=Source.AGENT_INFERENCE, producer="agents/caller", ansname=ANSNAME["agents/caller"]
 )
 RESIDENT = Provenance(source=Source.USER_INPUT, producer="app/ios")
 
@@ -207,7 +209,7 @@ PASSING_CHECKS = [
     VerificationCheck(
         name="ans.resolve",
         passed=True,
-        detail="collapse.hawkeye.invalid resolved to the registered certificate.",
+        detail="people.hawkeye.invalid resolved to the registered certificate.",
     ),
     VerificationCheck(
         name="cert.version_binding",
@@ -228,13 +230,13 @@ VERIFIED = VerificationResult(
     claim=Claim(
         claim_id="clm-001",
         statement="An adult occupant went down in the main bedroom and has not gotten up.",
-        field="collapse.event",
+        field="people.event",
         value="fall, still_down_s=6",
         presence_id="p1",
     ),
     agent=SourceAgent(
-        name="agents/collapse",
-        ansname="collapse.hawkeye.invalid",
+        name="agents/people",
+        ansname="people.hawkeye.invalid",
         certificate_version="v1.4.2+sha256:9f1c...a30b",
         trust_index=TrustIndexScore(
             integrity=0.94,
@@ -258,13 +260,13 @@ DISCARDED = VerificationResult(
     claim=Claim(
         claim_id="clm-005",
         statement="A third adult is unresponsive in the corridor outside the front door and is not breathing.",
-        field="biometrics.respiration",
+        field="people.respiration",
         value="no respiration, building corridor",
         presence_id=None,
     ),
     agent=SourceAgent(
-        name="agents/occupancy",
-        ansname="occupancy.hawkeye-secure.invalid",
+        name="agents/people",
+        ansname="people.hawkeye-secure.invalid",
         certificate_version="v1.4.2+sha256:4d77...0e91",
         trust_index=TrustIndexScore(
             integrity=0.0,
@@ -283,8 +285,8 @@ DISCARDED = VerificationResult(
             name="ans.resolve",
             passed=False,
             detail=(
-                "occupancy.hawkeye-secure.invalid is not the ANSName registered for "
-                "agents/occupancy. The registered name is occupancy.hawkeye.invalid."
+                "people.hawkeye-secure.invalid is not the ANSName registered for "
+                "agents/people. The registered name is people.hawkeye.invalid."
             ),
         ),
         VerificationCheck(
@@ -365,8 +367,8 @@ HUB = HubStatus(
     ),
     agents=[
         AgentReachability(
-            name="agents/collapse",
-            ansname="collapse.hawkeye.invalid",
+            name="agents/people",
+            ansname="people.hawkeye.invalid",
             tier=1,
             reachability=Reachability.REACHABLE,
             last_seen_at=T0,
@@ -374,8 +376,8 @@ HUB = HubStatus(
             detail=None,
         ),
         AgentReachability(
-            name="agents/environment",
-            ansname="environment.hawkeye.invalid",
+            name="agents/master",
+            ansname="master.hawkeye.invalid",
             tier=3,
             reachability=Reachability.DEGRADED,
             last_seen_at=T0,
@@ -406,7 +408,7 @@ REPLAY = ReplayRecord(
             seq=2,
             at=at(6.0),
             kind="verification",
-            summary="ASSERTED: An adult occupant went down in the main bedroom (collapse.hawkeye.invalid)",
+            summary="ASSERTED: An adult occupant went down in the main bedroom (people.hawkeye.invalid)",
             detail={"verification_id": "ver-001", "decision": "ASSERTED"},
             entry_hash="6192e3c8d12e7d7a90181d14c0b7e2d9a4f81c6b0e3d5a7f9c1b3d5f7a9c1e3d",
             prev_hash="9a1e26430b4002eb059215c2a1e0a0f0f6d8f3bbd4c6a5f0b2e9a7c1d3f5e7a9",
@@ -541,7 +543,7 @@ def main() -> None:
                 incident_id="inc-0001",
                 payload=InstructionEvent(instruction=INSTRUCTION),
             ),
-            "One instruction from agents/guidance.",
+            "One instruction from agents/caller.",
         ),
         (
             "event-context.json",
@@ -552,6 +554,33 @@ def main() -> None:
                 payload=ContextEvent(note=CONTEXT_NOTE),
             ),
             "The resident's 'what is happening' note, echoed back so the app can confirm delivery.",
+        ),
+        (
+            "event-notice.json",
+            Envelope(
+                seq=48,
+                at=at(48.0),
+                incident_id="inc-0001",
+                payload=NoticeEvent(
+                    notice=Notice(
+                        notice_id="ntc-p4",
+                        severity=NoticeSeverity.ATTENTION,
+                        title="Unexpected person",
+                        body="Not accounted for. Living room.",
+                        zone="living_room",
+                        room="Living room",
+                        presence_id="p4",
+                        raised_at=datetime(2026, 9, 19, 21, 4, 11, 142000, tzinfo=UTC),
+                        provenance=Provenance(
+                            source=Source.AGENT_INFERENCE,
+                            producer="agents/intruder",
+                            ansname=ANSNAME["agents/intruder"],
+                            detail="presence surplus against roster and device association",
+                        ),
+                    )
+                ),
+            ),
+            "A notice: something the resident should know about. Does not create an incident.",
         ),
         (
             "event-error.json",

@@ -25,7 +25,7 @@
         "seq": 2,
         "at": "2026-09-20T04:12:39Z",
         "kind": "verification",
-        "summary": "ASSERTED: An adult occupant went down in the main bedroom (collapse.hawkeye.invalid)",
+        "summary": "ASSERTED: An adult occupant went down in the main bedroom (people.hawkeye.invalid)",
         "detail": {
           "verification_id": "ver-001",
           "decision": "ASSERTED"
@@ -42,13 +42,13 @@
         "claim": {
           "claim_id": "clm-001",
           "statement": "An adult occupant went down in the main bedroom and has not gotten up.",
-          "field": "collapse.event",
+          "field": "people.event",
           "value": "fall, still_down_s=6",
           "presence_id": "p1"
         },
         "agent": {
-          "name": "agents/collapse",
-          "ansname": "collapse.hawkeye.invalid",
+          "name": "agents/people",
+          "ansname": "people.hawkeye.invalid",
           "certificate_version": "v1.4.2+sha256:9f1c...a30b",
           "trust_index": {
             "integrity": 0.94,
@@ -70,7 +70,7 @@
           {
             "name": "ans.resolve",
             "passed": true,
-            "detail": "collapse.hawkeye.invalid resolved to the registered certificate."
+            "detail": "people.hawkeye.invalid resolved to the registered certificate."
           },
           {
             "name": "cert.version_binding",
@@ -92,13 +92,13 @@
         "claim": {
           "claim_id": "clm-005",
           "statement": "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
-          "field": "biometrics.respiration",
+          "field": "people.respiration",
           "value": "no respiration, building corridor",
           "presence_id": null
         },
         "agent": {
-          "name": "agents/occupancy",
-          "ansname": "occupancy.hawkeye-secure.invalid",
+          "name": "agents/people",
+          "ansname": "people.hawkeye-secure.invalid",
           "certificate_version": "v1.4.2+sha256:4d77...0e91",
           "trust_index": {
             "integrity": 0.0,
@@ -120,7 +120,7 @@
           {
             "name": "ans.resolve",
             "passed": false,
-            "detail": "occupancy.hawkeye-secure.invalid is not the ANSName registered for agents/occupancy. The registered name is occupancy.hawkeye.invalid."
+            "detail": "people.hawkeye-secure.invalid is not the ANSName registered for agents/people. The registered name is people.hawkeye.invalid."
           },
           {
             "name": "cert.version_binding",

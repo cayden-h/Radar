@@ -93,7 +93,7 @@ class TrustIndexScore(BaseModel):
 class SourceAgent(BaseModel):
     """The agent that made the claim."""
 
-    name: str = Field(description="Agent directory name, e.g. 'agents/biometrics'.")
+    name: str = Field(description="Agent directory name, e.g. 'agents/people'.")
     ansname: str = Field(description="The ANSName the claim was presented under.")
     certificate_version: str | None = Field(
         default=None,
@@ -111,7 +111,7 @@ class Claim(BaseModel):
 
     claim_id: str
     statement: str = Field(description="Plain English, as caller would say it out loud.")
-    field: str = Field(description="Which part of interior state it asserts, e.g. 'biometrics.respiration'.")
+    field: str = Field(description="Which part of interior state it asserts, e.g. 'people.respiration'.")
     value: str = Field(description="The asserted value, rendered as a string for display.")
     presence_id: str | None = None
 

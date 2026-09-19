@@ -34,7 +34,7 @@ class Assertion(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    field: str = Field(description="Interior-state field, e.g. 'biometrics.respiration'.")
+    field: str = Field(description="Interior-state field, e.g. 'people.respiration'.")
     value: str = Field(description="The asserted value, as a string. Envelope carries strings.")
     zone_scope: str = Field(
         default="site",
@@ -89,14 +89,14 @@ class AgentObservation(BaseModel):
     """Everything one agent has to say at one instant.
 
     Produced on every tick by every agent, whether or not anything is happening.
-    All nine run continuously; that is a requirement rather than an
+    All five run continuously; that is a requirement rather than an
     optimisation, and it is what lets the system notice things nobody asked it
     to look for.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    agent: str = Field(description="Directory name, e.g. 'agents/biometrics'.")
+    agent: str = Field(description="Directory name, e.g. 'agents/people'.")
     ansname: str
     observed_at: datetime = Field(default_factory=utc_now)
     assertions: tuple[Assertion, ...] = ()

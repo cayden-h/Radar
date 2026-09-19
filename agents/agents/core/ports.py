@@ -8,7 +8,7 @@ interface changing, and it must be *visible* which one is in use.
 `ObservationSource` is the one to look at twice. It is how an agent reads
 another agent's output, and right now the only implementation is
 `LocalMesh`, which hands over the object in memory. That is not the
-architecture - the architecture is nine independently registered agents
+architecture - the architecture is five independently registered agents
 verifying each other over ANS on every hop. `LocalMesh` exists so the
 domain logic can be written and tested before that transport exists, and it is
 named so that nobody mistakes it for the real thing.
@@ -137,23 +137,59 @@ class RosterSource(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class TransportRejection:
+    """A claim that arrived and did not survive verification.
+
+    These never reach master's gate. They are carried anyway, because "it tells
+    you what it discarded" is the sentence that carries the submission and a
+    claim thrown away silently at the transport layer is exactly the kind of
+    discard that would not appear in the feed.
+    """
+
+    issuer: str
+    field: str
+    check: str
+    """The named check that failed: `claim_signature`, `proof_nonce`, `known_issuer`."""
+
+    reason: str
+
+
+@dataclass(frozen=True)
+class FetchedObservation:
+    """What came back from one agent, and what happened on the way.
+
+    `envelope_verified` is per fetch, not per process. Trust is a property of an
+    agent at an instant: one that answered a verified challenge a minute ago may
+    fail the next one because its certificate drifted, and a flag set once at
+    startup cannot express that.
+    """
+
+    observation: AgentObservation
+    envelope_verified: bool
+    """True only when every claim arrived signed and verified against the key
+    the producer registered. False for an in-process handoff, which verifies
+    nothing and must not be allowed to look like it did."""
+
+    rejected: tuple[TransportRejection, ...] = ()
+
+
 @runtime_checkable
 class ObservationSource(Protocol):
     """How one agent reads another's latest observation.
 
-    **This is the transport seam and it is currently unbridged.** A real
-    implementation verifies before it returns: mTLS handshake, JWS over the
-    canonical payload, bindings, schema version, then the profile gate, in that
-    order, and it discards rather than raising when a check fails. Nothing
-    downstream ever sees an unverified field.
+    A real implementation verifies before it returns: mTLS handshake where it is
+    enforced, then JWS over the canonical payload, bindings, schema version, the
+    challenge, and the profile gate, in that order, discarding rather than
+    raising when a check fails. Nothing downstream ever sees an unverified field.
 
-    `hawkeye_backend.verification.ClaimVerifier` already implements that
-    pipeline, with all thirteen battery shapes as passing tests. Do not write a
-    second verifier; the real implementation of this port wraps that one.
+    `hawkeye_backend.verification.ClaimVerifier` implements that pipeline, with
+    all thirteen battery shapes plus the challenge probes as passing tests. Do
+    not write a second verifier; an implementation of this port wraps that one.
     """
 
-    def observation(self, slug: str) -> AgentObservation | None:
-        """The named agent's latest observation, or None if it has not produced one.
+    def fetch(self, slug: str) -> FetchedObservation | None:
+        """The named agent's current answer, or None if it has none.
 
         None is a real answer and must stay distinguishable from an empty
         observation. An agent that is unreachable and an agent that has nothing
@@ -166,14 +202,18 @@ class LocalMesh:
     """In-process stand-in for `ObservationSource`. Verifies nothing.
 
     Every agent writes its latest observation here and reads its dependencies
-    from here, so the nine can run in one process and the domain logic can be
-    exercised end to end before any wire exists.
+    from here, so the five can run in one process and the domain logic can be
+    exercised end to end with no network.
 
-    What this is not: the architecture. Nine agents sharing a dict have no
+    What this is not: the architecture. Five agents sharing a dict have no
     identity, no certificates, no signatures and no discard path, which means
-    they demonstrate exactly none of what this project is for. Replace before
-    the demo, and until then treat a passing test against `LocalMesh` as
-    evidence about the domain logic only.
+    they demonstrate exactly none of what this project is for.
+
+    **It cannot quietly pass as the real thing**, and that is deliberate:
+    `fetch` returns `envelope_verified=False`, master records that as a failed
+    check on every claim, and `caller` then refuses to speak any of them. If a
+    demo ever shows claims being spoken while this class is in use, something
+    has been loosened that should not have been.
     """
 
     def __init__(self) -> None:
@@ -183,5 +223,12 @@ class LocalMesh:
         slug = observation.agent.removeprefix("agents/")
         self._latest[slug] = observation
 
+    def fetch(self, slug: str) -> FetchedObservation | None:
+        observation = self._latest.get(slug)
+        if observation is None:
+            return None
+        return FetchedObservation(observation=observation, envelope_verified=False)
+
     def observation(self, slug: str) -> AgentObservation | None:
+        """Convenience for tests that only care about the domain logic."""
         return self._latest.get(slug)

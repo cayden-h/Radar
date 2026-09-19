@@ -24,7 +24,9 @@ Read the root `CLAUDE.md` first, especially the honesty rule.
 | iOS app | Mock client, in process | `app/ios/HawkEye/Config.swift` | `useMocks = false` |
 | Hub backend | Simulated master | `HAWKEYE_MODE` env var | `HAWKEYE_MODE=live` |
 | Storage | In memory | `HAWKEYE_STORE_BACKEND` | `mongodb` (not implemented yet) |
-| Nine agents | Not written | n/a | n/a |
+| Five agents | Written, tested, wired over A2A | `HAWKEYE_PEERS` env var | Set it to a `slug=url` list |
+| Agent certificates | Raw public keys from published cards, no chain | `discovery._agent_from_card` | Validate `keys[].x5c` once ANS registration exists |
+| mTLS between agents | Declared on the cards, not enforced | Reverse proxy | Enable, and update `x-security-note` in the same commit |
 | CSI sensing | Not brought up | n/a | n/a |
 | Gas sensor | Simulated, permanently | `provenance.source` | Stays `demo-trigger` |
 | ANS identities | `.invalid` placeholders | `HAWKEYE_HUB_ANSNAME`, `HAWKEYE_MASTER_ANSNAME` | Real registered names |
@@ -52,7 +54,7 @@ Once respiration is acquired it is a person, and roster plus device association 
 
 **Phrase it as a surplus, not as arithmetic.** The claim that survives a 1x1 radio is "**at least one presence more than the roster accounts for**", not "three bodies minus two residents". An exact sensed count is not available; a *surplus* is, because it only requires noticing that an additional presence appeared.
 
-The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/occupancy`.
+The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/people`.
 It then routes room to room across the apartment toward the resident.
 Per-scenario timings sit next to the selector; nothing about the scenario leaks into any view.
 This switch is mock-only and has no effect when `useMocks = false`, where the hub decides what happens.
@@ -95,13 +97,31 @@ The settings worth knowing:
 
 **Storage:** `Store` is a protocol, `InMemoryStore` is real, and `MongoStore` raises `NotImplementedError` rather than silently degrading. `build_store()` is the single swap point.
 
-## The nine agents
+## The five agents
 
-**Not written.** `agents/CLAUDE.md` has the contracts; there is no code.
+**Written and wired as of 2026-09-19**, with their domain logic, their identities, their cards, the A2A transport between them, and 74 tests. The roster was nine until that date; the merge rationale is in `agents/CLAUDE.md`.
 
-Until they exist, `SimulatedMasterClient` stands in for all nine, including the verification decisions and the discarded claim.
+**The seam is `HAWKEYE_PEERS`**, a comma-separated `slug=url` list.
 
-When they land, the flip is `HAWKEYE_MODE=live` plus `HAWKEYE_MASTER_BASE_URL`.
+Unset, `LocalMesh` hands observations over in memory and **verifies nothing**. Set, master fetches each peer's published trust card, builds its trust store from the keys in it, issues a fresh challenge per fetch, and verifies every claim before anything reaches its gate.
+
+```sh
+python -m agents people --port 8101
+HAWKEYE_PEERS=people=http://127.0.0.1:8101 python -m agents master --port 8100
+```
+
+**The half-flipped state is the dangerous one**, because an in-process mesh looks exactly like a working system from the app's point of view. It does not quietly pass as one, and that is by construction rather than by discipline: `TrustGate` records `envelope_verified: false` as a *failed check* on every claim, and `caller` refuses to speak anything whose source was not verified, saying so out loud on the call. **If the verification feed ever shows claims as speakable while `LocalMesh` is in place, something has been loosened that should not have been.**
+
+How to tell the flip worked: `caller.opening_report` stops saying "I have no independently verified information about the interior to give you" and starts speaking attributed claims.
+
+Two things that look flipped and are not:
+
+- **Certificates.** The trust store loads the raw public key from `keys[].x`. There is no chain validation, because no certificates exist until `ans/` has a registration. That is Bronze at best, and `discovery._agent_from_card` carries the TODO.
+- **mTLS.** Declared on every card as `ansIdentityCert` and explicitly not enforced, which the card says in `x-security-note`. Turning it on is a proxy change; updating that field belongs in the same commit, because a card that overclaims is a signed, published, machine-checkable lie on the surface the judge inspects first.
+
+Keys live in `agents/build/keys/<slug>.pem`, created on first use and gitignored. **The card builder signs each agent's card with that same key**, which is not a detail: the card exists so master can learn the public half, so a card published under a different key makes every claim that agent sends fail verification. That was a real bug on 2026-09-19, caught by running two processes rather than by a test.
+
+Separately, the hub's own flip to the mesh is `HAWKEYE_MODE=live` plus `HAWKEYE_MASTER_BASE_URL`.
 Three questions in `master/live.py` are marked `TODO(master)` and need answering first: whether the hub reads a merged state document or fans out, whether push is websocket or SSE or webhook, and whether the hub must present an ANS identity over mTLS to raise an incident.
 
 ## CSI sensing
@@ -112,7 +132,7 @@ Three questions in `master/live.py` are marked `TODO(master)` and need answering
 `sensor/CLAUDE.md` holds the output contract, the fallback ladder, and the point at which to stop trying.
 
 There is no software seam to flip here, because there is no capture code yet.
-When there is, it feeds `agents/occupancy`, `intruder`, `biometrics` and `collapse`, and the hub sees it only through `master`.
+When there is, it feeds `agents/people`, which is the only CSI consumer, and `intruder` reads `people` in turn. The hub sees all of it only through `master`.
 
 Two failure modes from the hardware guides are worth repeating, because both report healthy while producing useless data:
 
@@ -121,7 +141,7 @@ Two failure modes from the hardware guides are worth repeating, because both rep
 
 ## The gas sensor, which stays simulated
 
-`agents/environment` is the clear case of the honesty rule, and it is not a gap to close.
+The gas reading `agents/master` takes is the clear case of the honesty rule, and it is not a gap to close.
 
 No gas sensor was purchased and none will be. The reading is simulated and says so in the data: `provenance.source` is the literal string `demo-trigger`, and `source_class` and `simulated` are computed from it rather than set by the producer.
 The iOS app reads that field and renders a `SIM` chip next to the CO number, so a simulated reading cannot reach the screen dressed as a measured one.
@@ -134,12 +154,12 @@ Adding a real sensor is a driver behind an interface that already exists, and no
 
 Every ANSName in the codebase today ends in `.invalid`, which is reserved by RFC 2606 and can therefore never be mistaken for a real registration.
 
-`HAWKEYE_HUB_ANSNAME` and `HAWKEYE_MASTER_ANSNAME` carry the hub side. The nine agent names live in `master/scenario.py`.
+`HAWKEYE_HUB_ANSNAME` and `HAWKEYE_MASTER_ANSNAME` carry the hub side. The five agent names live in `agents/core/identity.py`, with a copy still in `master/scenario.py` that should be deleted once the hub imports from it.
 
 **Before these become real, two questions need answering**, both marked `TODO(ans)` in the code:
 
 1. Is the hub itself ANS-registered, or does it quote `master`'s identity? The app to hub hop is a human-facing hop, so the working assumption is that it quotes rather than holds its own anchor.
-2. Is the name shape `collapse.hawkeye.example` or `hawkeye.example/agents/collapse`? Check `agent.webmesh.ai/.well-known/agents-index.json`.
+2. Is the name shape `people.hawkeye.example` or `hawkeye.example/agents/people`? Check `agent.webmesh.ai/.well-known/agents-index.json`.
 
 **A thing the app must never start claiming:** connecting to a hub checks that `/v1/hub` reports the same ANSName it advertised over Bonjour. That is a consistency check, not ANS verification. ANS verification lives in the agent mesh, behind `master`. The UI says so today and must keep saying so.
 

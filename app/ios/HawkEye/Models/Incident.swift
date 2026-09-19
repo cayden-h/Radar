@@ -330,7 +330,7 @@ enum InstructionOrigin: String, Codable, Sendable, Hashable, CaseIterable {
     case systemStatus = "system_status"
 }
 
-/// One thing `agents/guidance` is telling the resident to do.
+/// One thing `agents/caller` is telling the resident to do.
 ///
 /// **The client never authors this text.** Everything shown comes from the
 /// guidance agent, which is the component that owns the safety rules in

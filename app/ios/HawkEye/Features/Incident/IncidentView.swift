@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// Four things, in priority order down the screen:
 ///
-/// 1. What to do, from `agents/guidance`. Nearest the top because it is what
+/// 1. What to do, from `agents/caller`. Nearest the top because it is what
 ///    the user acts on.
 /// 2. A refusal banner whenever a claim was discarded. **A refused claim is
 ///    never a grey log line.** The refusal path is the submission.
@@ -147,7 +147,7 @@ struct IncidentView: View {
 
     // MARK: Guidance
 
-    /// Instructions from `agents/guidance`.
+    /// Instructions from `agents/caller`.
     ///
     /// **The UI does not distinguish relayed-from-the-operator instructions
     /// from first-aid instructions**, because the user does not care which is

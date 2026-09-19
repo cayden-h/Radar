@@ -43,7 +43,7 @@ struct Provenance: Codable, Sendable, Hashable {
     }
 
     var source: Source
-    /// Which agent or component emitted it, e.g. `agents/environment`.
+    /// Which agent or component emitted it, e.g. `agents/master`.
     var producer: String
     /// The ANSName of the producing agent, when it has one.
     var ansName: String?

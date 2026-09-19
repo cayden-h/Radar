@@ -66,7 +66,7 @@ curl -fsS "${BASE}/v1/state" | "$PY" tools/summarize.py state
 
 echo
 echo "== WS /v1/stream, detection then tap =="
-echo "   agents/collapse fires and nobody is dialled. The fall shows up in"
+echo "   agents/people fires a collapse and nobody is dialled. It shows up in"
 echo "   interior state, still_down_s climbs, and the system waits."
 echo "   Then a person taps Faint, which is what releases the call."
 echo

@@ -92,7 +92,7 @@ Sources: [USFA Civilian Fire Fatalities in Residential Buildings](https://www.us
 
 ### Synthesis: the occupant is unconscious before they know
 
-The whole design of `agents/environment` and the decision to take fire as an external input rather than detect it falls straight out of this data.
+The whole design of the air-quality reading in `agents/master` and the decision to take fire as an external input rather than detect it falls straight out of this data.
 
 **Nobody needs us to tell them the house is on fire.** The smoke alarm does that, the occupant does that, the neighbor does that.
 What nobody knows, including the arriving crew, is **how many people are still inside and where.**

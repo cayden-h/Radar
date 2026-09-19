@@ -24,7 +24,7 @@ class RaisedBy(StrEnum):
 
     USER is the only path to a call. Hawk Eye never dials 911 on its own;
     settled 2026-09-19. A human tap is what releases `agents/caller` to dial,
-    and `agents/collapse` and `agents/environment` surface their detections as
+    and `agents/people` and `agents/master` surface their detections as
     interior state the resident acts on rather than as a call.
 
     SYSTEM is kept for wire compatibility and for records raised before that
@@ -140,7 +140,7 @@ class InstructionOrigin(StrEnum):
 
 
 class Instruction(BaseModel):
-    """One thing agents/guidance is telling the resident to do."""
+    """One thing agents/caller is telling the resident to do."""
 
     instruction_id: str
     incident_id: str
@@ -210,7 +210,20 @@ class ReplayEntry(BaseModel):
 
     seq: int
     at: datetime
-    kind: str = Field(description="state | incident | transcript | instruction | verification | context")
+    kind: str = Field(
+        description=(
+            "lifecycle | frame | incident | transcript | instruction | verification | "
+            "context | notice | state"
+        )
+    )
+    actor: str | None = Field(
+        default=None,
+        description=(
+            "Who is responsible for this entry: an ANSName, 'hub', '911-operator', "
+            "'resident'. Null on entries written before the recorder tracked it, which "
+            "is why it is optional rather than required."
+        ),
+    )
     summary: str
     detail: dict[str, object] = Field(default_factory=dict)
     entry_hash: str = Field(description="SHA-256 over the canonical JSON of this entry.")

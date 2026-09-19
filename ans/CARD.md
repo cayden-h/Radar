@@ -97,7 +97,7 @@ Decoded, the protected header is:
 Copy this exactly: `alg` EdDSA, `typ` `agent-card+jws`, `jku` pointing at our own trust card, `kid` matching the `keys[].kid` there.
 The signing payload is the card **JCS-canonicalized with `signatures` removed**.
 
-That last detail is where `canonicalization_probe` lives. Pick one JCS implementation and use it in all nine agents. Two agents serializing the same value differently produce signature mismatches that look exactly like tampering, and that is far more likely to bite us as an ordinary bug than as an attack.
+That last detail is where `canonicalization_probe` lives. Pick one JCS implementation and use it in all five agents. Two agents serializing the same value differently produce signature mismatches that look exactly like tampering, and that is far more likely to bite us as an ordinary bug than as an attack.
 
 ### 2. Make the card byte-stable
 
@@ -146,7 +146,7 @@ He wrote this into his own card as a field, and it is the closest thing to our h
 
 He declares `ansIdentityCert` as a `mutualTLS` scheme and then says plainly that it is not currently enforced.
 
-Copy the field and the discipline. If `agents/environment` reads a simulated sensor and mTLS is declared but not enforced on some hop by Sunday, the card says so.
+Copy the field and the discipline. If `agents/master` reads a simulated sensor and mTLS is declared but not enforced on some hop by Sunday, the card says so.
 A card that overclaims is a signed, published, machine-checkable lie sitting on the surface the judge inspects first. There is no worse place to be caught.
 
 ### 6. Match `securitySchemes` to reality
@@ -203,6 +203,8 @@ Canonicalization is shared with the claim envelope (`verification/canonical.py`)
 
 We do not need one to survive the battery, because the battery cannot reach us. But `master` needs these properties regardless, for its own claim envelope, and ANS-6 Method B specifies them exactly.
 
+**Added 2026-09-19: a server-supplied nonce**, the DPoP `nonce` analogue, on `PossessionProof`. The verifier issues it and the presenter answers it, which is what makes the agent mesh pull-only: an agent cannot produce a usable claim unbidden, so a compromised sensing agent cannot prepare a batch of plausible claims in advance. It is covered by the proof signature and required non-empty. Three probes in `app/backend/tests/test_battery.py`.
+
 **This is built**: `app/backend/hawkeye_backend/verification/verifier.py`, with the thirteen shapes as tests in `app/backend/tests/test_battery.py`. What follows is the order it implements, kept here because it is the part worth reviewing.
 
 The verification order, from ANS-6 §7.4, cheapest and least stateful first:
@@ -226,12 +228,12 @@ The line worth remembering, near-verbatim from the spec: a proof passing steps 1
 
 ## Checklist
 
-Per agent, all nine:
+Per agent, all five:
 
 - [ ] `/.well-known/agent-card.json` served, plus `/.well-known/agent.json`
 - [ ] `/.well-known/ans/trust-card.json` served
 - [ ] Card signed, `typ: agent-card+jws`, `jku` to our trust card, `kid` matching
-- [ ] One JCS implementation across all nine agents
+- [ ] One JCS implementation across all five agents
 - [ ] Card is a build artifact, byte-stable, sorted keys, no dynamic fields
 - [ ] ansName carries the version; certificate SAN carries the ansName
 - [ ] SCITT receipt stapled
@@ -247,6 +249,6 @@ Per agent, all nine:
 
 Before judging:
 
-- [ ] Run `agent.webmesh.ai verify_agent` against all nine and fix every finding
+- [ ] Run `agent.webmesh.ai verify_agent` against all five and fix every finding
 - [ ] Re-run it and confirm a clean `compatibility_verdict`
 - [ ] Stop editing cards

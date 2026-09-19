@@ -90,11 +90,42 @@ class Settings(BaseSettings):
     twilio_min_interval_s: float = 60.0
     twilio_max_per_instance: int = 5
 
+    # Replay recording. The record opens on a human tap and seals when the 911
+    # call ends; these bound what goes into it in between.
+    #
+    # State ticks run at roughly 2 Hz during an incident, and a record that kept
+    # every one of them would be mostly frames. One frame every half second is
+    # plenty to animate the map, and a frame whose presence states changed is
+    # always kept regardless of this interval, so nothing important is thrown
+    # away to save space.
+    replay_frame_interval_s: float = 0.5
+
+    # Ceiling on entries per record. On reaching it the recorder stops recording
+    # frames and says so on the record; it never stops recording claims,
+    # discards, transcript or instructions. Those are the point, and they are
+    # bounded by the length of a phone call rather than by a tick rate.
+    replay_max_entries: int = 10000
+
+    # Serve the replay console at /replay. Off in live mode would be a
+    # deployment decision, not a code one, so it is a flag rather than a
+    # condition on `mode`.
+    replay_site_enabled: bool = True
+
     # Used to render the local time in an SMS. The demo home is in Blacksburg.
     site_timezone: str = "America/New_York"
 
     host: str = "0.0.0.0"
     port: int = 8787
+
+    @property
+    def caller_ansname(self) -> str:
+        """The ANSName of the agent that speaks to the operator.
+
+        Derived from master's rather than configured separately, because the two
+        are siblings under one registered domain and letting them drift apart in
+        config is a way to print the wrong identity on a sealed record.
+        """
+        return self.master_ansname.replace("master.", "caller.", 1)
 
     @property
     def twilio_configured(self) -> bool:

@@ -258,8 +258,8 @@ final class MockHawkEyeClient: HawkEyeClienting {
                 confidence: 0.88,
                 provenance: Provenance(
                     source: .demoTrigger,
-                    producer: "agents/environment",
-                    ansName: "environment.hawkeye.invalid",
+                    producer: "agents/master",
+                    ansName: "master.hawkeye.invalid",
                     detail: "No gas sensor was purchased. An MQ-7 drops in behind this.",
                     sourceClass: .simulated,
                     simulated: true
@@ -436,7 +436,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             guard let self, !Task.isCancelled, self.incident == nil else { return }
             switch scenario {
             case .faint:
-                // Debounce, as `agents/collapse` does: a collapse is only an
+                // Debounce, as `agents/people` does: a collapse is only an
                 // event once it is followed by an absence of normal movement. A
                 // system that raises an alarm when someone flops onto a couch is
                 // worse than no system.
@@ -755,13 +755,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
             claim: Claim(
                 claimID: "clm-001",
                 statement: "An adult occupant went down in the second bedroom and has not gotten up.",
-                field: "collapse.event",
+                field: "people.event",
                 value: "fall, still_down_s=6",
                 presenceID: "p2"
             ),
             agent: SourceAgent(
-                name: "agents/collapse",
-                ansName: "collapse.hawkeye.invalid",
+                name: "agents/people",
+                ansName: "people.hawkeye.invalid",
                 certificateVersion: "v1.4.2+sha256:9f1c...a30b",
                 trustIndex: trustIndex(integrity: 0.94, identity: 0.97),
                 recommendedProfile: .fiduciary
@@ -770,7 +770,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             reason: "Source is FIDUCIARY and every check passed. Spoken as an assertion the system stands behind.",
             checks: [
                 VerificationCheck(name: "ans.resolve", passed: true,
-                                  detail: "collapse.hawkeye.invalid resolved to the registered certificate."),
+                                  detail: "people.hawkeye.invalid resolved to the registered certificate."),
                 VerificationCheck(name: "cert.version_binding", passed: true,
                                   detail: "Code fingerprint matches the version-bound certificate issued at registration."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
@@ -788,13 +788,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
             claim: Claim(
                 claimID: "clm-002",
                 statement: "The occupant on the floor is breathing, shallowly, at about 27 breaths a minute.",
-                field: "biometrics.respiration",
+                field: "people.respiration",
                 value: "breathing, 27 bpm",
                 presenceID: "p2"
             ),
             agent: SourceAgent(
-                name: "agents/biometrics",
-                ansName: "biometrics.hawkeye.invalid",
+                name: "agents/people",
+                ansName: "people.hawkeye.invalid",
                 certificateVersion: "v1.2.0+sha256:b310...77ca",
                 trustIndex: trustIndex(integrity: 0.81, identity: 0.93),
                 recommendedProfile: .transactional
@@ -803,7 +803,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             reason: "Source is TRANSACTIONAL. Relayed as a reported observation, attributed to the agent that made it.",
             checks: [
                 VerificationCheck(name: "ans.resolve", passed: true,
-                                  detail: "biometrics.hawkeye.invalid resolved to the registered certificate."),
+                                  detail: "people.hawkeye.invalid resolved to the registered certificate."),
                 VerificationCheck(name: "cert.version_binding", passed: true,
                                   detail: "Code fingerprint matches the certificate issued at registration."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
@@ -821,13 +821,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
             claim: Claim(
                 claimID: "clm-004",
                 statement: "Carbon monoxide in the building is elevated at 186 parts per million.",
-                field: "environment.co_ppm",
+                field: "master.co_ppm",
                 value: "186 ppm",
                 presenceID: nil
             ),
             agent: SourceAgent(
-                name: "agents/environment",
-                ansName: "environment.hawkeye.invalid",
+                name: "agents/master",
+                ansName: "master.hawkeye.invalid",
                 certificateVersion: "v0.9.1+sha256:1ee4...c052",
                 trustIndex: trustIndex(integrity: 0.62, identity: 0.9),
                 recommendedProfile: .readOnly
@@ -836,7 +836,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             reason: "Source is READ_ONLY. Used as corroboration, never as the sole basis for a call.",
             checks: [
                 VerificationCheck(name: "ans.resolve", passed: true,
-                                  detail: "environment.hawkeye.invalid resolved to the registered certificate."),
+                                  detail: "master.hawkeye.invalid resolved to the registered certificate."),
                 VerificationCheck(name: "provenance.simulated", passed: true,
                                   detail: "Reading is labelled demo-trigger. No gas sensor exists and the claim says so."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
@@ -857,13 +857,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
             claim: Claim(
                 claimID: "clm-005",
                 statement: "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
-                field: "biometrics.respiration",
+                field: "people.respiration",
                 value: "no respiration, building corridor",
                 presenceID: nil
             ),
             agent: SourceAgent(
-                name: "agents/occupancy",
-                ansName: "occupancy.hawkeye-secure.invalid",
+                name: "agents/people",
+                ansName: "people.hawkeye-secure.invalid",
                 certificateVersion: "v1.4.2+sha256:4d77...0e91",
                 trustIndex: trustIndex(integrity: 0.0, identity: 0.0),
                 recommendedProfile: .untrusted
@@ -873,7 +873,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             checks: [
                 VerificationCheck(
                     name: "ans.resolve", passed: false,
-                    detail: "occupancy.hawkeye-secure.invalid is not the ANSName registered for agents/occupancy. The registered name is occupancy.hawkeye.invalid."),
+                    detail: "people.hawkeye-secure.invalid is not the ANSName registered for agents/people. The registered name is people.hawkeye.invalid."),
                 VerificationCheck(
                     name: "cert.version_binding", passed: false,
                     detail: "Code fingerprint differs from the version-bound certificate issued at registration. The agent presenting this claim is not running the code it registered."),
@@ -924,7 +924,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
                 VerificationCheck(name: "corroboration.device_association", passed: true,
                                   detail: "Roster plus device association. The router's association table is a second, independent modality rather than another view of the CSI stream: 3 presences, 2 registered residents, 2 resident phones associated."),
                 VerificationCheck(name: "personhood.respiration", passed: true,
-                                  detail: "A respiration signature exists, so this is a body rather than a curtain. agents/biometrics is the arbiter and intruder consumes its verdict."),
+                                  detail: "A respiration signature exists, so this is a body rather than a curtain. agents/people is the arbiter and intruder consumes its verdict."),
                 VerificationCheck(name: "claim.scope", passed: true,
                                   detail: "The claim is that a body has no corresponding device, not who that body is. No recognition result is being asserted and none exists. A resident who left their phone in the car, or a guest, would read the same way, which is why this raises a notification rather than an action."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
@@ -942,13 +942,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
             claim: Claim(
                 claimID: "clm-102",
                 statement: "Three people are in the building: an adult and a child who live here, and one more. They are in three different rooms.",
-                field: "occupancy.count",
+                field: "people.count",
                 value: "3 people, 1 unconfirmed perturbation",
                 presenceID: nil
             ),
             agent: SourceAgent(
-                name: "agents/occupancy",
-                ansName: "occupancy.hawkeye.invalid",
+                name: "agents/people",
+                ansName: "people.hawkeye.invalid",
                 certificateVersion: "v1.1.4+sha256:a58d...31c7",
                 trustIndex: trustIndex(integrity: 0.84, identity: 0.95),
                 recommendedProfile: .transactional
@@ -957,11 +957,11 @@ final class MockHawkEyeClient: HawkEyeClienting {
             reason: "Source is TRANSACTIONAL. Relayed as a reported observation, attributed to the agent that made it.",
             checks: [
                 VerificationCheck(name: "ans.resolve", passed: true,
-                                  detail: "occupancy.hawkeye.invalid resolved to the registered certificate."),
+                                  detail: "people.hawkeye.invalid resolved to the registered certificate."),
                 VerificationCheck(name: "cert.version_binding", passed: true,
                                   detail: "Code fingerprint matches the certificate issued at registration."),
                 VerificationCheck(name: "corroboration.sensor", passed: true,
-                                  detail: "Counts agree with agents/biometrics on how many respiration signatures are present, and with agents/intruder on which one is unaccounted for."),
+                                  detail: "Counts agree with agents/people on how many respiration signatures are present, and with agents/intruder on which one is unaccounted for."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
                                   detail: "Trust Index recommendedProfile = TRANSACTIONAL."),
             ],
@@ -1101,7 +1101,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         )
     }
 
-    /// Stand-ins for `agents/guidance`'s output. They stay inside
+    /// Stand-ins for `agents/caller`'s output. They stay inside
     /// well-established public guidance and no new medical copy belongs here:
     /// the guidance agent is the one component reviewed against the safety
     /// rules in `agents/CLAUDE.md`.
@@ -1118,8 +1118,8 @@ final class MockHawkEyeClient: HawkEyeClienting {
                 defersToOperator: origin != .relayedOperator,
                 provenance: Provenance(
                     source: .agentInference,
-                    producer: "agents/guidance",
-                    ansName: "guidance.hawkeye.invalid",
+                    producer: "agents/caller",
+                    ansName: "caller.hawkeye.invalid",
                     detail: nil,
                     sourceClass: .derived,
                     simulated: false

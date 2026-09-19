@@ -218,7 +218,7 @@ The "what is happening" box doubles as typed takeover in silent mode: what the r
 
 ### Instructions from the agents
 
-`agents/guidance` pushes updates and instructions as the call progresses.
+`agents/caller` pushes updates and instructions as the call progresses. It is the same agent that is on the phone to the dispatcher, which is what keeps the operator and the resident from being told different things.
 
 Two sources, and the UI should not distinguish them because the user does not care:
 
@@ -251,7 +251,7 @@ If it reads as a live map of an unknown house, add a line of UI that says the pl
 Render confidence as coherence rather than as a number floating in space. A presence at 0.4 should look uncertain.
 That is honest and it also looks better.
 
-**Distinguish a confirmed person from an unconfirmed presence.** `agents/biometrics` decides personhood from a respiration signature, so the view has three states to show, not one:
+**Distinguish a confirmed person from an unconfirmed presence.** `agents/people` decides personhood from a respiration signature, so the view has three states to show, not one:
 
 - Moving, breathing: a person, confirmed.
 - Still, breathing: a person who is not responding. **This is the one the whole system exists for. Make it the loudest thing on screen.**
@@ -321,10 +321,10 @@ It then acquires respiration and becomes a confirmed person with `expected: fals
 
 **Phrase it as a surplus, not as arithmetic.** The claim that survives a 1x1 radio is "**at least one presence more than the roster accounts for**", not "three bodies minus two residents". An exact sensed count is not available; a *surplus* is, because it only requires noticing that an additional presence appeared.
 
-The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/occupancy`.
+The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/people`.
 It routes living room to kitchen to hallway, crossing the whole unit, with its position interpolated between zone centroids so it visibly moves.
 That puts the frame this project is built around on screen: the intruder and the resident as two distinct tracked presences, in different rooms, both moving.
-Its verification set is its own, an ASSERTED unexpected-presence claim from `agents/intruder`, an ATTRIBUTED occupancy count from `agents/occupancy`, and a DISCARDED claim that the person is armed, from an impostor at a lookalike ANSName.
+Its verification set is its own, an ASSERTED unexpected-presence claim from `agents/intruder`, an ATTRIBUTED occupancy count from `agents/people`, and a DISCARDED claim that the person is armed, from an impostor at a lookalike ANSName.
 The CO reading is not reused there: corroboration that does not corroborate anything is noise dressed as rigour.
 
 `.faint` is the collapse: the child goes down in the second bedroom and `still_down_s` climbs and does not reset.
@@ -374,4 +374,4 @@ An incident closes when `master` sends a `resolved` incident event, and the mock
 ### First aid
 
 **The client contains no medical text and must not acquire any.**
-Every instruction on screen comes from `agents/guidance`, which is the one component reviewed against the safety rules in `agents/CLAUDE.md`. Hardcoding first-aid copy in the app would put it outside the place it gets reviewed.
+Every instruction on screen comes from `agents/caller`, specifically `agents/caller/guidance.py`, which is the one component reviewed against the safety rules in `agents/CLAUDE.md`. Hardcoding first-aid copy in the app would put it outside the place it gets reviewed.
