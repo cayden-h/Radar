@@ -10,15 +10,19 @@ struct ConnectView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            Spacer(minLength: Space.xl)
-            content
-            Spacer(minLength: Space.xl)
-            footer
+        ZStack {
+            AmbientBackground()
+
+            VStack(spacing: 0) {
+                header
+                Spacer(minLength: Space.xl)
+                content
+                Spacer(minLength: Space.xl)
+                footer
+            }
+            .padding(.horizontal, Space.gutter)
+            .padding(.bottom, Space.xl)
         }
-        .padding(.horizontal, Space.gutter)
-        .padding(.bottom, Space.xl)
         .task { model.startDiscovery() }
     }
 
@@ -126,7 +130,7 @@ private struct HubRow: View {
             HStack(spacing: Space.md) {
                 icon
 
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 5) {
                     Text(hub.name)
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(Palette.ink)
@@ -134,8 +138,13 @@ private struct HubRow: View {
                     HStack(spacing: Space.sm) {
                         if hub.paired {
                             Text("Paired")
-                                .font(TypeScale.caption)
+                                .font(.system(size: 10, weight: .semibold))
+                                .tracking(0.4)
+                                .textCase(.uppercase)
                                 .foregroundStyle(Palette.calm)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Capsule().fill(Palette.calm.opacity(0.14)))
                         }
                         if let ans = hub.ansName {
                             Text(ans)
@@ -202,18 +211,20 @@ private struct SearchingIndicator: View {
                 Circle()
                     .strokeBorder(Palette.calm.opacity(0.35), lineWidth: 1)
                     .frame(width: 44, height: 44)
-                    .scaleEffect(animate ? 3.1 : 0.6)
+                    .scaleEffect(animate ? 3.6 : 0.6)
                     .opacity(animate ? 0 : 0.8)
+                    .blur(radius: animate ? 1.5 : 0)
                     .animation(
-                        .easeOut(duration: 3.0)
+                        .easeOut(duration: 3.4)
                         .repeatForever(autoreverses: false)
                         .delay(Double(index) * 1.0),
                         value: animate
                     )
             }
             Circle()
-                .fill(Palette.calm.opacity(0.9))
+                .fill(Palette.calm)
                 .frame(width: 7, height: 7)
+                .shadow(color: Palette.calm.opacity(0.85), radius: 10)
         }
         .frame(height: 170)
         .onAppear { animate = true }
