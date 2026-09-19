@@ -8,7 +8,8 @@ The idea is locked as of 2026-09-18; the agent roster and demo format were settl
 
 Written as of 2026-09-19:
 
-- **`app/ios/`** - the full iOS app. Generate with `cd app/ios && xcodegen generate`. Not yet built or run, because Xcode was not installed on the dev machine at the time of writing. Every file passes `swiftc -parse -swift-version 6`.
+- **`app/ios/`** - the full iOS app. Generate with `cd app/ios && xcodegen generate`. Every file passes `swiftc -parse -swift-version 6`.
+  Xcode 27.0 is installed as of 2026-09-19, so the app can now be built and run on the simulator and on a device; see the environment section below for the one-time `xcode-select` step.
 - **`app/backend/`** - the app-facing edge service.
 - **`docs/hardware/`** - step-by-step guides for every hardware item and a bring-up checklist.
 - **`docs/research/`**, `docs/fraud-13.md`, `docs/geo.md`, `docs/threat-landscape.md` - the three assigned research deliverables, plus the incident data.
@@ -411,8 +412,17 @@ See `media/CLAUDE.md`.
 - Node v26.8.1
 - Python 3.13.2
 - Apple M2 Pro, Metal 4
+- **Xcode 27.0** at `/Applications/Xcode.app`, installed 2026-09-19, with the iPhoneOS and iPhoneSimulator platforms present
+- XcodeGen at `/opt/homebrew/bin/xcodegen`
 
 Headless invocation: `blender --background --python script.py`
+
+`xcode-select` may still point at `/Library/Developer/CommandLineTools`, in which case `xcodebuild` refuses to run with a message about the active developer directory rather than anything about the project.
+Point it at the full install once, which needs sudo and so is a human step:
+
+```sh
+sudo xcode-select -s /Applications/Xcode.app
+```
 
 ## Working agreements
 
