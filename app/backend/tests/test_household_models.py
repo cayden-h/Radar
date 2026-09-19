@@ -107,3 +107,30 @@ def test_remember_rejects_a_blank_name():
     """An unnamed roster entry is indistinguishable from a bug three days later."""
     with pytest.raises(ValidationError):
         RememberRequest(name="   ", kind=MemberKind.GUEST, device_id=None)
+
+
+def test_recognisable_crosses_the_wire():
+    """Serialized, not left for each client to recompute.
+
+    Same reason `Provenance.source_class` is computed server-side: a derived
+    fact with one source of truth cannot drift between consumers.
+    """
+    m = HouseholdMember(
+        member_id="mem-01", name="Grandma", kind=MemberKind.GUEST,
+        added_at=AT, added_by="approval",
+    )
+
+    assert m.model_dump()["recognisable"] is False
+    assert '"recognisable":false' in m.model_dump_json().replace(" ", "")
+
+
+def test_a_non_hex_identifier_is_rejected():
+    """A digest that is not hex means the producer is broken, and a device that
+    silently never matches is the worst way to find that out."""
+    with pytest.raises(ValidationError):
+        KnownDevice(
+            device_id="dev-01",
+            identifier_hash="z" * 64,
+            fingerprint="a4:..:91",
+            added_at=AT,
+        )

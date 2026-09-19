@@ -15,7 +15,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 from hawkeye_backend.models.common import Provenance, Source, utc_now
 
@@ -36,9 +36,21 @@ class KnownDevice(BaseModel):
     """
 
     device_id: str
-    identifier_hash: str = Field(min_length=64, max_length=64)
+    identifier_hash: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+        description="HMAC-SHA256 hex digest. Constrained here so a producer that base64s or truncates fails at the boundary rather than silently never matching.",
+    )
     fingerprint: str = Field(description="Short and human-readable, for telling two phones apart.")
-    label: str | None = None
+    label: str | None = Field(
+        default=None,
+        description=(
+            "What the resident calls this device, e.g. 'iPhone'. Not set by any "
+            "current path; the remember sheet may collect it later. Optional so "
+            "adding it is not a breaking change."
+        ),
+    )
     added_at: datetime = Field(default_factory=utc_now)
     last_seen_at: datetime | None = None
 
@@ -67,12 +79,19 @@ class HouseholdMember(BaseModel):
         ),
     )
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def recognisable(self) -> bool:
         """False means present but invisible to the roster.
 
         A named guest with no device is legal and useful, and the UI must render
         the difference rather than leaving it blank.
+
+        Computed and serialized rather than left for each client to derive, for
+        the same reason `Provenance.source_class` is: it is a derived fact that
+        decides what the UI may imply about the system's ability to identify
+        someone, and one source of truth is worth more than the two lines it
+        saves a consumer.
         """
         return bool(self.devices)
 
@@ -85,7 +104,12 @@ class ObservedDevice(BaseModel):
     """
 
     device_id: str
-    identifier_hash: str = Field(min_length=64, max_length=64)
+    identifier_hash: str = Field(
+        min_length=64,
+        max_length=64,
+        pattern=r"^[0-9a-f]{64}$",
+        description="HMAC-SHA256 hex digest. Constrained here so a producer that base64s or truncates fails at the boundary rather than silently never matching.",
+    )
     fingerprint: str
     first_seen_at: datetime = Field(default_factory=utc_now)
     provenance: Provenance
