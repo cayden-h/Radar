@@ -326,9 +326,6 @@ class ReplayRecorder:
     # ----------------------------------------------------------------- throttle
 
     def _on_state(self, session: ReplaySession, state: InteriorState) -> None:
-        if session.incident_id not in self._floorplans and self.floorplan_kept:
-            self._floorplans[session.incident_id] = state.floorplan.model_dump(mode="json")
-
         signature = _presence_signature(state)
         changed = signature != session.last_presence_signature
         now = state.captured_at
@@ -358,11 +355,33 @@ class ReplayRecorder:
 
         session.last_presence_signature = signature
         session.last_frame_at = now
+        detail = _frame_detail(state, self.sensor)
+
+        # The floorplan rides on the first recorded frame and on no other. It is
+        # static geometry, so repeating it 200 times would multiply the record's
+        # size for nothing; putting it inside the chain rather than alongside it
+        # means the map a reviewer redraws is provably the one the incident was
+        # recorded against, and it travels in the export for free.
+        #
+        # Worth stating on the record itself: the plan is authored from a
+        # one-time enrollment walk, not sensed. Walls are the static baseline the
+        # radio subtracts to see people, so it cannot map them and must not look
+        # as though it did.
+        if session.incident_id not in self._floorplans and self.floorplan_kept:
+            plan = state.floorplan.model_dump(mode="json")
+            plan["origin"] = "authored-enrollment-walk"
+            plan["origin_note"] = (
+                "Drawn once during enrollment. Not sensed: walls are the static baseline "
+                "the radio subtracts in order to see people, so the system cannot map them."
+            )
+            self._floorplans[session.incident_id] = plan
+            detail["floorplan"] = plan
+
         session.append(
             kind="frame",
             actor=state.sensor_identity,
             summary=self._frame_summary(state, changed),
-            detail=_frame_detail(state, self.sensor),
+            detail=detail,
             at=now,
         )
 
