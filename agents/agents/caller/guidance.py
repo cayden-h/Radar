@@ -24,16 +24,17 @@ in a view puts it outside the one component that gets reviewed against the
 safety rules. Those rules are not style preferences - bad first-aid instruction
 is real-world harm, not a demo bug:
 
-- **Stay inside well-established public protocols only.** Hands-only CPR, the
-  recovery position, stop-the-bleed, get out and stay out. Nothing improvised,
-  and nothing generated.
+- **Stay inside well-established public protocols only.** Get out and stay out,
+  stay low, do not confront, wait for responders. Nothing improvised, and
+  nothing generated.
 - **Always defer to the dispatcher.** If the operator is giving instructions,
   relay theirs rather than producing competing ones. Dispatchers are trained in
   emergency medical dispatch protocols and this agent is not. `deferring` is a
   flag on every instruction and it suppresses the generated ones outright.
 - **Never instruct an action that could injure the patient or the user.**
-  Moving a fall victim is the canonical example, and it is in the table below as
-  a "do not" rather than being absent.
+  Every such case in the table below is spelled out as a "do not" rather than
+  being left absent: do not go back into a fire, do not go and look during a
+  burglary, do not confront anyone.
 - **"Wait for responders" is frequently the correct answer.** Make sure it can
   be given, and give it.
 
@@ -83,14 +84,15 @@ RELAY: dict[str, str] = {
 #: to escape, a modern room unsurvivable in under three. So fire guidance is to
 #: leave, never to investigate, and that is why there is no "check where the
 #: smoke is coming from" line in this table.
+#:
+#: There is also no patient-care protocol here - no recovery position, no CPR -
+#: and that is deliberate rather than an omission. Those lines belonged to the
+#: Faint incident type, removed 2026-09-19. Neither surviving incident type is
+#: one where staying to help is the right instruction: during a fire the
+#: protocol is to leave and stay out, and during a burglary it is to stay hidden
+#: and not go to look. Telling a resident to stay and do CPR in either case
+#: would be a worse instruction, not a missing one.
 PROTOCOL: dict[IncidentType, tuple[Instruction, ...]] = {
-    IncidentType.FAINT: (
-        Instruction("Do not move them. Moving someone who has fallen can make an injury worse.", "protocol", urgent=True),
-        Instruction("Check whether they respond to their name and to a gentle shoulder squeeze.", "protocol"),
-        Instruction("If they are breathing and unresponsive, roll them onto their side into the recovery position.", "protocol"),
-        Instruction("If they are not breathing normally, start hands-only CPR: push hard and fast in the centre of the chest.", "protocol", urgent=True),
-        Instruction("Stay with them and wait for responders.", "protocol"),
-    ),
     IncidentType.FIRE: (
         Instruction("Get out now. Do not collect anything.", "protocol", urgent=True),
         Instruction("Stay low. Smoke and carbon monoxide rise, and the air is better near the floor.", "protocol", urgent=True),

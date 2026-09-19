@@ -241,3 +241,17 @@ def test_asking_whether_to_expect_an_answer_routes_to_the_lost_signature():
         "how long since you had breathing?",
     ):
         assert route_question(question) == "people.respiration_lost", question
+
+
+def test_fire_guidance_never_tells_a_resident_to_stay_and_help():
+    """A modern room is unsurvivable in under three minutes. Leaving is the protocol.
+
+    This is the line the Faint protocol used to blur, and deleting it is the
+    point: there is no incident type where "stay and do CPR" is our guidance.
+    """
+    from agents.caller.guidance import PROTOCOL
+
+    text = " ".join(i.text.lower() for i in PROTOCOL[IncidentType.FIRE])
+    assert "get out now" in text
+    assert "cpr" not in text
+    assert "recovery position" not in text
