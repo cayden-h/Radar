@@ -48,7 +48,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
     private(set) var link: LinkState = .offline
     private(set) var missedFrames = false
     private(set) var household: [HouseholdMember] = []
-    private(set) var unclaimedDevices: [ObservedDevice] = [Self.seededVisitorDevice]
+    private(set) var unclaimedDevices: [ObservedDevice] = [MockHawkEyeClient.seededVisitorDevice]
 
     /// Presences vouched for this session only. Nothing here persists across
     /// `disconnect()`/`resolve()`, which is the point: "this is expected" is a
@@ -136,7 +136,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         hello = nil
         link = .offline
         household = []
-        unclaimedDevices = [Self.seededVisitorDevice]
+        unclaimedDevices = [MockHawkEyeClient.seededVisitorDevice]
         approvedPresences = []
     }
 
@@ -195,7 +195,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
                     deviceID: device.deviceID,
                     fingerprint: device.fingerprint,
                     firstSeenAt: device.addedAt,
-                    provenance: Self.seededVisitorDevice.provenance
+                    provenance: MockHawkEyeClient.seededVisitorDevice.provenance
                 )
             )
         }
@@ -1239,7 +1239,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         enteredAt = nil
         hasRaisedNotice = false
         household = []
-        unclaimedDevices = [Self.seededVisitorDevice]
+        unclaimedDevices = [MockHawkEyeClient.seededVisitorDevice]
         approvedPresences = []
         // The house keeps being watched. Resolving an incident does not stop
         // the sensing layer, because nothing spawns on incident.
