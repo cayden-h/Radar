@@ -114,7 +114,7 @@ struct HoldToConfirmButton<Label: View>: View {
     @ViewBuilder var label: () -> Label
 
     @State private var progress: CGFloat = 0
-    @State private var holding = false
+    @State private var holdGeneration: Int = 0
 
     var body: some View {
         label()
@@ -144,20 +144,20 @@ struct HoldToConfirmButton<Label: View>: View {
     }
 
     private func beginHoldIfNeeded() {
-        guard !holding else { return }
-        holding = true
+        guard progress == 0 else { return }
+        holdGeneration += 1
+        let thisHold = holdGeneration
         withAnimation(.linear(duration: duration)) { progress = 1 }
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            guard holding else { return }
-            holding = false
+            guard thisHold == holdGeneration else { return }
             progress = 0
             action()
         }
     }
 
     private func cancelHold() {
-        guard holding else { return }
-        holding = false
+        guard progress > 0 else { return }
+        holdGeneration += 1
         withAnimation(Motion.snappy) { progress = 0 }
     }
 }
