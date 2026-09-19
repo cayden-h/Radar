@@ -56,6 +56,10 @@ struct InteriorView: View {
             RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
                 .strokeBorder(Palette.hairline, lineWidth: 1)
         )
+        // The interior view is the app's centerpiece per `app/CLAUDE.md`, so
+        // it carries the one elevated-glow treatment on this screen rather
+        // than competing on equal footing with the cards below it.
+        .shadow(color: Palette.calm.opacity(0.16), radius: 26, x: 0, y: 10)
         .accessibilityElement()
         .accessibilityLabel(accessibilitySummary)
     }

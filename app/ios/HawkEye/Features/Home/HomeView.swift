@@ -278,6 +278,7 @@ private struct PresenceRow: View {
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                 .strokeBorder(emphasised ? tint.opacity(0.45) : Palette.hairline, lineWidth: 1)
         )
+        .shadow(color: emphasised ? tint.opacity(0.22) : .clear, radius: 14, x: 0, y: 4)
         .onAppear {
             guard presence.state == .personUnresponsive else { return }
             withAnimation(Motion.urgent) { pulse = true }
@@ -318,23 +319,29 @@ private struct IncidentBar: View {
             HStack(spacing: Space.sm) {
                 ForEach(IncidentType.allCases) { type in
                     Button { raise(type) } label: {
-                        VStack(spacing: 7) {
-                            Image(systemName: type.symbol)
-                                .font(.system(size: 19, weight: .medium))
+                        VStack(spacing: 9) {
+                            ZStack {
+                                Circle()
+                                    .fill(type.tint.opacity(0.16))
+                                    .frame(width: 36, height: 36)
+                                Image(systemName: type.symbol)
+                                    .font(.system(size: 17, weight: .semibold))
+                            }
                             Text(type.title)
                                 .font(.system(size: 14, weight: .semibold))
                         }
                         .foregroundStyle(type.tint)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 74)
+                        .frame(height: 88)
                         .background(
-                            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
                                 .fill(type.tint.opacity(0.10))
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                                .strokeBorder(type.tint.opacity(0.32), lineWidth: 1)
+                            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                                .strokeBorder(type.tint.opacity(0.35), lineWidth: 1)
                         )
+                        .shadow(color: type.tint.opacity(0.18), radius: 16, x: 0, y: 6)
                     }
                     .buttonStyle(.pressable)
                     .accessibilityLabel("Raise \(type.title) incident")
