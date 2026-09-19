@@ -356,6 +356,34 @@ def test_co_with_a_lost_breathing_signature_is_a_fire_with_someone_who_may_not_r
     assert "not a finding" in verdicts[0].basis.lower()
 
 
+def test_co_with_a_still_breathing_presence_is_a_fire_with_someone_not_moving(
+    verified_mesh, feed, roster
+):
+    """The classic fire fatality: asleep while the air goes bad.
+
+    Ranks below a lost signature and must say what it cannot tell. A radio
+    that sees stillness and breathing cannot separate unconsciousness from
+    sleep, and must not imply it can.
+    """
+    people = PeopleAgent(feed, roster)
+    feed.occupy("main_bedroom", bpm=15.0)
+    for _ in range(35):
+        feed.advance(1)
+        verified_mesh.publish(people.run_once())
+
+    sensor = SimulatedCoSensor(ramp_ppm_per_s=200.0)
+    sensor.trigger()
+    sensor.advance(2.0)
+    master = MasterAgent(verified_mesh, gas=sensor)
+    master.run_once()
+    observation = master.run_once()
+
+    verdicts = [a for a in observation.assertions if a.field == "master.incident_type"]
+    assert [a.value for a in verdicts] == [IncidentType.FIRE.value]
+    assert "not moving" in verdicts[0].basis
+    assert "unconsciousness from sleep" in verdicts[0].basis
+
+
 def test_nothing_corroborating_and_nothing_raised_produces_no_classification(mesh):
     """The placeholder verdict is gone. No claims and no tap means no answer.
 
@@ -389,7 +417,8 @@ The table is from `docs/research/agent-briefs.md`:
 | Observation                                           | Classification                           |
 |-------------------------------------------------------|------------------------------------------|
 | Elevated CO + a lost breathing signature              | Fire, with someone who may not respond   |
-| Elevated CO + everyone still breathing                | Fire, everyone on their feet             |
+| Elevated CO + a still, breathing presence             | Fire, with someone who is not moving     |
+| Elevated CO + everyone up and breathing               | Fire, everyone on their feet             |
 | Unexpected presence + resident in a different room    | Burglary in progress with occupants home |
 | Unexpected presence + house registered empty          | Burglary, no occupants at risk           |
 
@@ -420,6 +449,34 @@ def _claim(claims: list[AdmittedClaim], field: str) -> AdmittedClaim | None:
 def _elapsed(seconds: str) -> str:
     value = float(seconds)
     return f"{value / 60.0:.0f} minutes" if value >= 60.0 else f"{value:.0f} seconds"
+
+
+def _still_and_breathing(claims: list[AdmittedClaim]) -> AdmittedClaim | None:
+    """A zone that resolves a breathing signature with no movement in it.
+
+    The second responsiveness signal, and a weaker one than a lost signature.
+    Both `people.respiration` and `people.moving` are asserted from the same
+    branch of the respiration reader, so a zone with one has the other.
+
+    It ranks below a lost signature deliberately. A lost signature means
+    something changed; this means something has not. Without fall detection
+    "still" no longer means "went down and stayed down" - it covers sleeping
+    and sitting quietly too - so this classifies but never on its own terms
+    and never with high confidence.
+    """
+    breathing = {
+        c.assertion.zone_scope
+        for c in claims
+        if c.assertion.field == "people.respiration" and c.assertion.value == "breathing"
+    }
+    for claim in claims:
+        if (
+            claim.assertion.field == "people.moving"
+            and claim.assertion.value == "false"
+            and claim.assertion.zone_scope in breathing
+        ):
+            return claim
+    return None
 ```
 
 Change the signature and replace the body from line 60 onward:
@@ -467,13 +524,39 @@ def classify(
             ),
         )
 
+    # The classic fire fatality, and the reason this branch exists: someone
+    # asleep or unconscious while CO rises, who will not evacuate and will not
+    # answer the door. Ranked below a lost signature because a lost signature
+    # means something changed, where this means something has not.
     if elevated is not None:
+        still = _still_and_breathing(claims)
+        if still is not None:
+            co = _value(claims, "master.co_ppm") or "elevated"
+            return Classification(
+                incident_type=IncidentType.FIRE,
+                reasoning=(
+                    f"Carbon monoxide at {co} ppm, and a presence in "
+                    f"{still.assertion.zone_scope} that is breathing and not moving. Two "
+                    "independent modalities: CSI resolved the breathing, a separate gas "
+                    "sensor read the air. They are alive and they have not moved, so do not "
+                    "count on them getting themselves out. This does not distinguish "
+                    "unconsciousness from sleep, and the radio cannot."
+                ),
+                confidence=0.65,
+                contributing_fields=(
+                    "people.respiration",
+                    "people.moving",
+                    "master.co_elevated",
+                    "master.co_ppm",
+                ),
+            )
+
         co = _value(claims, "master.co_ppm") or "elevated"
         return Classification(
             incident_type=IncidentType.FIRE,
             reasoning=(
-                f"Carbon monoxide at {co} ppm. Every presence the radio resolves still has a "
-                "breathing signature, which is the moment to leave."
+                f"Carbon monoxide at {co} ppm. Every presence the radio resolves is breathing "
+                "and moving, which is the moment to leave."
             ),
             confidence=0.6,
             contributing_fields=("master.co_ppm",),
@@ -576,6 +659,19 @@ Then make the two classification assertions conditional. The `assertions` list c
 
 Keep the `master.accepted`, `master.discarded` and `master.speakable` assertions exactly as they are - only their surrounding list construction changes.
 
+- [ ] **Step 5a: Fix the fall reference in `people.moving`'s basis**
+
+In `agents/agents/people/respiration.py`, the `people.moving` assertion's basis ends "and the difference is 'walking around' versus 'on the floor'." Nothing detects being on the floor any more. Replace that final clause:
+
+```python
+                    basis=(
+                        f"Broadband RMS {motion:.3f} against a {MOVING_RMS} threshold. Movement "
+                        "is broadband; breathing is narrowband. The two are separable, and the "
+                        "difference is 'moving around' versus 'lying still'. Which of those a "
+                        "still, breathing presence is cannot be decided from here."
+                    ),
+```
+
 - [ ] **Step 5: Fix the two stale comments in `master/agent.py`**
 
 Line 268, inside `_local_air`'s docstring:
@@ -616,10 +712,36 @@ If the only hits are their own definitions in `dev.py`, delete both methods and 
 
 If anything else still calls them, leave them and say what does.
 
+- [ ] **Step 7b: Sweep the strings no other task owns**
+
+The Task 2 review found these by reading the whole tree. Each is now false, and none appears in any other task's file list, so if you do not fix them here nobody will.
+
+1. `agents/README.md:17` - the `agents/people/` row reads "Presence, personhood, respiration, location, **falls**. The only CSI consumer". Replace `falls` with `responsiveness`.
+
+2. `agents/TODO.md:250` - a tuning table row points at a deleted file:
+   `` `TRANSIENT_RMS`, `STILL_RMS`, `DEBOUNCE_S` | `people/collapse.py` | Whether a fall is a fall or a couch ``
+   Delete that row. The prose below it says "All four need the same thing"; with the row gone it is three, so fix the count.
+
+3. `agents/agents/core/transport.py:19` - **this one matters most.** It justifies the pull-transport's latency budget: "The cost is up to one second of detection latency, which is nothing against a `still_down_s` measured in minutes." The budget now rests on a field that does not exist. Rewrite it against the surviving clock:
+
+```python
+# The cost is up to one second of detection latency, which is nothing against
+# a `people.respiration_lost` clock measured in minutes.
+```
+
+4. `agents/agents/master/agent.py:396` - a docstring says master accepts a SYSTEM raise because "`collapse` and `environment`" produce them. Both agents are gone: `collapse` was deleted in Task 2 and `environment` was merged into `master` before this plan. Rewrite it to name what actually raises, without naming a dead agent.
+
+5. `agents/tests/test_trust.py:98` - fabricates a `people.still_down_s` assertion to exercise the profile gate. It tests the gate rather than the field, so it passes either way, but it is a live reference to a retired field. Change the field to `people.respiration_lost` and keep the test's intent intact.
+
+6. `agents/agents/people/agent.py` docstring nits, from the same review: line 9-10 reads "...on 2026-09-19, and fall detection was cut from it on 2026-09-19", which reads like a typo though both dates are real - reword so the repetition is not jarring. Line 13 has a paragraph break leaving a clause dangling mid-sentence. Line 21-22 still explains that "collapse could not interpret a transient without knowing whether the thing that fell was breathing" eleven lines below a sentence saying fall detection was cut - keep the merge history, but make clear it is history.
+
+Leave these alone, which the review checked and cleared: `core/ports.py:44` (Nyquist, not a capability claim), and `core/signals.py:128`, `people/presence.py:9`, `people/respiration.py:283` (they use "on the floor" to mean still rather than moving, which is still what the code does).
+
 - [ ] **Step 8: Commit**
 
 ```bash
-git add agents/agents/master/ agents/agents/core/dev.py agents/tests/test_trust.py
+git add agents/agents/master/ agents/agents/core/ agents/agents/people/agent.py \
+       agents/README.md agents/TODO.md agents/tests/test_trust.py
 git commit -m "Classify Fire from CO plus a lost breathing signature; no placeholder verdict"
 ```
 
