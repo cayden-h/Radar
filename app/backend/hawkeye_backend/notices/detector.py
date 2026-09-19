@@ -158,6 +158,7 @@ class NoticeDetector:
             title="Unexpected person",
             body=f"Not accounted for. {room}.",
             zone=p.position.zone,
+            room=room,
             presence_id=p.presence_id,
             raised_at=state.captured_at,
             provenance=INTRUDER_PROVENANCE,

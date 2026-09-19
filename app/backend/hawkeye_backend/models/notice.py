@@ -48,6 +48,14 @@ class Notice(BaseModel):
         )
     )
     zone: str | None = Field(default=None, description="Floorplan zone key, when there is one.")
+    room: str | None = Field(
+        default=None,
+        description=(
+            "The floorplan's display name for `zone`, e.g. 'Living room'. Resolved "
+            "once by the producer so no consumer has to re-derive it or parse it back "
+            "out of `body`."
+        ),
+    )
     presence_id: str | None = Field(
         default=None,
         description="Session-scoped only. We do not do person re-identification.",

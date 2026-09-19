@@ -231,3 +231,14 @@ def test_fired_marks_do_not_accumulate_forever():
     # bounded from the outside, so this is a deliberate exception to not
     # testing internals.
     assert len(d._fired) == 0
+
+
+def test_the_notice_carries_the_room_name_as_data():
+    """So no consumer has to parse it back out of the rendered body."""
+    d = NoticeDetector(hold_s=5.0)
+    d.observe(frame(presence(), at_s=0))
+
+    raised = d.observe(frame(presence(), at_s=5))
+
+    assert raised[0].room == "Living room"
+    assert raised[0].zone == "living_room"

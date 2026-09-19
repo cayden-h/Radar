@@ -5,5 +5,6 @@ dial. See `hawkeye_backend/models/notice.py`.
 """
 
 from hawkeye_backend.notices.detector import NoticeDetector
+from hawkeye_backend.notices.sinks import NoticeSink, StreamSink, TwilioSink, deliver
 
-__all__ = ["NoticeDetector"]
+__all__ = ["NoticeDetector", "NoticeSink", "StreamSink", "TwilioSink", "deliver"]
