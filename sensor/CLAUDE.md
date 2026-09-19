@@ -16,10 +16,12 @@ If a value here and a value there disagree, this file wins and the guide is the 
 
 Turn WiFi Channel State Information from the home router into a small, stable structured answer to four questions, one per consuming CSI agent:
 
-- **Occupancy.** Whether presences exist and roughly where. **Not an exact headcount**: a 1x1 radio has no spatial diversity, two people within about a metre merge into one, and a still person beside a moving one is near-invisible. Report "at least N" with a confidence; take the actual headcount from device association against the roster instead. Limits and the reasoning are under `agents/occupancy`.
+- **Occupancy.** Whether presences exist and roughly where. **Not an exact headcount**: a 1x1 radio has no spatial diversity, two people within about a metre merge into one, and a still person beside a moving one is near-invisible. Report "at least N" with a confidence; take the actual headcount from device association against the roster instead. Limits and the reasoning are under `agents/people`.
 - **Body type.** Is each presence an adult, a child, or a pet.
 - **Biometrics.** Is each presence breathing, and at what rate.
-- **Collapse.** Did someone go down, and are they still down.
+- **Responsiveness.** Did a breathing signature that was resolvable in a zone stop being resolvable, and how long ago. The transition is the signal; a presence that never resolved one carries no information.
+
+Fall detection was the fourth question until 2026-09-19 and it was cut. The sensor does not report falls and nothing downstream consumes them.
 
 Plus one question that is not a simple lookup: **is any of these presences unexpected.** That is `agents/intruder`, and it reasons over the occupancy output rather than reading CSI separately.
 
@@ -137,10 +139,10 @@ A router with nothing connected still beacons, but only about ten times a second
 | | Signal | Sample rate needed |
 |---|---|---|
 | Breathing | 0.1-0.5 Hz | ~10 Hz, marginal |
-| Fall transient | 0.5-1s event | 10 Hz too coarse to characterize |
+| Motion transient | 0.5-1s event | 10 Hz too coarse to characterize |
 | Heart rate | 0.7-2 Hz, buried under breathing harmonics | 20-50 Hz and up |
 
-10 Hz is the floor and it is not enough for collapse or heart rate. Target 100+ Hz.
+10 Hz is the floor and it is not enough for a short motion transient or for heart rate. Target 100+ Hz.
 
 ### No hardware needed: use the MacBook
 
@@ -187,7 +189,7 @@ Raspberry Pi Imager's "Legacy, 32-bit" catalog entry no longer serves Bullseye/5
 `nexmon_csi` has a second, actively-maintained build path for exactly this: `Makefile.rpi`, which uses `update-alternatives` for firmware switching instead of a kernel-version-bound driver patch, and works across recent kernels including 6.12. Verified working end-to-end on our exact chip/firmware (`bcm43455c0`, `7_45_189`) on a Pi 4B. Use `make -f Makefile.rpi install-firmware` (not `make install-firmware`), and see `docs/hardware/raspberry-pi-4b.md` for the full corrected step list, including two gaps the upstream discussion doesn't mention:
 
 - The bundled ARM cross-compiler still needs `libisl.so.10`/`libmpfr.so.4`, which Bookworm no longer ships (same problem as the old path). Symlink the newer installed versions (`libisl.so.23`, `libmpfr.so.6`) to the old SONAMEs; this is a compiler ABI shim, not a runtime downgrade, and it works.
-- The `bcm43-tools`' Python 2.7 dependency needs Debian's archived Stretch repo, and that repo's Release file is unsigned (8 years EOL). `apt-get update` will hard-fail on it unless the source line is marked `[trusted=yes]` — `--allow-unauthenticated` at install time is not sufficient by itself, because apt refuses to even index an unsigned repo's package list without it.
+- The `bcm43-tools`' Python 2.7 dependency needs Debian's archived Stretch repo, and that repo's Release file is unsigned (8 years EOL). `apt-get update` will hard-fail on it unless the source line is marked `[trusted=yes]` - `--allow-unauthenticated` at install time is not sufficient by itself, because apt refuses to even index an unsigned repo's package list without it.
 
 One practical consequence: because this path isn't kernel-version-bound, `apt-get full-upgrade` is safe here, unlike the old plan. No need to `apt-mark hold` the kernel packages.
 
@@ -197,7 +199,7 @@ This was the single most likely thing to consume a night and produce nothing. **
 
 Mitigations, in order:
 
-1. **Flash a known-good OS image before doing anything else**, and use the `Makefile.rpi` path above rather than assuming a specific kernel. Verify with `uname -r` regardless — knowing what's actually on the card is still the point, even though this path tolerates more kernel variance.
+1. **Flash a known-good OS image before doing anything else**, and use the `Makefile.rpi` path above rather than assuming a specific kernel. Verify with `uname -r` regardless - knowing what's actually on the card is still the point, even though this path tolerates more kernel variance.
 2. **Image the working microSD the moment CSI flows.** `dd` it to a file on someone's laptop, and copy that file off the laptop too. If the card corrupts at 4am, that image is the difference between a demo and no demo. **Done 2026-09-19**, see recorded values below.
 3. **Timebox it.** If CSI is not flowing by the deadline the team sets, drop to the fallback ladder below and do not look back.
 
@@ -208,7 +210,7 @@ Mitigations, in order:
 - Router SSIDs: `Radar` (2.4GHz), `Radar-5g` (5GHz). Channel 40, 80MHz.
 - **The router's over-the-air radio MAC is not the MAC printed on its label.** The AX1450 uses a different MAC per band/radio; the label MAC was off by one in the last octet from the actual `Radar-5g` BSSID. Get the real one from a scan (`iw dev wlan0 scan`) with monitor mode off, not from the label, or `makecsiparams -m` silently filters on a device that's never transmitting and yields zero packets with no error.
 - `makecsiparams` path: `~/nexmon/patches/bcm43455c0/7_45_189/nexmon_csi/utils/makecsiparams/makecsiparams` (built from source in that dir, not on `PATH` by default).
-- Filtering `-m` on the traffic-generator device's own MAC (rather than the router's) gave a more reliable capture rate in practice — the router didn't reliably reply to ICMP directed at its own gateway address, but the generator's outgoing request frames are transmitted regardless of whether anything replies.
+- Filtering `-m` on the traffic-generator device's own MAC (rather than the router's) gave a more reliable capture rate in practice - the router didn't reliably reply to ICMP directed at its own gateway address, but the generator's outgoing request frames are transmitted regardless of whether anything replies.
 - Achieved rate: roughly 30-70 packets/sec with a laptop pinging at `-i 0.01` on the same 5GHz band, well above the 10Hz beacon-only floor. Short of the 100+/sec target; not yet root-caused, plausibly 802.11 frame aggregation reducing distinct-frame count below the raw ping rate.
 - Disk image and a CSI replay pcap exist, stored off the bring-up laptop's primary disk per the checklist's own warning about this being the step people skip.
 
@@ -253,16 +255,16 @@ One field group per consuming agent, so a failure in one sensing capability does
       "is_person": true, "person_confidence": 0.88, "confidence": 0.64 }
   ],
 
-  "collapse": [
-    { "presence_id": "p1", "event": "fall", "at": "2026-09-20T04:12:29Z",
-      "still_down_s": 47, "confidence": 0.77 }
+  "responsiveness": [
+    { "presence_id": "p1", "last_signature_at": "2026-09-20T04:12:29Z",
+      "respiration_lost_s": 47, "last_bpm": 14, "confidence": 0.5 }
   ],
 
   "environment": { "co_ppm": 210, "source": "demo-trigger", "confidence": 0.9 }
 }
 ```
 
-`presence_id` is the join key across the CSI groups. `occupancy` and `classification` are consumed by `agents/occupancy` and `agents/intruder` together.
+`presence_id` is the join key across the CSI groups. `occupancy` and `classification` are consumed by `agents/people` and `agents/intruder` together.
 `environment` has no presence, because a gas reading is a property of the building.
 Every consumer must tolerate a missing group, an empty array, and a low confidence.
 
@@ -273,10 +275,10 @@ Notes on the fields:
 - `class` is one of `adult`, `child`, `pet`, `unknown`, and is decided from **respiration rate**, not signal amplitude. See the rate table and its stated overlap below. Anything finer than these four classes is not defensible.
 - `expected` is what `agents/intruder` reasons over. It is not a recognition result; it is an inference from context such as entry point, time of day, and whether the count exceeds what residents reported. Never present it as identifying a person.
 - `breathing_bpm` in 6-30, `heart_bpm` in 40-120, matching RuView's stated ranges. Outside those ranges, report nothing rather than a number.
-- `is_person` is the personhood verdict and comes from **respiration periodicity, never from heart rate**. It is the field that separates a human from a fan, a curtain, or a cart. Absence of respiration is not proof of absence of a person; cross-check `collapse` before concluding anything.
+- `is_person` is the personhood verdict and comes from **respiration periodicity, never from heart rate**. It is the field that separates a human from a fan, a curtain, or a cart. Absence of respiration is not proof of absence of a person; report the uncertainty rather than resolving it.
 - `basis` on a classification records what the class decision was made from. `respiration_rate` is the defensible one. See the rate table above for the class boundaries and their overlap.
 - `confidence` must be real and must be propagated all the way to the operator's ear. An agent escalating on a 0.3 presence is a different story than one escalating on 0.9, and the honesty is a feature.
-- `collapse.event` is one of `fall`, `slump`, `none`. `still_down_s` is what distinguishes an emergency from someone sitting down hard; a fall followed by standing up is not an event worth reporting.
+- `responsiveness` is only ever emitted for a presence that **had** a resolvable breathing signature. `respiration_lost_s` runs from the last resolvable frame, not from the moment the reader became confident, and it is never a finding that breathing has stopped.
 - `environment.source` must name the real hardware, or the literal string `demo-trigger` when it is faked. This field exists so nobody can accidentally present a simulated reading as a measured one.
 - `calibration.healthy` going false must propagate and must suppress escalation. A stale baseline produces confident nonsense, which is the worst possible output for this use case.
 
@@ -303,13 +305,13 @@ Not oxygen, not carbon monoxide, not smoke as a chemical.
 There is a genuine oxygen absorption band near 60 GHz, which is why 802.11ad operates there, but the BCM43455c0 is a 2.4/5 GHz radio and that physics is simply not available to us.
 Do not build an "oxygen sensing" claim on this hardware.
 
-This is why `agents/environment` reads a separate physical sensor.
+This is why `agents/master` reads a separate physical sensor.
 
 ## Air quality: simulated, and labeled as such
 
 Carbon monoxide, not oxygen. See the modality limits above for why CSI cannot do this at all.
 
-**No gas sensor is being purchased.** `agents/environment` ships with a simulated reading.
+**No gas sensor is being purchased.** `agents/master` ships with a simulated reading.
 
 Build the interface as though a sensor were behind it:
 
@@ -328,7 +330,7 @@ the agent, its ANS identity, and the contract are real; the sensor is not; swapp
 
 We are not building a validated fire detector in 36 hours and should not claim to.
 
-Take fire as an external input, from `agents/environment` or a demo trigger, and let CSI answer the question that actually matters: **who is still inside, where, and are they breathing.**
+Take fire as an external input, from the gas sensor `agents/master` reads or a demo trigger, and let CSI answer the question that actually matters: **who is still inside, where, and are they breathing.**
 
 Firefighters already know the house is on fire when they are dispatched.
 Nobody knows how many people are in the back bedroom.
@@ -376,12 +378,11 @@ Do not let it get tuned at 4am by whoever is nearest the keyboard. Write down th
 |---|---|
 | Motion detection | **No.** Variance over a sliding window. Furniture has zero variance; people do not. |
 | Breathing | **No.** Periodicity in a 0.1-0.5 Hz band. Needs seconds of data, not a reference. |
-| Fall / collapse | Mostly no. It is a motion transient. |
 | Counting people | **Yes.** |
 | Room-level localization | **Yes.** |
 
-So `agents/collapse` and `agents/biometrics`, the two highest-value agents, are close to calibration-free.
-`agents/occupancy` is the one that genuinely needs the baseline.
+So the respiration reader inside `agents/people`, which carries both the personhood verdict and the responsiveness clock, is close to calibration-free.
+Its presence reader is the one part of the system that genuinely needs the baseline.
 
 This is also why the venue demo is movement-only: motion sensing is environment-independent, which is the whole reason it survives a crowded hall.
 
@@ -442,13 +443,13 @@ Three properties make this load-bearing rather than a nice extra:
 Chest wall displacement from breathing is roughly 5-12mm. From a heartbeat it is a few tenths of a millimeter: more than an order of magnitude smaller, usually buried under respiration harmonics, and generally requiring the subject to be close and still.
 RuView lists 40-120 BPM for heart rate. Treat it as a stretch goal and as a good number to say on the 911 call. Respiration at 0.1-0.5 Hz carries the personhood decision.
 
-Consequence for the agent layer: **`agents/biometrics` is the arbiter of what counts as a person**, not merely another reporting channel.
+Consequence for the agent layer: **the respiration reader in `agents/people` is the arbiter of what counts as a person**, not merely another reporting channel.
 A presence with a respiration signature is human. One without is furniture, noise, or a pet.
 
-Clinical thresholds, the long-lie definition, and the statistics behind all of this are in `docs/research/agent-briefs.md`.
+Thresholds and the statistics behind all of this are in `docs/research/agent-briefs.md`.
 Tagging a presence with a person's name is a separate question with a separate answer: `docs/research/identity.md`. Short version - never from the body, only from device association, and the label never overrides a physical observation.
 
-**Range, per capability:** motion and collapse reach 5-10 m line of sight and about 5 m through one drywall wall; respiration is the short pole at 2-4 m, best under 3. Heart rate is under 2 m and often under 1.
+**Range, per capability:** motion reaches 5-10 m line of sight and about 5 m through one drywall wall; respiration is the short pole at 2-4 m, best under 3. Heart rate is under 2 m and often under 1.
 Sensitivity runs along the line between router and Pi, not in a radius around the Pi.
 Full table, wall-penetration limits and the twenty-minute range test are in `docs/hardware/assembly-and-placement.md`.
 **Respiration sets the demo geometry**, because it is the shortest-range thing the demo depends on.
@@ -468,7 +469,7 @@ The consequence is that **sensitivity depends on where the person is lying.**
 
 Boundaries fall every λ/2 of path change, which is 30mm at 5GHz. So there are real positions in a room where a perfectly healthy person reads as not breathing.
 
-**When staging the fall, test two or three positions before concluding anything is broken.** If breathing looks absent, move the subject a few inches first. Combine across subcarriers rather than trusting one, since different subcarriers peak at different positions.
+**When staging the still, breathing subject, test two or three positions before concluding anything is broken.** If breathing looks absent, move the subject a few inches first. Combine across subcarriers rather than trusting one, since different subcarriers peak at different positions.
 
 ### Respiration rate grounds the class split
 
@@ -488,7 +489,7 @@ It will **not** cleanly separate a dog from a child, and the overlap must be sta
 
 - Overlapping respiration signals from several people close together cannot be separated. This is why counting still fails in a crowded hall.
 - Vital signs work at shorter range than motion detection.
-- A person holding their breath, or breathing very shallowly, degrades toward invisible. Cross-check against `collapse` rather than treating absence of respiration as absence of a person.
+- A person holding their breath, or breathing very shallowly, degrades toward invisible. Report that as uncertainty rather than treating absence of respiration as absence of a person.
 
 ## Privacy posture
 

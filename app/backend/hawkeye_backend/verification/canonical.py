@@ -3,7 +3,7 @@
 `canonicalization_probe` (battery #13) requests two authority-signed mandates
 where `max_amount` serializes differently, float versus int, and checks whether
 the implementation handles them consistently. It is the probe most likely to bite
-us as an ordinary bug rather than as an attack: nine agents, and any two of them
+us as an ordinary bug rather than as an attack: five agents, and any two of them
 serializing the same value differently produce signature mismatches that look
 exactly like tampering.
 

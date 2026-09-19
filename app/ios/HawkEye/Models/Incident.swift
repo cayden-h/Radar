@@ -1,9 +1,9 @@
 import Foundation
 import SwiftUI
 
-/// The three incident types. Fixed set, per the root `CLAUDE.md`.
+/// The two incident types. Fixed set, per the root `CLAUDE.md`.
 enum IncidentType: String, Codable, Sendable, Hashable, CaseIterable, Identifiable {
-    case burglary, fire, faint
+    case burglary, fire
 
     var id: String { rawValue }
 
@@ -11,7 +11,6 @@ enum IncidentType: String, Codable, Sendable, Hashable, CaseIterable, Identifiab
         switch self {
         case .burglary: "Burglary"
         case .fire: "Fire"
-        case .faint: "Faint"
         }
     }
 
@@ -19,7 +18,6 @@ enum IncidentType: String, Codable, Sendable, Hashable, CaseIterable, Identifiab
         switch self {
         case .burglary: "figure.run"
         case .fire: "flame.fill"
-        case .faint: "figure.fall"
         }
     }
 
@@ -27,13 +25,13 @@ enum IncidentType: String, Codable, Sendable, Hashable, CaseIterable, Identifiab
         switch self {
         case .burglary: Palette.burglary
         case .fire: Palette.fire
-        case .faint: Palette.faint
         }
     }
 }
 
 /// How the incident was raised. The autonomous path is the one that matters,
-/// because the person who would have pressed the button is on the floor.
+/// because the person who would have pressed the button may not be in a state
+/// to press it.
 enum IncidentOrigin: String, Codable, Sendable, Hashable, CaseIterable {
     case user
     case system
@@ -79,8 +77,9 @@ enum CallState: String, Codable, Sendable, Hashable, CaseIterable {
 
 /// Why `master` called it what it called it.
 ///
-/// Classification is the interesting part and should be visible. A fall plus
-/// elevated CO is a fire incident with a casualty, not a faint.
+/// Classification is the interesting part and should be visible.
+/// Elevated CO plus a breathing signature that has gone missing is a fire with
+/// an occupant who may not be able to respond, not two separate incidents.
 struct IncidentClassification: Codable, Sendable, Hashable {
     var incidentType: IncidentType
     /// Plain English, shown to the resident.
@@ -330,7 +329,7 @@ enum InstructionOrigin: String, Codable, Sendable, Hashable, CaseIterable {
     case systemStatus = "system_status"
 }
 
-/// One thing `agents/guidance` is telling the resident to do.
+/// One thing `agents/caller` is telling the resident to do.
 ///
 /// **The client never authors this text.** Everything shown comes from the
 /// guidance agent, which is the component that owns the safety rules in

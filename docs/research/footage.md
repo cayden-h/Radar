@@ -79,7 +79,7 @@ Pexels and Pixabay carry usable fire and emergency B-roll under permissive licen
 Most of the video is ours. See `media/CLAUDE.md` for the shot list.
 
 - The house, the rooms, the walls the system sees through.
-- The staged fall.
+- The staged scene: a person lying still while their breathing signature goes missing.
 - The Pi and router in place.
 - The agent console, screen-recorded separately and cut in. Do not film a laptop screen.
 - The phone, showing the transcript and guidance arriving.

@@ -10,7 +10,7 @@ what happens; this one shows why any of it can be believed.
 
 A sensing agent never just "reports a number". It issues a slip that reads, in effect:
 
-> I, the biometrics agent, say the person in the main bedroom has stopped breathing.
+> I, the people agent, say the person in the main bedroom has stopped breathing.
 > This slip is for the master at *this* house, about incident #1234, about the *main bedroom*,
 > it is good for five minutes, only the holder of *this* key may hand it over,
 > and it is strong enough to justify calling 911.
@@ -101,7 +101,7 @@ refused anyway, because the agent that issued it is not permitted to trigger wha
 
 ```mermaid
 flowchart LR
-    A["<b>occupancy agent</b><br/><br/>signature: VALID<br/>key: REGISTERED<br/>envelope: PARSES<br/>nothing is forged<br/><br/>asks to trigger: <b>DISPATCH 911</b>"]
+    A["<b>a sensing agent</b><br/><br/>signature: VALID<br/>key: REGISTERED<br/>envelope: PARSES<br/>nothing is forged<br/><br/>asks to trigger: <b>DISPATCH 911</b>"]
     A --> Q{"What is this agent's<br/>Trust Index profile?"}
     Q -->|FIDUCIARY| F["may dispatch"]
     Q -->|TRANSACTIONAL| T["may act, attributed"]

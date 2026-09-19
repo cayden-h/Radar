@@ -175,7 +175,7 @@ Each order of magnitude smaller costs range.
 | Capability | Line of sight | Through one drywall wall |
 |---|---|---|
 | Motion / presence | 5-10 m | ~5 m |
-| Collapse (a motion transient) | 5-10 m | ~5 m |
+| A motion transient | 5-10 m | ~5 m |
 | Occupancy and zone | 4-8 m, degrades as count rises | 3-5 m |
 | **Respiration** | **2-4 m, best under 3** | 2-3 m, marginal |
 | Heart rate | under 2 m, often under 1 | do not attempt |
@@ -244,7 +244,7 @@ Respiration is periodic, so integrating over more cycles averages the noise down
 
 | | Needs | Can afford |
 |---|---|---|
-| Collapse | speed; it is a transient | short window, and the signal is large anyway |
+| A motion transient | speed; it is a transient | short window, and the signal is large anyway |
 | Respiration | range | **slow. A 30-60s answer is fine** |
 
 "Is someone breathing in the back bedroom" does not need to resolve in two seconds.
@@ -284,13 +284,13 @@ Counting is the weak capability on a 1x1 radio. Run this before any shot that im
 8. Both lie still. Can two respiration peaks be resolved in the 0.1-0.5 Hz band, or do they overlap?
 
 **Step 8 decides whether "two people" appears anywhere in the video.** If the peaks overlap, do not claim a sensed count.
-Take the headcount from device association against the roster instead and let the radio answer which room and whether that presence is breathing. See `agents/CLAUDE.md` under `agents/occupancy`.
+Take the headcount from device association against the roster instead and let the radio answer which room and whether that presence is breathing. See `agents/CLAUDE.md` under `agents/people`.
 
-**Step 3 decides where the fall is staged.** Respiration is the shortest-range capability the demo depends on, so it sets the geometry.
+**Step 3 decides where the still, breathing subject is staged.** Respiration is the shortest-range capability the demo depends on, so it sets the geometry.
 Motion will work almost anywhere and is not the constraint.
 
 Cross-check against the Fresnel note in `sensor/CLAUDE.md`: if respiration looks absent at a distance that should work, move the subject a few inches before concluding the range ran out.
-Torso height is also a reasonable compromise for a fall, where the body ends up low, because the transient is a change in the path rather than an absolute level.
+Torso height is also a reasonable compromise for someone lying down, where the body ends up low, because what the radio sees is a change in the path rather than an absolute level.
 
 A shelf, a stack of books, or a tripod all work.
 Do not put either box on the floor, and do not put either on top of a tall bookcase.
@@ -314,7 +314,7 @@ Everything in this list changes the channel in ways that have nothing to do with
 | Microwave ovens, in use | Broadband interference in the 2.4GHz band. Fatal to a 2.4GHz fallback capture, and a nuisance even at 5GHz. |
 | Cordless phone bases, baby monitors, Bluetooth-heavy clusters | Co-channel interference and uncontrolled traffic. |
 | Other people's Wi-Fi on the same channel | Contaminates the capture. This is why the channel is chosen after a scan. |
-| Fans, oscillating or ceiling | Periodic motion. A fan is exactly the kind of non-human periodic perturbation `agents/biometrics` is supposed to reject, so do not make its job harder for no reason during a take. |
+| Fans, oscillating or ceiling | Periodic motion. A fan is exactly the kind of non-human periodic perturbation `agents/people` is supposed to reject, so do not make its job harder for no reason during a take. |
 | Pets wandering through, unless they are in the script | Same reason. |
 | The Pi inside a metal case | Detunes the internal antenna. |
 

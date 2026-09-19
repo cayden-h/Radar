@@ -20,7 +20,11 @@ class PresenceState(StrEnum):
     """The three states app/CLAUDE.md requires the 3D view to distinguish.
 
     CONFIRMED_MOVING: moving and breathing. A person, confirmed.
-    CONFIRMED_STILL:  still but breathing. A person who is not responding.
+    CONFIRMED_STILL:  a person who is not moving. Either still breathing, or
+                      carrying a breathing signature that was resolvable and is
+                      not now - see Presence.respiration_lost_s, which is what
+                      separates those two. A lost signature is never a finding
+                      that breathing stopped.
                       The loudest thing on screen. This is what the system exists for.
     UNCONFIRMED:      a perturbation with no respiration signature. Render it as
                       such, not as a person. A curtain is not an intruder.
@@ -119,11 +123,13 @@ class Presence(BaseModel):
             "reported residents). Never a recognition result. null when not yet decided."
         ),
     )
-    still_down_s: float | None = Field(
+    respiration_lost_s: float | None = Field(
         default=None,
         description=(
-            "Seconds down and not moving, from agents/collapse. The clinical variable: a long "
-            "lie is over an hour, and half of those die within six months absent any injury."
+            "Seconds since a breathing signature was last resolvable on this presence, from "
+            "agents/people. Only ever set on a presence that HAD a signature: the transition "
+            "is the signal, and a presence that never resolved one carries no information. "
+            "Never a finding that breathing has stopped."
         ),
     )
     provenance: Provenance = Field(description="Required. See the honesty rule.")
@@ -185,7 +191,7 @@ class InteriorState(BaseModel):
     calibration: Calibration
     presences: list[Presence]
     environment: EnvironmentReading | None = Field(
-        default=None, description="Null when agents/environment has not reported."
+        default=None, description="Null when agents/master has not reported."
     )
     floorplan: Floorplan
     active_incident_id: str | None = None

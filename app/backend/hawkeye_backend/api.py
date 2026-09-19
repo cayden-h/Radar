@@ -9,6 +9,12 @@ Six capabilities, per app/CLAUDE.md:
   POST /v1/incident/{id}/context    the "what is happening" box
   GET  /v1/incident/{id}/replay     the sealed post-incident record
 
+Plus the replay console's three reads, which the iOS app does not use:
+
+  GET  /v1/replay                        index of recorded incidents
+  GET  /v1/incident/{id}/replay/verify   recompute the hash chain
+  GET  /v1/incident/{id}/replay/export   the bundle a detective is handed
+
 Plus POST /v1/demo/run, which drives the scripted detection in simulated mode and
 404s in live mode. It exists so scripts/demo.sh has something to hit. It stops at
 the detection: Hawk Eye never calls 911 on its own (settled 2026-09-19), so the
@@ -20,13 +26,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from hawkeye_backend import __version__
 from hawkeye_backend.master.base import MasterUnavailable
 from hawkeye_backend.master.simulated import SimulatedMasterClient
+from hawkeye_backend.models.common import utc_now
 from hawkeye_backend.models.events import Envelope, HelloEvent
 from hawkeye_backend.models.hub import HubStatus
 from hawkeye_backend.models.incident import (
@@ -40,6 +49,7 @@ from hawkeye_backend.models.incident import (
     ReplayRecord,
 )
 from hawkeye_backend.models.state import InteriorState
+from hawkeye_backend.replay import build_export
 from hawkeye_backend.runtime import HubRuntime
 
 logger = logging.getLogger(__name__)
@@ -56,6 +66,61 @@ class DemoRunAck(BaseModel):
     started: bool
     detail: str
     raised_incident_id: str | None = None
+
+
+class ReplaySummary(BaseModel):
+    """One row on the replay console's index. Deliberately cheap to build.
+
+    A record can hold a few hundred frames, and the index must not serialize all
+    of them just to draw a list.
+    """
+
+    incident_id: str
+    incident_type: str
+    address: str
+    opened_at: datetime
+    sealed: bool
+    sealed_at: datetime | None
+    seal_reason: str | None
+    duration_s: float
+    entries: int
+    frames_dropped: int
+    verifications: int
+    discarded: int
+    root_hash: str | None
+
+
+class ReplayIndex(BaseModel):
+    """GET /v1/replay response."""
+
+    hub_name: str
+    mode: str
+    site_address: str
+    caller_ansname: str
+    records: list[ReplaySummary]
+
+
+class ChainVerdict(BaseModel):
+    """GET /v1/incident/{id}/replay/verify response.
+
+    The website recomputes the same thing in the browser rather than trusting
+    this. Both answers are offered because they prove different things: this one
+    is convenient, the browser's does not require the server to be honest about
+    itself.
+    """
+
+    incident_id: str
+    intact: bool
+    detail: str
+    failed_seq: int | None
+    entries: int
+    root_hash: str | None
+    sealed: bool
+    scitt_receipt: str | None = None
+    receipt_note: str = (
+        "Null, and it must stay null until a real transparency-log submission exists. "
+        "Without one this record is tamper-evident to whoever holds it and to nobody else."
+    )
 
 
 @router.get("/hub", response_model=HubStatus, summary="Hub identity and health")
@@ -113,7 +178,7 @@ async def get_state(request: Request) -> InteriorState:
 
 @router.post("/incident", response_model=IncidentAck, status_code=202, summary="Raise an incident")
 async def post_incident(request: Request, body: RaiseIncidentRequest) -> IncidentAck:
-    """One tap from the app. Burglary, Fire, or Faint.
+    """One tap from the app. Burglary or Fire.
 
     202 rather than 201: the hub has accepted it and forwarded it to master, and
     what happens next arrives on the stream. The resident should not be staring
@@ -155,19 +220,96 @@ async def post_context(request: Request, incident_id: str, body: ContextRequest)
         raise HTTPException(status_code=503, detail=f"agent mesh unavailable: {exc}") from exc
 
 
+@router.get("/replay", response_model=ReplayIndex, summary="Index of recorded incidents")
+async def get_replay_index(request: Request) -> ReplayIndex:
+    """What the replay console lists. Newest first.
+
+    Only incidents this hub actually recorded appear here. An incident it saw
+    mid-flight but never saw raised is deliberately absent rather than listed
+    with a partial chain, because a record that silently omits its own beginning
+    has the shape of a doctored one.
+    """
+    runtime = _runtime(request)
+    settings = runtime.settings
+    records: list[ReplaySummary] = []
+    for session in runtime.recorder.sessions():
+        incident = await runtime.store.get_incident(session.incident_id)
+        end = session.sealed_at or utc_now()
+        record = session.to_record()
+        records.append(
+            ReplaySummary(
+                incident_id=session.incident_id,
+                incident_type=incident.incident_type.value if incident else "unknown",
+                address=session.site_address,
+                opened_at=session.opened_at,
+                sealed=session.sealed,
+                sealed_at=session.sealed_at,
+                seal_reason=session.seal_reason,
+                duration_s=round((end - session.opened_at).total_seconds(), 2),
+                entries=len(session),
+                frames_dropped=session.frames_dropped,
+                verifications=len(record.verifications),
+                discarded=sum(
+                    1 for v in record.verifications if v.decision.value == "DISCARDED"
+                ),
+                root_hash=session.root_hash,
+            )
+        )
+    return ReplayIndex(
+        hub_name=settings.hub_name,
+        mode=settings.mode,
+        site_address=settings.site_address,
+        caller_ansname=settings.caller_ansname,
+        records=records,
+    )
+
+
+def _session_or_404(request: Request, incident_id: str):
+    """The recorded session, or a 404 naming what is missing."""
+    session = _runtime(request).recorder.get(incident_id)
+    if session is None:
+        raise HTTPException(
+            status_code=404, detail=f"no recorded session for {incident_id}"
+        )
+    return session
+
+
 @router.get(
     "/incident/{incident_id}/replay",
     response_model=ReplayRecord,
     summary="The sealed post-incident record",
 )
-async def get_replay(request: Request, incident_id: str) -> ReplayRecord:
-    """From agents/replay in live mode; assembled locally in simulated mode.
+async def get_replay(
+    request: Request,
+    incident_id: str,
+    since_seq: int = Query(
+        default=0,
+        ge=0,
+        description=(
+            "Return only entries after this sequence. The replay console polls with "
+            "it once a second while a record is still open, so an unsealed record is "
+            "tailed rather than refetched."
+        ),
+    ),
+) -> ReplayRecord:
+    """The record written as the incident happened.
+
+    Three sources, in order of authority. The hub's own recorder holds the
+    record it wrote entry by entry, and that is preferred whenever it exists.
+    `agents/replay` owns it in live mode and is asked next. Failing both, the
+    store assembles one after the fact, which is a reconstruction and proves
+    less; it stays only so incidents raised before the recorder existed still
+    resolve.
 
     Every verification is in here, accepted and discarded alike. The discarded
     ones are the point: the operator could not check us live, but an investigator
     can check this afterward, and swatting investigations are entirely post-hoc.
     """
     runtime = _runtime(request)
+    session = runtime.recorder.get(incident_id)
+    if session is not None:
+        return session.to_record(since_seq=since_seq)
+
     try:
         record = await runtime.client.fetch_replay(incident_id)
     except MasterUnavailable as exc:
@@ -180,12 +322,64 @@ async def get_replay(request: Request, incident_id: str) -> ReplayRecord:
         raise HTTPException(status_code=404, detail=f"no replay record for {incident_id}")
     built = await store.build_replay(
         incident_id,
-        caller_ansname=runtime.settings.master_ansname.replace("master.", "caller."),
+        caller_ansname=runtime.settings.caller_ansname,
         site_address=runtime.settings.site_address,
     )
     if built is None:
         raise HTTPException(status_code=404, detail=f"unknown incident: {incident_id}")
     return built
+
+
+@router.get(
+    "/incident/{incident_id}/replay/verify",
+    response_model=ChainVerdict,
+    summary="Recompute the record's hash chain",
+)
+async def verify_replay(request: Request, incident_id: str) -> ChainVerdict:
+    """What an investigator runs, and what the console runs again client-side.
+
+    A pass means nobody has edited, reordered, inserted or removed an entry since
+    it was written. It does not mean the system that wrote the record wrote it
+    honestly; that is the transparency log's job and the log is not wired.
+    """
+    session = _session_or_404(request, incident_id)
+    intact, detail, failed_seq = session.verify()
+    return ChainVerdict(
+        incident_id=incident_id,
+        intact=intact,
+        detail=detail,
+        failed_seq=failed_seq,
+        entries=len(session),
+        root_hash=session.root_hash,
+        sealed=session.sealed,
+    )
+
+
+@router.get(
+    "/incident/{incident_id}/replay/export",
+    summary="The bundle a detective is handed",
+    response_class=Response,
+)
+async def export_replay(request: Request, incident_id: str) -> Response:
+    """A zip: the record, a readable chain, a standalone verifier, and a README.
+
+    Exports an unsealed record too, clearly marked as unsealed. An investigator
+    asking for the record mid-incident is a real scenario and refusing would be
+    worse than handing over something honestly labelled.
+    """
+    session = _session_or_404(request, incident_id)
+    exported_at = utc_now()
+    payload = build_export(session.to_record(), exported_at)
+    stamp = exported_at.strftime("%Y%m%dT%H%M%SZ")
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="hawkeye-{incident_id}-{stamp}.zip"'
+            )
+        },
+    )
 
 
 @router.post("/demo/run", response_model=DemoRunAck, summary="Run the scripted detection")
@@ -194,7 +388,7 @@ async def post_demo_run(
     simulate_human_tap: bool = Query(
         default=False,
         description=(
-            "Stand in for a person pressing Faint in the app. Off by default. "
+            "Stand in for a person pressing Fire in the app. Off by default. "
             "The hub itself never raises an incident; this parameter exists so "
             "one curl can exercise detection plus call end to end, and it is "
             "the human, not the system, that it is imitating."
@@ -204,11 +398,12 @@ async def post_demo_run(
     """Drive the scripted detection, then stop. Simulated mode only.
 
     The detection is expressed purely in interior state: the presence goes to
-    `confirmed_still`, `still_down_s` climbs, the CO reading rises. No incident
+    `confirmed_still` with no resolvable breathing signature, `respiration_lost_s`
+    climbs, the CO reading rises. No incident
     is created and no call is placed, because Hawk Eye never calls 911 on its
     own (settled 2026-09-19). The system notices and waits for a human tap.
 
-    `?simulate_human_tap=true` additionally raises a Faint incident exactly as
+    `?simulate_human_tap=true` additionally raises a Fire incident exactly as
     `POST /v1/incident` would, with `raised_by: user`, because the thing being
     simulated is the person. Without it this endpoint cannot start a call.
 
@@ -223,7 +418,7 @@ async def post_demo_run(
     if client.script_running:
         return DemoRunAck(started=False, detail="scripted incident already running")
 
-    started = not (client.detection_running or client.fall_detected)
+    started = not (client.detection_running or client.signature_lost)
     if started:
         asyncio.create_task(client.run_detection())
         detail = "scripted detection started; no incident raised, waiting on a human tap"
@@ -235,9 +430,9 @@ async def post_demo_run(
         # Exactly the path POST /v1/incident takes. RaisedBy.USER is not a
         # label of convenience here: assert_human_released refuses anything
         # else on the way to the call.
-        incident = await client.raise_incident(IncidentType.FAINT, RaisedBy.USER, None)
+        incident = await client.raise_incident(IncidentType.FIRE, RaisedBy.USER, None)
         raised_incident_id = incident.incident_id
-        detail += "; simulated human tap raised a faint incident"
+        detail += "; simulated human tap raised a fire incident"
 
     return DemoRunAck(started=started, detail=detail, raised_incident_id=raised_incident_id)
 

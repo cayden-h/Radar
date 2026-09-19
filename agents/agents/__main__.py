@@ -1,0 +1,191 @@
+"""Run one agent: `python -m agents <slug>`.
+
+One process per agent, not one process with five agents in it. That matters:
+they are five independently registered identities on five hostnames, and a
+single process serving all of them would have one certificate, one TLS identity
+and nothing to verify against anything else.
+
+**Host them before they are finished.** Five empty agents reachable tonight
+beats five complete agents on a laptop Sunday morning, because the deploy path
+is where the hours disappear, and reachable-with-a-correct-card is the surface
+`agent.webmesh.ai verify_agent` actually inspects.
+
+    python -m agents people --port 8001
+    python -m agents --list
+
+Inputs default to the development fixtures in `agents.core.dev`, which are
+labelled simulated in every reading they produce. `--feed replay` is where a
+captured CSI session gets wired in, and it is deliberately not implemented yet:
+see `sensor/CLAUDE.md`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import sys
+
+from agents.core.base import Agent
+from agents.core.dev import SyntheticCsiFeed, StaticRoster
+from agents.core.identity import ROSTER, identity
+from agents.core.keys import load_or_create
+from agents.core.ports import LocalMesh, ObservationSource
+from agents.core.runtime import build_app
+from agents.core.signing import ClaimSigner
+from agents.core.transport import CLAIM_TARGET_PATH, A2AObservationSource, Peer
+from agents.core.discovery import discover
+from hawkeye_backend.verification import ClaimVerifier, VerifierPolicy
+
+logger = logging.getLogger(__name__)
+
+#: The eleven zones of the demo floorplan, from the hub's `build_floorplan`.
+#: TODO(sensor): these come from the one-time enrollment walk in the real
+#: install. The floorplan is authored, not sensed - walls are the static
+#: baseline the system subtracts to see people, so it cannot map them.
+DEMO_ZONES = (
+    "main_bedroom",
+    "second_bedroom",
+    "living_room",
+    "kitchen",
+    "hallway",
+    "main_bath",
+    "second_bath",
+    "main_closet",
+    "linen_closet",
+    "entry",
+    "laundry",
+)
+
+
+def peers_from(base_urls: dict[str, str]) -> dict[str, Peer]:
+    """slug -> Peer, from a map of slug to base URL.
+
+    The ANSName comes from our own roster, not from whatever the peer says it
+    is. That asymmetry is the point: a name is anchored rather than
+    self-asserted, and an agent answering under a different one is the lookalike
+    hostname attack, caught at the transport.
+    """
+    return {
+        slug: Peer(slug=slug, base_url=url.rstrip("/"), ansname=identity(slug).ansname)
+        for slug, url in base_urls.items()
+    }
+
+
+def build_agent(slug: str) -> Agent:
+    """Construct one agent with development inputs.
+
+    The wiring is explicit rather than a registry lookup, because each agent
+    takes different inputs and hiding that behind a factory would obscure the
+    one thing worth seeing here: `people` is the only consumer of the radio,
+    `intruder` reads `people` plus the network, `master` reads both plus a
+    locally attached gas sensor, and `caller` and `replay` read only `master`.
+    """
+    mesh = build_mesh(slug)
+    # realtime: a running agent has no test driving the clock, so the feed
+    # catches up to the wall clock on read. See `agents.core.dev`.
+    #
+    # `history_s` has to exceed `BASELINE_SEED_S`, or the seed window is capped
+    # by the buffer and the baseline lands a hair under its minimum age - which
+    # presents as an agent that is up, ticking, and permanently unhealthy.
+    feed = SyntheticCsiFeed(DEMO_ZONES, realtime=True, history_s=240.0)
+    roster = StaticRoster()
+
+    match slug:
+        case "people":
+            from agents.people import PeopleAgent
+
+            return PeopleAgent(feed, roster)
+        case "intruder":
+            from agents.intruder import IntruderAgent
+
+            return IntruderAgent(roster, mesh)
+        case "master":
+            from agents.master import MasterAgent, SimulatedCoSensor
+
+            return MasterAgent(mesh, gas=SimulatedCoSensor())
+        case "caller":
+            from agents.caller import CallerAgent
+
+            return CallerAgent(mesh)
+        case "replay":
+            from agents.replay import ReplayAgent
+
+            return ReplayAgent()
+        case _:
+            raise SystemExit(f"no agent {slug!r}. Try --list.")
+
+
+def build_mesh(slug: str) -> ObservationSource:
+    """How this agent reads its dependencies.
+
+    `HAWKEYE_PEERS` turns the wire on: a comma-separated `slug=url` list, e.g.
+
+        HAWKEYE_PEERS=people=https://people.hawkeye.example
+
+    With it set, claims are fetched over A2A, verified against the keys in the
+    peers' own published trust cards, and discarded with a reason when they do
+    not verify. Without it, the in-process `LocalMesh` stands in and **verifies
+    nothing**, which the whole stack reports honestly: master records
+    `envelope_verified: false` and `caller` refuses to speak.
+    """
+    raw = os.environ.get("HAWKEYE_PEERS", "").strip()
+    if not raw:
+        return LocalMesh()
+
+    base_urls = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
+    peers = peers_from(base_urls)
+    me = identity(slug)
+
+    # The trust store comes from the peers' published cards, not from a
+    # hardcoded key list. That is what ties acceptance to the same document the
+    # judge's verifier reads and the transparency log sealed.
+    store, fingerprints = discover(peers)
+    logger.info("trust store holds %d of %d peers", len(fingerprints), len(peers))
+
+    verifier = ClaimVerifier(
+        policy=VerifierPolicy(
+            audience=me.ansname,
+            target=f"{me.base_url}{CLAIM_TARGET_PATH}",
+        ),
+        trust=store,
+    )
+    return A2AObservationSource(
+        peers,
+        verifier,
+        audience=me.ansname,
+        target=f"{me.base_url}{CLAIM_TARGET_PATH}",
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="python -m agents", description=__doc__)
+    parser.add_argument("slug", nargs="?", help="Which agent to run.")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - must be reachable
+    parser.add_argument("--list", action="store_true", help="List the five and exit.")
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+
+    if args.list:
+        for agent in sorted(ROSTER, key=lambda a: (a.tier, a.slug)):
+            print(f"tier {agent.tier}  {agent.slug:<12} {agent.ansname:<44} {agent.summary}")
+        return 0
+
+    if not args.slug:
+        parser.error("name an agent, or pass --list")
+
+    agent = build_agent(args.slug)
+    signer = ClaimSigner(identity(args.slug), load_or_create(args.slug))
+    app = build_app(agent, signer=signer)
+
+    import uvicorn
+
+    print(f"{identity(args.slug).name} on http://{args.host}:{args.port}")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

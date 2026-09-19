@@ -9,7 +9,7 @@ Research, the pitch, the agent roster, and the Devpost writeup.
 | `swapping-in-real-parts.md` | **Written 2026-09-19.** The switchboard. Every mock and simulated part, its seam, the flip, and the half-flipped states that waste an evening. |
 | `hardware/` | **Written 2026-09-19.** Step-by-step guides for every hardware item, the hookup geometry, and a bring-up checklist. `hardware/README.md` is the index. |
 | `notion-backup/` | Pre-write snapshots of the shared Notion page, taken before anything is appended to it. |
-| `research/` | **Verified background, written 2026-09-19.** Incident statistics, per-agent domain briefs, footage licensing. Every figure sourced. Start there. |
+| `research/` | **Verified background, written 2026-09-19.** Incident statistics, per-agent domain briefs, footage licensing. Every figure sourced. Start there. Updated 2026-09-19 for the two-type roster; the cut type's figures are kept as history rather than deleted. |
 | `fraud-13.md` | **Written 2026-09-19.** The 13 attacks at fraud.webmesh.ai, each mapped to its Hawk Eye analogue. Results column fills in once the agents are reachable. |
 | `geo.md` | **Written 2026-09-19.** Generative Engine Optimization, plus an opinion on the crawler tradeoff. |
 | `threat-landscape.md` | **Written 2026-09-19.** Agent attacks, OSI, OWASP ASI01-10, MAESTRO, sandbox breakout. The centerpiece of the three. |
@@ -19,6 +19,7 @@ Research, the pitch, the agent roster, and the Devpost writeup.
 Slide-by-slide copy was appended 2026-09-19, following the LARP City deck format (Cayden's prior deck: title, founders, hook, turn, what-it-is, feature grid, **why-it's-useful numbers slide**, how-it-works, tech stack, thank you).
 
 The numbers slide is the one that matters. Its six cards are drawn from `research/incidents.md` and every one is sourced.
+**Three of those cards are fall statistics and are now stale**, because fall detection was cut on 2026-09-19. The copy in Notion still shows them and needs replacing with the fire timeline and the living-alone figures before judging.
 A second optional numbers slide covers the ANS track for judging with Scott Courtney.
 
 Notion note: the MCP connector returns 404 on that page (guest workspace). It is edited through the internal web API from a logged-in Chrome tab.
@@ -27,14 +28,14 @@ Back the page up before every write. Backups live in `docs/notion-backup/`, not 
 
 Appended 2026-09-19, after the slide copy:
 
-- **Architecture - Flowcharts.** Five Mermaid diagrams: system architecture and the two human boundaries, the faint path as a sequence (detection, alert, human tap, call), the refusal path, the iOS app flow, and the hardware topology.
+- **Architecture - Flowcharts.** Five Mermaid diagrams: system architecture and the two human boundaries, the fire path as a sequence (detection, alert, human tap, call), the refusal path, the iOS app flow, and the hardware topology.
 - **The trust layer - how verification actually works.** Four more Mermaid diagrams, added 2026-09-19: the anatomy of a claim, the two-stage pipeline, the authentication-versus-authorization punchline, and where each of the thirteen attacks dies. This is the section to send someone who is lost in the security material.
 
 **Mermaid diagrams are now version-controlled in the repo**, which they were not before:
 
 | File | What it holds |
 |---|---|
-| `architecture-diagrams.md` | The five architecture diagrams. Source of truth; change here, then push to Notion. |
+| `architecture-diagrams.md` | The five architecture diagrams. Source of truth; change here, then push to Notion. **Updated 2026-09-19 for the five-agent roster and again for the two-type roster; the copies in Notion are stale until pushed.** |
 | `trust-layer-explained.md` | The trust layer, four diagrams plus the prose that makes them land. |
 
 **Flowchart 2 was wrong until 2026-09-19** and is worth knowing about, because the same error is easy to reintroduce in the deck and the video. It showed `master` releasing `caller` to dial with no human in between, which contradicts the settled decision and the shipped `assert_human_released()` guard. Detection is autonomous; the call is not.
@@ -43,6 +44,9 @@ Appended 2026-09-19, after the slide copy:
 `research/CLAUDE.md` is the index. The three findings that carry the pitch are at the top of it.
 
 **Open action item: write up the full agent list and responsibilities.** `agents/CLAUDE.md` is the working version; `docs/` gets the reader-facing one for the submission.
+**The roster changed on 2026-09-19**, from nine agents to five, and anything written before that date describes the old one.
+**The incident roster changed the same day**, from three types to two: fall detection was cut and the third type went with it, so anything showing three buttons or three classifications is stale.
+The merge and its rationale are in `agents/CLAUDE.md` under "Why five and not nine"; the short version is that `biometrics`, `occupancy` and `collapse` became `people`, `environment` became an input to `master`, and `guidance` became the resident-facing half of `caller`. **Pushing the corrected Mermaid diagrams to Notion is part of this action item**, because the copies there still show nine.
 
 This folder is not filler.
 The track owner named three research items as action items in his own briefing, and the team that shows up Sunday having actually done them is a different team from the one that shows up with only code.
@@ -133,7 +137,7 @@ The line that ties them together, matching Slide 6's format:
 
 Then the turn, which is the whole reason this project is on this track: those failures cost money. Ours costs an armed response sent to a real address.
 
-Open on the fall, then the tap. Hawk Eye does not call 911 by itself and the pitch should say so early, before a judge wonders.
+Open on the lost breathing signature, then the tap. Hawk Eye does not call 911 by itself and the pitch should say so early, before a judge wonders.
 
 Keep the education budget near zero.
 Everyone in the room already understands what a 911 call is, and everyone has heard of swatting.
@@ -146,11 +150,14 @@ That was the fatal flaw in the rejected ROSCA idea, and this project's main adva
 
 **In `research/incidents.md`, with sources.** The three that carry the pitch:
 
-- **The long lie.** Half of older adults who lie on the floor over an hour after a fall die within six months, even absent injury from the fall. 53% are still there when the ambulance arrives. The fall is not what kills; discovery time is.
 - **Unconscious before aware.** House fire toxic gases can render someone unconscious in under a minute, often before they know there is a fire. A modern room is unsurvivable in under three.
-- **28% of older adults live alone**, 42% of women over 75.
+- **28% of older adults live alone**, 42% of women over 75. There is often nobody in the building to answer for them.
+- **Responders arrive knowing nothing about who is inside.** Not how many, not which rooms, not whether any of them can answer.
 
-Together: **by the time a human calls, the information that decides the outcome is already lost to them.** How long they have been down. Which room. Whether they are breathing.
+Together: **by the time a human calls, the information that decides the outcome is already lost to them.** Which rooms hold someone. Whether they are breathing. How long since a breathing signature that was there stopped being resolvable.
+
+The fall statistics used to lead this section and no longer can: fall detection was cut on 2026-09-19 and the system does not measure time on the floor.
+They are kept, sourced and marked as history, in `research/incidents.md`, because a judge who asks why we dropped the strongest-sounding numbers deserves the numbers and the answer together.
 
 That is the argument for Hawk Eye, and it is stronger than anything in the ANS material because a judge feels it immediately.
 
@@ -176,13 +183,14 @@ Draft Saturday. Do not write it Sunday morning.
 
 Must include:
 - The demo video. It is the submission's centerpiece, not an attachment.
-- The agent roster and what each one is responsible for.
+- The agent roster and what each one is responsible for. Five agents, as of 2026-09-19.
 - A clear statement of what is ours versus what came from RuView (MIT). See the root file's upstream hygiene note.
 - The hero loop from `media/`.
 - **The three assigned research deliverables**, linked: `fraud-13.md`, `geo.md`, `threat-landscape.md`. The track owner named them as action items in his own briefing. A submission that links them is a different submission from one that only links code.
 - Honest scoping, stated rather than buried. See the honesty rule in the root `CLAUDE.md`. Name each of these explicitly:
-  - `agents/environment` reads a simulated gas sensor. No hardware was bought. The interface is real and a sensor drops in behind it.
+  - `agents/master` reads a simulated gas sensor. No hardware was bought. The interface is real and a sensor drops in behind it.
   - We do not do person re-identification. RuView flags it experimental and data-gated.
+  - **We do not detect falls.** We report the seconds since a breathing signature that was resolvable in a room stopped being resolvable, and that is never a finding that anybody has stopped breathing.
   - We do not detect fire. We detect who is inside and whether they are breathing.
   - We do not identify specific people. `agents/intruder` infers that a presence is unexpected from context, not from recognizing anyone. Be ready for "how do you tell a burglar from a roommate."
   - Body-type classification comes from **respiration rate**, and adult/child/pet ranges overlap. Say "adult versus small and fast-breathing," not "we identify pets."

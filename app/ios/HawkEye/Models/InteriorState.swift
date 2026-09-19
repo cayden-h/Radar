@@ -18,8 +18,12 @@ enum PresenceState: String, Codable, Sendable, Hashable, CaseIterable {
     /// Moving and breathing. A person, confirmed, and nothing is wrong.
     case personMoving = "confirmed_moving"
 
-    /// Still but breathing. A person who is not responding.
+    /// A person whose breathing signature we had and no longer have.
     /// This is the one the whole system exists for.
+    ///
+    /// The case name is internal. Nothing shown to a human calls this
+    /// "unresponsive": a lost signature is a reason to look, never a finding
+    /// about a body, and shallow breathing reads exactly the same way.
     case personUnresponsive = "confirmed_still"
 
     /// A perturbation with no respiration signature. Not a person: a fan, a
@@ -27,7 +31,7 @@ enum PresenceState: String, Codable, Sendable, Hashable, CaseIterable {
     ///
     /// Absence of respiration is not proof of absence of a person. Shallow
     /// breathing and range limits both degrade toward invisible, which is why
-    /// `agents/collapse` is cross-checked before this verdict is trusted, and
+    /// `agents/people` is cross-checked before this verdict is trusted, and
     /// why the UI never says "nobody there".
     case unconfirmed
 
@@ -43,18 +47,21 @@ enum PresenceState: String, Codable, Sendable, Hashable, CaseIterable {
     /// when a frame omits the field, so the app degrades to a defensible answer
     /// instead of drawing nothing.
     ///
-    /// Respiration is the arbiter of personhood, per `agents/biometrics`.
+    /// Respiration is the arbiter of personhood, per `agents/people`.
     /// Movement alone cannot tell these states apart.
     static func derive(
         moving: Bool,
         respiration: RespirationStatus,
-        stillDownS: Double?
+        respirationLostS: Double?
     ) -> PresenceState {
-        // Someone who went down and has not got up is unresponsive even if the
-        // respiration estimate is currently marginal.
-        if let stillDownS, stillDownS > 0 { return .personUnresponsive }
+        // A signature this presence had and no longer has outranks the current
+        // respiration estimate: the transition is the signal, and a marginal
+        // estimate now is exactly what the loss looks like.
+        if let respirationLostS, respirationLostS > 0 { return .personUnresponsive }
         switch respiration {
-        case .breathing: return moving ? .personMoving : .personUnresponsive
+        // A resolvable signature is the personhood verdict, and stillness on
+        // its own is not an alarm. Only the loss of a signature we had is.
+        case .breathing: return .personMoving
         case .noSignature: return .unconfirmed
         case .unknown: return .unresolved
         }
@@ -67,7 +74,7 @@ enum PresenceState: String, Codable, Sendable, Hashable, CaseIterable {
     var headline: String {
         switch self {
         case .personMoving: "Moving"
-        case .personUnresponsive: "Not responding"
+        case .personUnresponsive: "No breathing signature"
         case .unconfirmed: "Unconfirmed"
         case .unresolved: "Not resolved"
         }
@@ -75,8 +82,8 @@ enum PresenceState: String, Codable, Sendable, Hashable, CaseIterable {
 
     var detail: String {
         switch self {
-        case .personMoving: "Breathing, moving normally"
-        case .personUnresponsive: "Breathing, has not moved"
+        case .personMoving: "Breathing signature resolvable"
+        case .personUnresponsive: "Had a breathing signature, does not now"
         case .unconfirmed: "Movement with no breathing signature"
         case .unresolved: "Not enough signal to say yet"
         }
@@ -197,9 +204,10 @@ struct Presence: Codable, Sendable, Hashable, Identifiable {
     var classBasis: String?
     /// `agents/intruder`'s inference from context. Never a recognition result.
     var expected: Bool?
-    /// Seconds down and not moving. The clinical variable: a long lie is over an
-    /// hour, and half of those die within six months absent any injury.
-    var stillDownS: Double?
+    /// Seconds since a breathing signature was last resolvable on this presence.
+    /// Only ever set on a presence that HAD one: the transition is the signal.
+    /// Never a finding that breathing has stopped.
+    var respirationLostS: Double?
     var provenance: Provenance?
 
     var id: String { presenceID }
@@ -210,8 +218,8 @@ struct Presence: Codable, Sendable, Hashable, Identifiable {
     /// A confirmed person the system did not expect to be in the building.
     ///
     /// **`expected` is orthogonal to `state`, not a fourth `PresenceState`.**
-    /// An unexpected person is still moving or still unresponsive; what changes
-    /// is whether their being here is accounted for.
+    /// An unexpected person is still moving, or still one whose signature went
+    /// missing; what changes is whether their being here is accounted for.
     ///
     /// `nil` means expected. A frame that omits the field must not turn the
     /// household into intruders, and `agents/intruder` only ever sets it to
@@ -236,7 +244,7 @@ struct Presence: Codable, Sendable, Hashable, Identifiable {
         case presenceID = "presence_id"
         case presenceClass = "presence_class"
         case classBasis = "class_basis"
-        case stillDownS = "still_down_s"
+        case respirationLostS = "respiration_lost_s"
     }
 
     init(
@@ -249,7 +257,7 @@ struct Presence: Codable, Sendable, Hashable, Identifiable {
         presenceClass: PresenceClass = .unknown,
         classBasis: String? = nil,
         expected: Bool? = nil,
-        stillDownS: Double? = nil,
+        respirationLostS: Double? = nil,
         provenance: Provenance? = nil
     ) {
         self.presenceID = presenceID
@@ -261,7 +269,7 @@ struct Presence: Codable, Sendable, Hashable, Identifiable {
         self.presenceClass = presenceClass
         self.classBasis = classBasis
         self.expected = expected
-        self.stillDownS = stillDownS
+        self.respirationLostS = respirationLostS
         self.provenance = provenance
     }
 
@@ -275,7 +283,7 @@ struct Presence: Codable, Sendable, Hashable, Identifiable {
         presenceClass = try c.decodeIfPresent(PresenceClass.self, forKey: .presenceClass) ?? .unknown
         classBasis = try c.decodeIfPresent(String.self, forKey: .classBasis)
         expected = try c.decodeIfPresent(Bool.self, forKey: .expected)
-        stillDownS = try c.decodeIfPresent(Double.self, forKey: .stillDownS)
+        respirationLostS = try c.decodeIfPresent(Double.self, forKey: .respirationLostS)
         provenance = try c.decodeIfPresent(Provenance.self, forKey: .provenance)
         // Trust the server's verdict. `derive` is the fallback for a frame that
         // omits it, and nothing else in the app re-derives this.
@@ -283,7 +291,7 @@ struct Presence: Codable, Sendable, Hashable, Identifiable {
             ?? PresenceState.derive(
                 moving: moving,
                 respiration: vitals.respiration,
-                stillDownS: stillDownS
+                respirationLostS: respirationLostS
             )
     }
 }
@@ -422,7 +430,7 @@ struct InteriorState: Codable, Sendable, Hashable {
     var sensorIdentity: String = ""
     var calibration: Calibration = Calibration()
     var presences: [Presence] = []
-    /// Null when `agents/environment` has not reported.
+    /// Null when `agents/master` has not reported.
     var environment: EnvironmentReading?
     var floorplan: Floorplan = .home
     var activeIncidentID: String?

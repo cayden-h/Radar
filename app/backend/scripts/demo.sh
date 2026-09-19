@@ -66,9 +66,9 @@ curl -fsS "${BASE}/v1/state" | "$PY" tools/summarize.py state
 
 echo
 echo "== WS /v1/stream, detection then tap =="
-echo "   agents/collapse fires and nobody is dialled. The fall shows up in"
-echo "   interior state, still_down_s climbs, and the system waits."
-echo "   Then a person taps Faint, which is what releases the call."
+echo "   agents/people loses a breathing signature and nobody is dialled. It shows"
+echo "   up in interior state, respiration_lost_s climbs, and the system waits."
+echo "   Then a person taps Fire, which is what releases the call."
 echo
 
 WATCH_SECONDS=$("$PY" -c "print(max(26.0, 60.0 * $SPEED + 8))")
@@ -82,10 +82,10 @@ curl -fsS -X POST "${BASE}/v1/demo/run" >/dev/null
 # is the only thing that starts a call.
 sleep "$("$PY" -c "print(8 * $SPEED)")"
 echo
-echo "   -- tapping Faint (POST /v1/incident, raised_by user) --"
+echo "   -- tapping Fire (POST /v1/incident, raised_by user) --"
 curl -fsS -X POST "${BASE}/v1/incident" \
   -H 'content-type: application/json' \
-  -d '{"incident_type":"faint"}' >/dev/null
+  -d '{"incident_type":"fire"}' >/dev/null
 
 # Mid-incident, the resident types into the "what is happening" box.
 sleep "$("$PY" -c "print(12 * $SPEED)")"

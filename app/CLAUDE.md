@@ -13,19 +13,22 @@ Everything else is out of scope.
 
 ## Raising an incident
 
-Three buttons, named for the three incident types:
+Two buttons, named for the two incident types:
 
 - **Burglary**
 - **Fire**
-- **Faint**
+
+There were three until 2026-09-19, when fall detection was cut and the third type went with it.
 
 One tap raises the incident to `agents/master`, which classifies, verifies, and routes.
 
 **This is the only path.** Hawk Eye never calls 911 on its own; settled 2026-09-19. A human tap is what releases `agents/caller` to dial.
 
-`collapse` and `environment` still detect, and their detections surface here as **alerts**: "a fall was detected in the main bedroom four minutes ago." An alert is information a person acts on. It is not a call.
+`agents/people` senses continuously and `agents/master` reads the gas sensor, and what they find surfaces here as **alerts**: "the breathing signature in the second bedroom went missing four minutes ago." An alert is information a person acts on. It is not a call.
+Neither of those is its own agent any more: `collapse` was deleted with fall detection on 2026-09-19, and `environment` was merged into `master` the same day.
 
-The value is not that the system dials for you. It is that when you do tap, the dispatcher is told how many people are in the house, which rooms they are in, whether each is breathing, and how long since one of them went down.
+The value is not that the system dials for you. It is that when you do tap, the dispatcher is told how many people are in the house, which rooms they are in, whether each is breathing, and how long since a breathing signature that was resolvable in a room stopped being resolvable.
+That last one is never phrased as somebody having stopped breathing, in this app or anywhere else in the system. It is a measurement and a clock.
 
 ## During the call
 
@@ -101,7 +104,7 @@ Tapping Burglary already selects silent. That is deterministic and needs no infe
 
 What the "what is happening" box adds is the case where the tap and the reality disagree:
 
-- Tapped **Faint**, typed "someone is in the house"
+- Tapped **Fire**, typed "someone is in the house"
 - Tapped **Fire**, typed "I can't talk, he's downstairs"
 
 Phrases along the lines of *can't talk, he's here, hiding, quiet, don't make noise* pull the call toward silence regardless of which button was pressed.
@@ -141,7 +144,7 @@ Settled 2026-09-19. **Hold-to-confirm, not modal dialogs.**
 
 | Control | Protection | Why |
 |---|---|---|
-| Raise incident (Burglary / Fire / Faint) | **Hold 1.5s** | An accidental tap calls 911. A pocket-dial to emergency services is a real harm, not an inconvenience |
+| Raise incident (Burglary / Fire) | **Hold 1.5s** | An accidental tap calls 911. A pocket-dial to emergency services is a real harm, not an inconvenience |
 | End call | **Hold 1.5s** | Hanging up on 911 mid-incident is catastrophic |
 | Turn on sound | **Hold 1.5s** | Makes the phone audible and can reveal a hiding person |
 | **Take over** | **Hold 1.5s** | Consistent with every other risky control. Voice barge-in remains the instant path |
@@ -209,7 +212,6 @@ Defaults by incident type, with a manual toggle in every mode because a medical 
 
 | Incident | Default |
 |---|---|
-| Faint | Audio on |
 | Fire | Audio on |
 | **Burglary** | **Silent.** No audio, no haptics, dimmed, whisper or typed only |
 
@@ -218,14 +220,15 @@ The "what is happening" box doubles as typed takeover in silent mode: what the r
 
 ### Instructions from the agents
 
-`agents/guidance` pushes updates and instructions as the call progresses.
+`agents/caller` pushes updates and instructions as the call progresses. It is the same agent that is on the phone to the dispatcher, which is what keeps the operator and the resident from being told different things.
 
 Two sources, and the UI should not distinguish them because the user does not care:
 
 - **Relayed from the operator.** When the dispatcher says something that matters, the user is told. "Units dispatched." "Two minutes out." "Unlock the front door if you can do it safely." Match on meaning rather than exact strings; a dispatcher will not say the phrase you hardcoded.
-- **First aid.** CPR, recovery position, stay low and cover your nose, do not move someone who fell.
+- **Safety instructions.** Get out and stay out, stay low, do not confront anyone, wait for responders.
 
-See the safety rules in `agents/CLAUDE.md` before writing any of the first-aid path. Bad first-aid instructions are a real-world harm, not a demo bug.
+There is no patient-care protocol, and the absence is deliberate: neither incident type is one where staying to help is correct guidance. CPR and the recovery position went with the cut incident type on 2026-09-19.
+See the safety rules in `agents/CLAUDE.md` before writing any of this path. A bad safety instruction is a real-world harm, not a demo bug.
 
 Notifications must arrive when the app is backgrounded. The resident will not be staring at the screen.
 
@@ -251,11 +254,11 @@ If it reads as a live map of an unknown house, add a line of UI that says the pl
 Render confidence as coherence rather than as a number floating in space. A presence at 0.4 should look uncertain.
 That is honest and it also looks better.
 
-**Distinguish a confirmed person from an unconfirmed presence.** `agents/biometrics` decides personhood from a respiration signature, so the view has three states to show, not one:
+**Distinguish a confirmed person from an unconfirmed presence.** `agents/people` decides personhood from a respiration signature, so the view has three states to show, not one:
 
 - Moving, breathing: a person, confirmed.
-- Still, breathing: a person who is not responding. **This is the one the whole system exists for. Make it the loudest thing on screen.**
-- A perturbation with no respiration signature: unconfirmed. Render it as such rather than as a person.
+- A person whose breathing signature we had and no longer have. **This is the one the whole system exists for. Make it the loudest thing on screen.** Label it "no breathing signature", never "not breathing": a signature that stopped resolving is a reason to look, not a finding about a body.
+- A perturbation that never had a respiration signature: unconfirmed. Render it as such rather than as a person.
 
 The difference between the second and third states is the difference between dispatching an ambulance and reporting a curtain, and the UI should carry that weight rather than flattening everything into identical dots.
 
@@ -289,7 +292,7 @@ The app is Connect, then Main. There is no third stage, no onboarding, and no se
 
 **Stage 1, Connect.** The wordmark, a quiet "Looking for your home" state, then a list of discovered hubs with name, signal strength, and whether the hub is already paired. Tapping one shows a short verifying state and then you are in.
 
-**Stage 2, Main.** The live interior view, the presence roster under it, and the three incident buttons. An open incident takes over the whole screen, because during a call nothing should compete with the call.
+**Stage 2, Main.** The live interior view, the presence roster under it, and the two incident buttons. An open incident takes over the whole screen, because during a call nothing should compete with the call.
 
 ### The Bonjour constraint
 
@@ -321,13 +324,13 @@ It then acquires respiration and becomes a confirmed person with `expected: fals
 
 **Phrase it as a surplus, not as arithmetic.** The claim that survives a 1x1 radio is "**at least one presence more than the roster accounts for**", not "three bodies minus two residents". An exact sensed count is not available; a *surplus* is, because it only requires noticing that an additional presence appeared.
 
-The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/occupancy`.
+The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/people`.
 It routes living room to kitchen to hallway, crossing the whole unit, with its position interpolated between zone centroids so it visibly moves.
 That puts the frame this project is built around on screen: the intruder and the resident as two distinct tracked presences, in different rooms, both moving.
-Its verification set is its own, an ASSERTED unexpected-presence claim from `agents/intruder`, an ATTRIBUTED occupancy count from `agents/occupancy`, and a DISCARDED claim that the person is armed, from an impostor at a lookalike ANSName.
+Its verification set is its own, an ASSERTED unexpected-presence claim from `agents/intruder`, an ATTRIBUTED occupancy count from `agents/people`, and a DISCARDED claim that the person is armed, from an impostor at a lookalike ANSName.
 The CO reading is not reused there: corroboration that does not corroborate anything is noise dressed as rigour.
 
-`.faint` is the collapse: the child goes down in the second bedroom and `still_down_s` climbs and does not reset.
+`.fire` carries the choreography the cut third scenario used to: the child in the second bedroom loses their breathing signature while the CO reading climbs, and `respirationLostS` starts counting from the last resolvable frame and does not reset.
 The mock builds the same `Codable` types the live client decodes, so the two paths are behaviourally identical rather than merely similar.
 
 **The demo must never depend on hardware being alive**, so this path is a first-class implementation rather than an afterthought. There is no demo branch inside any view; `AppModel.init()` picks an implementation behind `HubBrowsing` and `HawkEyeClienting` and nothing downstream knows which it got.
@@ -374,4 +377,4 @@ An incident closes when `master` sends a `resolved` incident event, and the mock
 ### First aid
 
 **The client contains no medical text and must not acquire any.**
-Every instruction on screen comes from `agents/guidance`, which is the one component reviewed against the safety rules in `agents/CLAUDE.md`. Hardcoding first-aid copy in the app would put it outside the place it gets reviewed.
+Every instruction on screen comes from `agents/caller`, specifically `agents/caller/guidance.py`, which is the one component reviewed against the safety rules in `agents/CLAUDE.md`. Hardcoding first-aid copy in the app would put it outside the place it gets reviewed.

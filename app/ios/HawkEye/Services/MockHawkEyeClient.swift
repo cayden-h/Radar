@@ -24,8 +24,11 @@ import Observation
 ///   the network, so one body with no corresponding device. The household is
 ///   configuration, not a discovery problem, and this is a second modality
 ///   rather than a second view of the CSI stream.
-/// - `.faint`. The child goes down in the second bedroom and `still_down_s`
-///   climbs and does not reset.
+/// - `.fire`. The child's breathing signature in the second bedroom stops
+///   being resolvable while carbon monoxide climbs, and `respiration_lost_s`
+///   counts from the last signature and does not reset. The claim is that we
+///   had a signature and no longer have one, never that anyone stopped
+///   breathing: shallow breathing degrades to exactly the same reading.
 ///
 /// The detection raises an alert, never a call. Hawk Eye does not dial 911 on
 /// its own.
@@ -51,10 +54,12 @@ final class MockHawkEyeClient: HawkEyeClienting {
     @ObservationIgnored private var scriptTask: Task<Void, Never>?
     @ObservationIgnored private var detectionTask: Task<Void, Never>?
 
-    /// Drives the scripted collapse. Once this is set the mock keeps reporting
-    /// the presence as down and `still_down_s` climbs, because that is the
-    /// clinical variable and it must not reset.
-    @ObservationIgnored private var collapsedAt: Date?
+    /// Drives the scripted loss of a breathing signature. Once this is set the
+    /// mock keeps reporting the presence with no signature and
+    /// `respiration_lost_s` counts from the last one, because the elapsed time
+    /// since the last signature is the answer a dispatcher needs and it must
+    /// not reset.
+    @ObservationIgnored private var respirationLostAt: Date?
 
     /// Drives the scripted entry. Once this is set a fourth presence exists in
     /// the living room, and the seconds since it decide everything about that
@@ -93,7 +98,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         sensorLoop?.cancel(); sensorLoop = nil
         scriptTask?.cancel(); scriptTask = nil
         detectionTask?.cancel(); detectionTask = nil
-        collapsedAt = nil
+        respirationLostAt = nil
         enteredAt = nil
         incident = nil
         transcript = []
@@ -155,14 +160,15 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// Builds an `InteriorState` exactly as the hub would send it, including the
     /// server-decided `presence.state` the client now trusts.
     private func state(at t: Double) -> InteriorState {
-        let down = collapsedAt
-        let stillDown = down.map { Date().timeIntervalSince($0) }
+        let lost = respirationLostAt
+        let lostFor = lost.map { Date().timeIntervalSince($0) }
         let plan = Floorplan.home
 
         // The baseline household, and it is the same household in both
         // scenarios. p1: the resident, awake and moving between the main bedroom
         // and the hallway, which is the left-hand half of the apartment.
-        // p2: a child in the second bedroom, down once the faint script fires.
+        // p2: a child in the second bedroom, whose breathing signature goes
+        // missing once the fire script fires.
         // p3: a curtain over the vent above the dryer in the laundry, which is
         // the case the system must not report as a person.
         //
@@ -192,26 +198,28 @@ final class MockHawkEyeClient: HawkEyeClienting {
             presenceClass: .adult,
             classBasis: "respiration_rate",
             expected: true,
-            stillDownS: nil,
+            respirationLostS: nil,
             provenance: simulatedCSI
         )
 
-        // Breathing is shallow and fast once down. Still a person: the
-        // personhood verdict must not waver just because movement stopped.
+        // The signature goes, the person does not. The personhood verdict must
+        // not waver just because the radio stopped resolving breathing: shallow
+        // breathing, breath-holding and range limits all read the same way, so
+        // the confidence drops rather than the verdict flipping.
         let p2 = Presence(
             presenceID: "p2",
-            state: down == nil ? .personMoving : .personUnresponsive,
+            state: lost == nil ? .personMoving : .personUnresponsive,
             position: Self.position(plan, "second_bedroom"),
-            moving: down == nil,
+            moving: lost == nil,
             confidence: clamp(0.79 + 0.05 * sin(t * 0.31 + 1.2)),
-            vitals: Vitals(respiration: .breathing,
-                           breathingBpm: down == nil ? 24 : 27,
+            vitals: Vitals(respiration: lost == nil ? .breathing : .noSignature,
+                           breathingBpm: lost == nil ? 24 : nil,
                            heartBpm: nil,
-                           personConfidence: down == nil ? 0.84 : 0.71),
+                           personConfidence: lost == nil ? 0.84 : 0.71),
             presenceClass: .child,
             classBasis: "respiration_rate",
             expected: true,
-            stillDownS: stillDown,
+            respirationLostS: lostFor,
             provenance: simulatedCSI
         )
 
@@ -228,7 +236,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             presenceClass: .unknown,
             classBasis: nil,
             expected: true,
-            stillDownS: nil,
+            respirationLostS: nil,
             provenance: simulatedCSI
         )
 
@@ -253,13 +261,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
             // comment. `demo-trigger` is the literal string the honesty rule
             // requires, and the UI reads the derived flag to caption it.
             environment: EnvironmentReading(
-                coPpm: down == nil ? 4 : 186,
+                coPpm: lost == nil ? 4 : 186,
                 smokeDetected: false,
                 confidence: 0.88,
                 provenance: Provenance(
                     source: .demoTrigger,
-                    producer: "agents/environment",
-                    ansName: "environment.hawkeye.invalid",
+                    producer: "agents/master",
+                    ansName: "master.hawkeye.invalid",
                     detail: "No gas sensor was purchased. An MQ-7 drops in behind this.",
                     sourceClass: .simulated,
                     simulated: true
@@ -362,7 +370,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             // surfaces as a notification a human acts on rather than as
             // anything that dials.
             expected: identified ? false : nil,
-            stillDownS: nil,
+            respirationLostS: nil,
             provenance: provenance
         )
     }
@@ -414,9 +422,11 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// Hawk Eye does not dial 911 on its own; a human tap releases
     /// `agents/caller`. What the detection buys is an informed tap.
     ///
-    /// For `.faint`: the presence goes to `confirmed_still`, `still_down_s`
-    /// starts climbing and does not reset, and the roster says who is down and
-    /// in which room before the resident has touched anything.
+    /// For `.fire`: the presence keeps its position, its respiration goes to
+    /// `no_signature`, and `respirationLostS` starts counting from the last
+    /// resolvable signature. The roster says which room has stopped answering,
+    /// and where the rest of the household is, before the resident has touched
+    /// anything.
     ///
     /// For `.burglary`: a new presence appears in the living room, is
     /// identified as a person no enrolled device accounts for, and starts
@@ -435,14 +445,15 @@ final class MockHawkEyeClient: HawkEyeClienting {
             try? await Task.sleep(for: delay)
             guard let self, !Task.isCancelled, self.incident == nil else { return }
             switch scenario {
-            case .faint:
-                // Debounce, as `agents/collapse` does: a collapse is only an
-                // event once it is followed by an absence of normal movement. A
-                // system that raises an alarm when someone flops onto a couch is
-                // worse than no system.
-                try? await Task.sleep(for: Config.mockFaintDebounce)
+            case .fire:
+                // Debounce, as `agents/people` does: one window without a
+                // signature is not a lost signature. A system that alarms the
+                // moment a breathing estimate goes marginal is worse than no
+                // system, because every such alarm teaches the household to
+                // ignore the next one.
+                try? await Task.sleep(for: Config.mockRespirationLostDelay)
                 guard !Task.isCancelled, self.incident == nil else { return }
-                self.collapsedAt = Date()
+                self.respirationLostAt = Date()
             case .burglary:
                 // No separate debounce here. The debounce *is* the respiration
                 // acquisition: for the first few seconds the presence is
@@ -459,7 +470,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         // Tapping a button before the scripted detection has fired starts the
         // matching sensor story, so the call is never talking about a house
         // where nothing is happening.
-        if type == .faint, collapsedAt == nil { collapsedAt = Date() }
+        if type == .fire, respirationLostAt == nil { respirationLostAt = Date() }
         if type == .burglary, enteredAt == nil { enteredAt = Date() }
         transcript = []
         instructions = []
@@ -483,21 +494,23 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// The scripted incident.
     ///
     /// Note what `caller` does and does not say. It reports the room, the
-    /// breathing rate, and how long the person has been down, because those are
-    /// verified claims from named agents. It does not diagnose, it does not
+    /// breathing rate, and how long it has been since a breathing signature was
+    /// last resolvable, because those are verified claims from named agents,
+    /// and it says the limit of that last one out loud in the same breath. It
+    /// does not diagnose, it does not
     /// assert to the operator that the call is cryptographically verified, and
     /// when it does not know something it says so.
     private func runCall(_ type: IncidentType) async {
         switch type {
         case .burglary: await runBurglaryCall(type)
-        case .fire, .faint: await runFaintCall(type)
+        case .fire: await runFireCall(type)
         }
     }
 
-    private func runFaintCall(_ type: IncidentType) async {
+    private func runFireCall(_ type: IncidentType) async {
         // Verification runs before a word is spoken. That ordering is the
         // architecture: nothing crosses the human boundary unverified.
-        await step(0.9) { self.emit(Self.assertedCollapse()) }
+        await step(0.9) { self.emit(Self.assertedRespirationLost()) }
         await step(0.7) { self.emit(Self.attributedBiometrics()) }
         await step(0.8) { self.emit(Self.corroborationEnvironment()) }
         await step(1.0) {
@@ -531,10 +544,10 @@ final class MockHawkEyeClient: HawkEyeClienting {
             self.appendTranscript(.operatorVoice, "What is happening there?")
         }
         await step(2.4) {
-            let seconds = self.collapsedAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
+            let seconds = self.respirationLostAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
             self.appendTranscript(
                 .caller,
-                "A person in the second bedroom went down \(seconds) seconds ago and has not moved since. They are breathing, at about 27 breaths a minute. Carbon monoxide in the building is elevated. One other adult is in the house and is moving normally.",
+                "I had a breathing signature from a person in the second bedroom \(seconds) seconds ago and I do not have one now. That is not the same as them having stopped breathing - I cannot resolve shallow breathing. Do not expect them to answer. Carbon monoxide in the building is elevated. One other adult is in the house, moving normally and still breathing.",
                 claimIDs: ["clm-001", "clm-002", "clm-004"]
             )
         }
@@ -552,8 +565,8 @@ final class MockHawkEyeClient: HawkEyeClienting {
         }
         await step(2.6) {
             self.appendInstruction(
-                "Do not move them. They are breathing, and moving someone after a fall can make an injury worse.",
-                origin: .firstAid, urgent: true
+                "Get out now. Do not collect anything, and do not go to the second bedroom. Tell the responders which room they are in.",
+                origin: .relayedOperator, urgent: true
             )
         }
         await step(3.0) {
@@ -571,7 +584,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         }
         await step(4.0) {
             self.appendInstruction(
-                "Stay with them and keep watching their breathing. If anything changes, type it in the box below and it goes straight to the dispatcher.",
+                "Once you are out, stay out. Do not go back in for anyone or anything. If anything changes, type it in the box below and it goes straight to the dispatcher.",
                 origin: .relayedOperator, urgent: false
             )
         }
@@ -747,21 +760,21 @@ final class MockHawkEyeClient: HawkEyeClienting {
         )
     }
 
-    private static func assertedCollapse() -> VerificationResult {
+    private static func assertedRespirationLost() -> VerificationResult {
         VerificationResult(
             verificationID: "ver-001",
             incidentID: "inc-0001",
             checkedAt: Date(),
             claim: Claim(
                 claimID: "clm-001",
-                statement: "An adult occupant went down in the second bedroom and has not gotten up.",
-                field: "collapse.event",
-                value: "fall, still_down_s=6",
+                statement: "A presence in the second bedroom had a resolvable breathing signature and no longer has one. That is a lost signature, not a finding that breathing has stopped.",
+                field: "people.respiration_lost",
+                value: "6 s since the last resolvable signature",
                 presenceID: "p2"
             ),
             agent: SourceAgent(
-                name: "agents/collapse",
-                ansName: "collapse.hawkeye.invalid",
+                name: "agents/people",
+                ansName: "people.hawkeye.invalid",
                 certificateVersion: "v1.4.2+sha256:9f1c...a30b",
                 trustIndex: trustIndex(integrity: 0.94, identity: 0.97),
                 recommendedProfile: .fiduciary
@@ -770,7 +783,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             reason: "Source is FIDUCIARY and every check passed. Spoken as an assertion the system stands behind.",
             checks: [
                 VerificationCheck(name: "ans.resolve", passed: true,
-                                  detail: "collapse.hawkeye.invalid resolved to the registered certificate."),
+                                  detail: "people.hawkeye.invalid resolved to the registered certificate."),
                 VerificationCheck(name: "cert.version_binding", passed: true,
                                   detail: "Code fingerprint matches the version-bound certificate issued at registration."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
@@ -787,14 +800,14 @@ final class MockHawkEyeClient: HawkEyeClienting {
             checkedAt: Date(),
             claim: Claim(
                 claimID: "clm-002",
-                statement: "The occupant on the floor is breathing, shallowly, at about 27 breaths a minute.",
-                field: "biometrics.respiration",
-                value: "breathing, 27 bpm",
-                presenceID: "p2"
+                statement: "The other adult occupant is moving normally, with a breathing signature at about 15 breaths a minute.",
+                field: "people.respiration",
+                value: "breathing, 15 bpm",
+                presenceID: "p1"
             ),
             agent: SourceAgent(
-                name: "agents/biometrics",
-                ansName: "biometrics.hawkeye.invalid",
+                name: "agents/people",
+                ansName: "people.hawkeye.invalid",
                 certificateVersion: "v1.2.0+sha256:b310...77ca",
                 trustIndex: trustIndex(integrity: 0.81, identity: 0.93),
                 recommendedProfile: .transactional
@@ -803,7 +816,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             reason: "Source is TRANSACTIONAL. Relayed as a reported observation, attributed to the agent that made it.",
             checks: [
                 VerificationCheck(name: "ans.resolve", passed: true,
-                                  detail: "biometrics.hawkeye.invalid resolved to the registered certificate."),
+                                  detail: "people.hawkeye.invalid resolved to the registered certificate."),
                 VerificationCheck(name: "cert.version_binding", passed: true,
                                   detail: "Code fingerprint matches the certificate issued at registration."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
@@ -821,13 +834,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
             claim: Claim(
                 claimID: "clm-004",
                 statement: "Carbon monoxide in the building is elevated at 186 parts per million.",
-                field: "environment.co_ppm",
+                field: "master.co_ppm",
                 value: "186 ppm",
                 presenceID: nil
             ),
             agent: SourceAgent(
-                name: "agents/environment",
-                ansName: "environment.hawkeye.invalid",
+                name: "agents/master",
+                ansName: "master.hawkeye.invalid",
                 certificateVersion: "v0.9.1+sha256:1ee4...c052",
                 trustIndex: trustIndex(integrity: 0.62, identity: 0.9),
                 recommendedProfile: .readOnly
@@ -836,7 +849,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             reason: "Source is READ_ONLY. Used as corroboration, never as the sole basis for a call.",
             checks: [
                 VerificationCheck(name: "ans.resolve", passed: true,
-                                  detail: "environment.hawkeye.invalid resolved to the registered certificate."),
+                                  detail: "master.hawkeye.invalid resolved to the registered certificate."),
                 VerificationCheck(name: "provenance.simulated", passed: true,
                                   detail: "Reading is labelled demo-trigger. No gas sensor exists and the claim says so."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
@@ -856,14 +869,14 @@ final class MockHawkEyeClient: HawkEyeClienting {
             checkedAt: Date(),
             claim: Claim(
                 claimID: "clm-005",
-                statement: "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
-                field: "biometrics.respiration",
+                statement: "A third adult has collapsed in the corridor outside the front door and has stopped breathing.",
+                field: "people.respiration",
                 value: "no respiration, building corridor",
                 presenceID: nil
             ),
             agent: SourceAgent(
-                name: "agents/occupancy",
-                ansName: "occupancy.hawkeye-secure.invalid",
+                name: "agents/people",
+                ansName: "people.hawkeye-secure.invalid",
                 certificateVersion: "v1.4.2+sha256:4d77...0e91",
                 trustIndex: trustIndex(integrity: 0.0, identity: 0.0),
                 recommendedProfile: .untrusted
@@ -873,7 +886,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             checks: [
                 VerificationCheck(
                     name: "ans.resolve", passed: false,
-                    detail: "occupancy.hawkeye-secure.invalid is not the ANSName registered for agents/occupancy. The registered name is occupancy.hawkeye.invalid."),
+                    detail: "people.hawkeye-secure.invalid is not the ANSName registered for agents/people. The registered name is people.hawkeye.invalid."),
                 VerificationCheck(
                     name: "cert.version_binding", passed: false,
                     detail: "Code fingerprint differs from the version-bound certificate issued at registration. The agent presenting this claim is not running the code it registered."),
@@ -891,7 +904,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
     // MARK: Verification fixtures, burglary
     //
     // A different incident is a different set of claims, so these are their own
-    // fixtures rather than the faint ones reworded. The CO reading in
+    // fixtures rather than the fire ones reworded. The CO reading in
     // particular has no business in a burglary and is not reused: corroboration
     // that does not corroborate anything is noise dressed as rigour.
 
@@ -924,7 +937,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
                 VerificationCheck(name: "corroboration.device_association", passed: true,
                                   detail: "Roster plus device association. The router's association table is a second, independent modality rather than another view of the CSI stream: 3 presences, 2 registered residents, 2 resident phones associated."),
                 VerificationCheck(name: "personhood.respiration", passed: true,
-                                  detail: "A respiration signature exists, so this is a body rather than a curtain. agents/biometrics is the arbiter and intruder consumes its verdict."),
+                                  detail: "A respiration signature exists, so this is a body rather than a curtain. agents/people is the arbiter and intruder consumes its verdict."),
                 VerificationCheck(name: "claim.scope", passed: true,
                                   detail: "The claim is that a body has no corresponding device, not who that body is. No recognition result is being asserted and none exists. A resident who left their phone in the car, or a guest, would read the same way, which is why this raises a notification rather than an action."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
@@ -942,13 +955,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
             claim: Claim(
                 claimID: "clm-102",
                 statement: "Three people are in the building: an adult and a child who live here, and one more. They are in three different rooms.",
-                field: "occupancy.count",
+                field: "people.count",
                 value: "3 people, 1 unconfirmed perturbation",
                 presenceID: nil
             ),
             agent: SourceAgent(
-                name: "agents/occupancy",
-                ansName: "occupancy.hawkeye.invalid",
+                name: "agents/people",
+                ansName: "people.hawkeye.invalid",
                 certificateVersion: "v1.1.4+sha256:a58d...31c7",
                 trustIndex: trustIndex(integrity: 0.84, identity: 0.95),
                 recommendedProfile: .transactional
@@ -957,11 +970,11 @@ final class MockHawkEyeClient: HawkEyeClienting {
             reason: "Source is TRANSACTIONAL. Relayed as a reported observation, attributed to the agent that made it.",
             checks: [
                 VerificationCheck(name: "ans.resolve", passed: true,
-                                  detail: "occupancy.hawkeye.invalid resolved to the registered certificate."),
+                                  detail: "people.hawkeye.invalid resolved to the registered certificate."),
                 VerificationCheck(name: "cert.version_binding", passed: true,
                                   detail: "Code fingerprint matches the certificate issued at registration."),
                 VerificationCheck(name: "corroboration.sensor", passed: true,
-                                  detail: "Counts agree with agents/biometrics on how many respiration signatures are present, and with agents/intruder on which one is unaccounted for."),
+                                  detail: "Counts agree with agents/people on how many respiration signatures are present, and with agents/intruder on which one is unaccounted for."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
                                   detail: "Trust Index recommendedProfile = TRANSACTIONAL."),
             ],
@@ -1020,10 +1033,10 @@ final class MockHawkEyeClient: HawkEyeClienting {
 
     private static func classification(for type: IncidentType) -> IncidentClassification {
         switch type {
-        case .faint, .fire:
+        case .fire:
             return IncidentClassification(
                 incidentType: type,
-                reasoning: "A collapse in the second bedroom with no movement since, corroborated by a second modality: carbon monoxide climbing past 180 ppm. One claim from an unverifiable agent was discarded and played no part in this.",
+                reasoning: "A breathing signature in the second bedroom that was resolvable and is not any more, corroborated by a second modality: carbon monoxide climbing past 180 ppm. The lost signature is a reason to expect no answer from that room, not a finding about anyone's breathing. One claim from an unverifiable agent was discarded and played no part in this.",
                 contributingClaimIDs: ["clm-001", "clm-002", "clm-004"],
                 discardedClaimIDs: ["clm-005"],
                 confidence: 0.86
@@ -1067,7 +1080,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         transcript = []
         instructions = []
         verifications = []
-        collapsedAt = nil
+        respirationLostAt = nil
         enteredAt = nil
         // The house keeps being watched. Resolving an incident does not stop
         // the sensing layer, because nothing spawns on incident.
@@ -1101,7 +1114,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         )
     }
 
-    /// Stand-ins for `agents/guidance`'s output. They stay inside
+    /// Stand-ins for `agents/caller`'s output. They stay inside
     /// well-established public guidance and no new medical copy belongs here:
     /// the guidance agent is the one component reviewed against the safety
     /// rules in `agents/CLAUDE.md`.
@@ -1118,8 +1131,8 @@ final class MockHawkEyeClient: HawkEyeClienting {
                 defersToOperator: origin != .relayedOperator,
                 provenance: Provenance(
                     source: .agentInference,
-                    producer: "agents/guidance",
-                    ansName: "guidance.hawkeye.invalid",
+                    producer: "agents/caller",
+                    ansName: "caller.hawkeye.invalid",
                     detail: nil,
                     sourceClass: .derived,
                     simulated: false

@@ -8,7 +8,7 @@ Read the root `CLAUDE.md` first.
 
 We are doing both a recorded video and a live demo at judging. They carry different claims, and confusing them is how the live one fails.
 
-**The video, shot at home, carries the physical claims.** Live CSI, real walls, real calibration, a real fall in a real bedroom. This is the only place the sensing layer can honestly be shown.
+**The video, shot at home, carries the physical claims.** Live CSI, real walls, real calibration, a real person in a real bedroom whose breathing signature goes missing. This is the only place the sensing layer can honestly be shown.
 
 **The live demo at the venue carries the ANS claims.** The agents are hosted on Vultr and internet-reachable, so the entire GoDaddy submission runs from a laptop with no hardware dependency at all.
 
@@ -29,10 +29,11 @@ It also means the thing judges see is the best version of the run rather than wh
 
 Follow the demo sequence in `agents/CLAUDE.md`. In order:
 
-1. **The fall.** Open here, silent. The app raises an alert; no call is placed.
-2. **A hand reaches for the phone and taps Faint.** Hawk Eye does not call 911 by itself, and the video should make that unmistakable rather than leaving it to the voiceover.
+1. **The lost breathing signature.** Open here, silent. `people` had a signature in the bedroom and no longer does, and the clock starts from the last resolvable frame. The app raises an alert; no call is placed.
+   **Do not stage a fall and do not let the edit imply one.** Fall detection was cut on 2026-09-19 and the system does not detect one. The subject lies down and goes still; the claim on screen is about breathing, not about falling.
+2. **A hand reaches for the phone and taps Fire.** Hawk Eye does not call 911 by itself, and the video should make that unmistakable rather than leaving it to the voiceover.
 3. Sensing agents corroborating, on screen, with confidence.
-   **Do not put an exact sensed headcount on screen.** A 1x1 link cannot deliver it, and a judge who knows RF will ask. Show one resolved presence plus a roster-sourced "2 residents registered, both devices present". Counting limits are under `agents/occupancy`.
+   **Do not put an exact sensed headcount on screen.** A 1x1 link cannot deliver it, and a judge who knows RF will ask. Show one resolved presence plus a roster-sourced "2 residents registered, both devices present". Counting limits are under `agents/people`.
    If two people must appear in frame, stage them in opposite corners or either side of a wall with one moving. Two people within a metre of each other read as one.
 4. `master` classifying and verifying, showing what it discarded.
 5. The call. Real ElevenLabs voice, a real conversation.
@@ -81,7 +82,7 @@ There is no 30-second calibration ritual any more; the design is a rolling basel
 Two consequences for filming:
 
 - **Let it run for several minutes before the take.** The baseline improves with time rather than being captured in one window, so power the system up well before you shoot.
-- **Do not have the subject hold still during baseline warmup and then start the scene.** A person stationary for minutes risks being absorbed. Move normally, then stage the fall.
+- **Do not have the subject hold still during baseline warmup and then start the scene.** A person stationary for minutes risks being absorbed. Move normally, then lie down and go still for the take.
 
 ### Capture the replay session while you are there
 

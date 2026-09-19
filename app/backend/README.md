@@ -6,7 +6,7 @@ Read the root `CLAUDE.md` and `app/CLAUDE.md` first.
 
 ## What this is
 
-The iOS app never talks to the nine agents directly.
+The iOS app never talks to the five agents directly.
 It talks to this service, and this service talks to `agents/master`.
 
 That split is the architecture the root `CLAUDE.md` describes, made concrete.
@@ -85,7 +85,7 @@ SPEED=0.35 ./scripts/demo.sh   # rehearsal speed
 PORT=9000 ./scripts/demo.sh
 ```
 
-That boots the hub in simulated mode, curls `/v1/hub` and `/v1/state`, connects to the websocket, runs the scripted detection, waits, taps Faint the way the app would, watches the call that tap releases, posts a mid-incident context note as the resident, and then fetches the sealed replay record.
+That boots the hub in simulated mode, curls `/v1/hub` and `/v1/state`, connects to the websocket, runs the scripted detection, waits, taps Fire the way the app would, watches the call that tap releases, posts a mid-incident context note as the resident, and then fetches the sealed replay record.
 
 The pause in the middle is the product.
 The detection raises no incident and dials nothing; the tap is what starts the call.
@@ -120,9 +120,29 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_MASTER_BASE_URL` | `http://127.0.0.1:8900` | Live mode only. Where `agents/master` is. |
 | `HAWKEYE_MASTER_TIMEOUT_S` | `5.0` | Live mode only. |
 | `HAWKEYE_SIM_SPEED` | `1.0` | Simulated mode only. Multiplies every scripted delay. |
-| `HAWKEYE_SIM_AUTOSTART` | `false` | Simulated mode only. Run the **detection** on boot, so a demo rig comes up already showing the fall. It cannot start a call. |
+| `HAWKEYE_SIM_AUTOSTART` | `false` | Simulated mode only. Run the **detection** on boot, so a demo rig comes up already showing the lost breathing signature. It cannot start a call. |
 | `HAWKEYE_STORE_BACKEND` | `memory` | `memory` or `mongodb`. See the storage seam below. |
 | `HAWKEYE_MONGODB_URI` | empty | MongoDB Atlas connection string, when that lands. |
+
+## Notices
+
+An unexpected presence that holds for `HAWKEYE_NOTICE_HOLD_S` seconds raises a notice: a banner in the app, and an SMS if Twilio is configured.
+A notice is information the resident acts on.
+It never creates an incident and never dials.
+
+Twilio is optional and the service runs normally without it.
+All four values are required together:
+
+```sh
+export HAWKEYE_TWILIO_ACCOUNT_SID=ACxxxxxxxx
+export HAWKEYE_TWILIO_AUTH_TOKEN=xxxxxxxx
+export HAWKEYE_TWILIO_FROM_NUMBER=+15550001111
+export HAWKEYE_TWILIO_TO_NUMBER=+15550002222    # must be verified in the Twilio console
+```
+
+On a trial account the destination number must be verified in the console, and every message arrives prefixed "Sent from your Twilio trial account".
+
+The auth token is held as a `SecretStr`, so it does not appear in a log line, a traceback, or a `repr` of the settings object.
 
 ## Real versus simulated
 
@@ -201,8 +221,8 @@ Full example: [`schema/hub.json`](schema/hub.json). Abridged:
   },
   "agents": [
     {
-      "name": "agents/collapse",
-      "ansname": "collapse.hawkeye.invalid",
+      "name": "agents/people",
+      "ansname": "people.hawkeye.invalid",
       "tier": 1,
       "reachability": "reachable",
       "latency_ms": 18.4
@@ -213,7 +233,7 @@ Full example: [`schema/hub.json`](schema/hub.json). Abridged:
 }
 ```
 
-`sensor.frame_rate_hz` against `min_useful_frame_rate_hz` is the field that catches the quiet failure named in `sensor/CLAUDE.md`: without a traffic generator you get beacons at roughly 10 Hz, which barely resolves breathing and never resolves a fall transient, with every component reporting healthy.
+`sensor.frame_rate_hz` against `min_useful_frame_rate_hz` is the field that catches the quiet failure named in `sensor/CLAUDE.md`: without a traffic generator you get beacons at roughly 10 Hz, which barely resolves breathing and never resolves a short motion transient, with every component reporting healthy.
 
 `reachability` is one of `reachable`, `unreachable`, `degraded`, `simulated`.
 It is not a verification result: verification is per-claim and lives on the stream, because an agent trusted ninety seconds ago may not be trusted now.
@@ -243,7 +263,7 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
       "presence_class": "adult",
       "class_basis": "respiration_rate",
       "expected": true,
-      "still_down_s": 96.0,
+      "respiration_lost_s": 96.0,
       "provenance": {
         "source": "ruview-sim",
         "producer": "sensor/",
@@ -258,7 +278,7 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
     "co_ppm": 186.0,
     "smoke_detected": false,
     "confidence": 0.88,
-    "provenance": { "source": "demo-trigger", "producer": "agents/environment", "source_class": "simulated", "simulated": true }
+    "provenance": { "source": "demo-trigger", "producer": "agents/master", "source_class": "simulated", "simulated": true }
   },
   "floorplan": { "site_id": "site-demo-01", "name": "Chestnut", "units": "m", "width_m": 14.8, "depth_m": 6.8, "wall_height_m": 2.5, "rooms": [] },
   "active_incident_id": "inc-0001"
@@ -270,16 +290,17 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
 | `state` | Means | What the app does with it |
 |---|---|---|
 | `confirmed_moving` | Moving and breathing. A person, confirmed. | Normal presence. |
-| `confirmed_still` | Still but breathing. A person who is not responding. | **The loudest thing on screen.** This is the state the whole system exists for. |
+| `confirmed_still` | Still but breathing. A person who has not moved. | Prominent. The radio cannot separate unconsciousness from sleep and the label must not imply it can. |
 | `unconfirmed` | A perturbation with no respiration signature. | Render as a perturbation, not a person. A curtain is not an intruder. |
 | `unknown` | Not resolved yet. | Absence of respiration is not proof of absence of a person; a presence that has not been resolved sits here rather than being called `unconfirmed`. |
 
 `position.zone` is the honest answer and is what the agents reason over.
 `position.x` and `position.y` are a zone centroid so the 3D view has somewhere to draw. They are not a localization claim; do not promise coordinates.
 
-`still_down_s` is the clinical variable, not a diagnostic detail.
-A long lie is over an hour, 53% of older fall patients are still on the floor when the ambulance arrives, and half of those down over an hour die within six months even where the fall caused no injury.
-Surface it.
+`respiration_lost_s` is the field that decides whether a dispatcher should expect an answer from a room.
+It is the seconds since a breathing signature was last resolvable on a presence that **previously had one**: the transition is the signal, and a presence that never resolved a signature carries none, because shallow breathing, breath-holding and range limits are indistinguishable from an empty room.
+It is never a finding that breathing has stopped. Surface it, with that limit attached.
+It replaced `still_down_s` on 2026-09-19, when fall detection was cut.
 
 Returns 503 when the agent mesh is unreachable in live mode.
 
@@ -312,7 +333,7 @@ Event kinds, with a complete example file for each:
 | `state` | `state` | [`event-state.json`](schema/event-state.json) | An interior state tick. Roughly 2 Hz. |
 | `incident` | `phase`, `incident` | [`event-incident.json`](schema/event-incident.json) | Raised, classified, updated, resolved, or refused. |
 | `transcript` | `line` | [`event-transcript.json`](schema/event-transcript.json) | One line of the caller to 911 conversation, with a speaker field. |
-| `instruction` | `instruction` | [`event-instruction.json`](schema/event-instruction.json) | One instruction from `agents/guidance`. |
+| `instruction` | `instruction` | [`event-instruction.json`](schema/event-instruction.json) | One instruction from `agents/caller`. |
 | `verification` | `result` | [`event-verification-asserted.json`](schema/event-verification-asserted.json), [`event-verification-discarded.json`](schema/event-verification-discarded.json) | An ANS verification result. |
 | `context` | `note` | [`event-context.json`](schema/event-context.json) | The resident's note, echoed back to confirm delivery. |
 | `error` | `code`, `message` | [`event-error.json`](schema/event-error.json) | Something went wrong. Never a silently dropped frame. |
@@ -339,8 +360,8 @@ This is the part the project is judged on, so it is a first-class API concept ra
       "presence_id": null
     },
     "agent": {
-      "name": "agents/occupancy",
-      "ansname": "occupancy.hawkeye-secure.invalid",
+      "name": "agents/people",
+      "ansname": "people.hawkeye-secure.invalid",
       "certificate_version": "v1.4.2+sha256:4d77...0e91",
       "trust_index": {
         "integrity": 0.0,
@@ -355,7 +376,7 @@ This is the part the project is judged on, so it is a first-class API concept ra
     "decision": "DISCARDED",
     "reason": "DISCARDED. The claim would have sent an armed response into a room where no sensor sees anybody. It was not relayed to the operator and it was not used in classification.",
     "checks": [
-      { "name": "ans.resolve", "passed": false, "detail": "occupancy.hawkeye-secure.invalid is not the ANSName registered for agents/occupancy." },
+      { "name": "ans.resolve", "passed": false, "detail": "people.hawkeye-secure.invalid is not the ANSName registered for agents/people." },
       { "name": "cert.version_binding", "passed": false, "detail": "Code fingerprint differs from the version-bound certificate issued at registration." },
       { "name": "trust_index.profile", "passed": false, "detail": "Trust Index recommendedProfile = UNTRUSTED." },
       { "name": "corroboration.sensor", "passed": false, "detail": "The corridor outside the front door is outside the sensed volume, so no agent in this mesh can see it." }
@@ -385,14 +406,14 @@ The resident raises an incident from the app. One tap.
 
 **This is the only path to a call.**
 Hawk Eye never calls 911 on its own; settled 2026-09-19.
-`collapse` and `environment` still detect, and their detections surface on the stream as interior state the app renders as an alert: the presence moves to `confirmed_still`, `still_down_s` climbs and does not reset, the CO reading rises.
+The agents still sense continuously, and what they find surfaces on the stream as interior state the app renders as an alert: the presence's respiration goes to no signature, `respiration_lost_s` climbs and does not reset, the CO reading rises.
 An alert is information a person acts on. It is not a call.
 
 The request carries `raised_by: user` and nothing else is accepted downstream: `assert_human_released` in `master/base.py` refuses a `SYSTEM`-raised incident on every path that can end in a phone call.
 `RaisedBy.SYSTEM` stays in the enum for wire compatibility and for records raised before that decision.
 
 What the detection buys is an informed tap rather than an autonomous one.
-By the time the resident presses Faint, the hub already knows who is down, in which room, whether they are breathing, and for how long.
+By the time the resident presses Fire, the hub already knows who is in the house, in which room, whether they are breathing, and how long since a signature that was resolvable there stopped being resolvable.
 
 Request ([`schema/request-raise-incident.json`](schema/request-raise-incident.json)):
 
@@ -400,7 +421,7 @@ Request ([`schema/request-raise-incident.json`](schema/request-raise-incident.js
 { "incident_type": "burglary", "note": "Someone is in the kitchen." }
 ```
 
-`incident_type` is `burglary`, `fire`, or `faint`. `note` is optional and goes down the same channel as the "what is happening" box.
+`incident_type` is `burglary` or `fire`. `note` is optional and goes down the same channel as the "what is happening" box.
 
 Response, `202 Accepted` ([`schema/response-raise-incident.json`](schema/response-raise-incident.json)):
 
@@ -414,7 +435,7 @@ The resident should not be staring at a spinner while an agent decides things.
 ```sh
 curl -X POST localhost:8787/v1/incident \
   -H 'content-type: application/json' \
-  -d '{"incident_type":"faint"}'
+  -d '{"incident_type":"fire"}'
 ```
 
 ### `POST /v1/incident/{id}/context`
@@ -464,7 +485,7 @@ Full example: [`schema/replay.json`](schema/replay.json). Abridged:
       "seq": 1,
       "at": "2026-09-20T04:12:33Z",
       "kind": "incident",
-      "summary": "faint raised by user",
+      "summary": "fire raised by user",
       "detail": { },
       "entry_hash": "9a1e26430b4002eb...",
       "prev_hash": null
@@ -492,7 +513,7 @@ In simulated mode the hub assembles the record from its own buffer, in the same 
 Drives the scripted detection and then stops. **Simulated mode only; 404s in live mode, deliberately.**
 
 The default is detection only, because that is what the system does on its own.
-The fall appears in `state`, `still_down_s` climbs, CO rises, and no `incident` or `transcript` event is emitted at all.
+The lost signature appears in `state`, `respiration_lost_s` climbs, CO rises, and no `incident` or `transcript` event is emitted at all.
 The system notices and waits.
 
 ```sh
@@ -500,7 +521,7 @@ curl -X POST localhost:8787/v1/demo/run
 # {"started":true,"detail":"scripted detection started; no incident raised, waiting on a human tap","raised_incident_id":null}
 ```
 
-`?simulate_human_tap=true` additionally raises a Faint incident exactly as `POST /v1/incident` would, with `raised_by: user`, so one curl exercises detection and call end to end.
+`?simulate_human_tap=true` additionally raises a Fire incident exactly as `POST /v1/incident` would, with `raised_by: user`, so one curl exercises detection and call end to end.
 The parameter is named for what it is standing in for, which is a person.
 Without it this endpoint cannot start a call, and with it the thing being faked is the tap, not the system's authority to dial.
 
@@ -522,7 +543,7 @@ app/backend/
   pyproject.toml            uv / pip project, Python 3.13
   requirements.txt          plain-pip fallback
   README.md                 this file
-  scripts/demo.sh           boots simulated mode, runs the detection, taps Faint, watches the call
+  scripts/demo.sh           boots simulated mode, runs the detection, taps Fire, watches the call
   schema/                   generated example payloads, one per endpoint and event kind
   tools/
     gen_schema.py           regenerates schema/ from the live models
@@ -581,7 +602,7 @@ Every one of these is a `TODO(ans)` or `TODO(master)` comment at the exact place
 None of them is a fabricated API detail; where the real surface is unknown, the code says so and asks the specific question.
 
 1. **`config.py`, hub ANSName.** Is the hub itself an ANS-registered agent, or does it inherit `master`'s identity and merely quote it? The app-to-hub hop is a human-facing hop, so the working assumption is that it quotes. Confirm against `ans-registry` before printing it on stage.
-2. **`master/scenario.py`, ANSName format.** All nine names are placeholders on `.invalid` (reserved by RFC 2606 precisely so it can never resolve, which keeps them from being mistaken for real registrations). Replace once the GoDaddy domain is registered, and settle the convention: `collapse.hawkeye.example`, or `hawkeye.example/agents/collapse`? Check `agent.webmesh.ai/.well-known/agents-index.json`.
+2. **`master/scenario.py`, ANSName format.** All five names are placeholders on `.invalid` (reserved by RFC 2606 precisely so it can never resolve, which keeps them from being mistaken for real registrations). `agents/core/identity.py` is now the source of truth for the roster and this copy should be deleted once the hub imports from it. Replace the domain once the GoDaddy one is registered, and settle the convention: `people.hawkeye.example`, or `hawkeye.example/agents/people`? Check `agent.webmesh.ai/.well-known/agents-index.json`.
 3. **`models/verification.py`, Trust Index response shape.** Are dimension scores 0-1 or 0-100? What is the JSON key for `recommendedProfile`? Is there a composite score? Does the response distinguish "unimplemented" from "scored 0"? The 0-1 range and the nullable dimensions here are this service's choice, not a verified fact, and must be reconciled against `agentnameservice/agent-trust-discovery`.
 4. **`models/incident.py`, SCITT receipt.** What is the submit endpoint and receipt structure for an ANS SCITT transparency log entry (ANS-4), and is a receipt a COSE object or a JSON document? Until that is answered `scitt_receipt` stays `null`. Do not fabricate one; an unverifiable receipt is worse than none.
 5. **`master/live.py`, master's HTTP surface.** Three open questions, all marked: (a) does `master` expose one merged state document or does the hub fan out to the sensing agents itself, (b) is the push channel a websocket, SSE, or an outbound webhook, (c) does `master` accept an incident from the hub directly, or must the hub present an ANS identity over mTLS (ANS-2)? Nothing here implements mTLS yet.

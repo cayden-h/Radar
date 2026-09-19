@@ -25,7 +25,7 @@ class AgentReachability(BaseModel):
     because an agent that was trusted ninety seconds ago may not be trusted now.
     """
 
-    name: str = Field(description="Agent directory name, e.g. 'agents/collapse'.")
+    name: str = Field(description="Agent directory name, e.g. 'agents/people'.")
     ansname: str
     tier: int = Field(ge=1, le=3, description="Build priority tier from agents/CLAUDE.md.")
     reachability: Reachability
@@ -39,7 +39,7 @@ class SensorLiveness(BaseModel):
 
     `frame_rate_hz` is the field that catches the quiet failure: without a
     traffic generator you get beacons at roughly 10 Hz, which barely resolves
-    breathing and never resolves a fall transient, with every component
+    breathing and never resolves a short motion transient, with every component
     reporting healthy. Below `min_useful_frame_rate_hz` the hub reports degraded.
     """
 

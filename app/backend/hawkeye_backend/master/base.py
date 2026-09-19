@@ -28,7 +28,7 @@ class AutonomousDialRefused(RuntimeError):
     """Something tried to put a SYSTEM-raised incident on the dialing path.
 
     Hawk Eye never calls 911 on its own; settled 2026-09-19. Detections from
-    `agents/collapse` and `agents/environment` surface as interior state a
+    `agents/people` and `agents/master` surface as interior state a
     person acts on, and a human tap is what releases `agents/caller` to dial.
 
     This is raised rather than logged because the failure it guards against is
@@ -78,7 +78,7 @@ class MasterClient(Protocol):
         ...
 
     async def agent_reachability(self) -> list[AgentReachability]:
-        """Which of the nine agents the hub can currently reach."""
+        """Which of the five agents the hub can currently reach."""
         ...
 
     async def current_state(self) -> InteriorState:

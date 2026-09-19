@@ -20,37 +20,27 @@ flowchart TD
 
     M -->|"802.11ac frames at 100 Hz"| R
     R -.->|"RF through walls and people"| P
-    P -->|"Channel State Information"| OCC
-    P --> INT
-    P --> BIO
-    P --> COL
-    G --> ENV
+    P -->|"Channel State Information"| PE
+    G --> MA
 
-    subgraph SENSE["Sensing agents - CSI consumers"]
-      OCC["occupancy<br/>count and location"]
+    subgraph SENSE["Sensing agents"]
+      PE["people<br/>count, location, personhood,<br/>respiration, movement, responsiveness"]
       INT["intruder<br/>unexpected presence"]
-      BIO["biometrics<br/>heart rate, breathing"]
-      COL["collapse<br/>faint, fall"]
     end
 
-    subgraph SENSE2["Independent modality"]
-      ENV["environment<br/>CO, smoke"]
-    end
+    PE -->|ANS| INT
+    NET["roster + device association"] --> INT
 
-    OCC -->|ANS| MA
+    PE -->|ANS| MA
     INT -->|ANS| MA
-    BIO -->|ANS| MA
-    COL -->|ANS| MA
-    ENV -->|ANS| MA
 
-    MA["master<br/>trust boundary<br/>classifies Burglary / Fire / Faint"]
+    MA["master<br/>trust boundary<br/>reads the gas sensor directly<br/>classifies Burglary / Fire"]
 
-    MA -->|ANS| CA["caller"]
-    MA -->|ANS| GU["guidance"]
+    MA -->|ANS| CA["caller<br/>both human boundaries"]
     MA -->|ANS| RE["replay"]
 
     CA ==>|"plain English voice - NO ANS"| OP(["911 operator<br/>a person"])
-    GU ==>|"plain English - NO ANS"| US(["Resident<br/>iOS app"])
+    CA ==>|"plain English - NO ANS"| US(["Resident<br/>iOS app"])
     RE --> LOG[("SCITT transparency log<br/>sealed, append only")]
 
     classDef human fill:#7a1f1f,stroke:#ff6b6b,color:#fff
@@ -59,7 +49,11 @@ flowchart TD
     class G sim
 ```
 
-## 2. The faint path - detection, alert, human tap, call
+## 2. The fire path - detection, alert, human tap, call
+
+**Rekeyed 2026-09-19** when the third incident type and fall detection were cut. This diagram used to walk the cut type's path, and the copy in Notion still does.
+The choreography is unchanged, because the choreography was never about a fall: something is sensed, the app raises an alert, a human taps, and only then does anyone dial.
+What changed is the claim that drives it. It is now elevated CO from the gas sensor plus a breathing signature that `people` had and no longer has, which is two independent modalities rather than two views of one CSI stream.
 
 **Corrected 2026-09-19.** The version that sat in Notion until then went straight from `master` to
 `caller` to the operator with no human in between. That contradicted the settled decision, the root
@@ -72,35 +66,37 @@ The detection is autonomous. **The call is not.**
 sequenceDiagram
     autonumber
     participant P as Pi / CSI
-    participant COL as collapse
-    participant BIO as biometrics
+    participant PE as people
     participant MA as master
     participant APP as Resident app
     participant CA as caller
     participant OP as 911 operator
 
-    P->>COL: fall transient
-    P->>BIO: respiration signature
-    COL->>MA: claim: occupant down, no movement 90s
-    BIO->>MA: claim: breathing 11/min, still
+    P->>PE: respiration signature, back bedroom
+    P->>PE: signature no longer resolvable
+    PE->>PE: clock runs from the LAST resolvable frame
+    PE->>MA: claim: respiration_lost 90s, back bedroom
+    PE->>MA: claim: breathing 11/min, main bedroom
+    MA->>MA: gas sensor: CO above the 70 ppm alarm floor
     MA->>MA: verify ANSName + version-bound cert per claim
-    MA->>MA: classify FAINT
-    MA->>APP: ALERT - someone is down in the back bedroom
+    MA->>MA: classify FIRE - CO plus a lost signature, two modalities
+    MA->>APP: ALERT - bad air, and a breathing signature just went missing
 
     Note over MA,CA: Hawk Eye does not dial on its own.<br/>A human tap is what releases caller.
 
-    APP->>MA: resident taps Faint
+    APP->>MA: resident taps Fire
     MA->>CA: released to dial, verified claims only
     CA->>CA: re-verify every source before speaking
-    CA->>OP: "Unresponsive adult, back bedroom, 14 Oak Street."
+    CA->>OP: "I had a breathing signature in the back bedroom 90 seconds ago<br/>and I do not have one now. 14 Oak Street."
+    CA->>OP: "That is not the same as them having stopped breathing."
     MA->>APP: transcript line + instruction
-    OP->>CA: "Is the person still breathing?"
+    OP->>CA: "Is anyone else still breathing?"
     CA->>MA: live query - not cached
-    MA->>BIO: ANS-verified query
-    BIO-->>MA: 11 breaths per minute
+    MA->>PE: ANS-verified query
+    PE-->>MA: 11 breaths per minute, main bedroom
     MA-->>CA: verified answer
-    CA->>OP: "Yes. Eleven breaths a minute."
-    MA->>APP: instruction: do not move them
+    CA->>OP: "Yes. One adult, eleven breaths a minute."
+    MA->>APP: instruction: get out now, do not go to the back bedroom
     MA->>APP: sealed entry written to SCITT
 ```
 
@@ -108,7 +104,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A["Claim arrives at caller<br/>'child unresponsive, back bedroom'"] --> B{"Resolve ANSName<br/>via agent.webmesh.ai"}
+    A["Claim arrives at caller<br/>'breathing signature lost, back bedroom'"] --> B{"Resolve ANSName<br/>via agent.webmesh.ai"}
     B -->|"does not resolve"| X1["DISCARD<br/>and say what was discarded"]
     B -->|resolves| C{"Certificate version<br/>matches registered code?"}
     C -->|"code drift detected"| X2["DISCARD<br/>and say what was discarded"]
@@ -140,17 +136,17 @@ flowchart LR
     D -->|ok| E["Main screen"]
 
     E --> F["Live interior view<br/>presences rendered by confidence"]
-    E --> G["Burglary / Fire / Faint<br/>manual raise"]
+    E --> G["Burglary / Fire<br/>manual raise"]
     E -.->|"WS /v1/stream"| H["Incident screen"]
     G --> H
 
     F --> F1["Moving + breathing<br/>= confirmed person"]
-    F --> F2["Still + breathing<br/>= NOT RESPONDING<br/>loudest thing on screen"]
+    F --> F2["Signature we had and<br/>no longer have<br/>= NO BREATHING SIGNATURE<br/>loudest thing on screen"]
     F --> F3["No respiration signature<br/>= unconfirmed presence"]
 
     H --> I["Live transcript of the 911 call"]
     H --> J["'What is happening' free text<br/>always visible"]
-    H --> K["Instructions from guidance"]
+    H --> K["Instructions from caller"]
     H --> L["Verification feed<br/>including what was DISCARDED"]
 
     classDef alarm fill:#7a1f1f,stroke:#ff6b6b,color:#fff

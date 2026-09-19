@@ -10,9 +10,12 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
 from hawkeye_backend import __version__, api
 from hawkeye_backend.bus import EventBus
@@ -20,10 +23,16 @@ from hawkeye_backend.config import Settings, get_settings
 from hawkeye_backend.master.base import MasterClient
 from hawkeye_backend.master.live import LiveMasterClient
 from hawkeye_backend.master.simulated import SimulatedMasterClient
+from hawkeye_backend.notices import NoticeSink, TwilioSink
 from hawkeye_backend.runtime import HubRuntime
 from hawkeye_backend.store import build_store
 
 logger = logging.getLogger(__name__)
+
+#: The replay console. A static directory, not a build artifact: no bundler, no
+#: CDN, nothing to install. `app/backend/hawkeye_backend/main.py` sits three
+#: levels under `app/`, and the console lives at `app/web/replay`.
+REPLAY_SITE = Path(__file__).resolve().parents[2] / "web" / "replay"
 
 
 def build_client(settings: Settings) -> MasterClient:
@@ -41,7 +50,30 @@ def build_client(settings: Settings) -> MasterClient:
 def build_runtime(settings: Settings | None = None) -> HubRuntime:
     settings = settings or get_settings()
     store = build_store(settings.store_backend, settings.mongodb_uri, settings.mongodb_database)
-    return HubRuntime(settings, store, EventBus(), build_client(settings))
+
+    # The stream sink is added by HubRuntime itself and is always present, so
+    # the in-app banner works with no Twilio account at all. Twilio is the only
+    # path that reaches a phone that is locked with the app closed.
+    notice_sinks: list[NoticeSink] = []
+    if settings.twilio_configured:
+        notice_sinks.append(
+            TwilioSink(
+                account_sid=settings.twilio_account_sid,
+                auth_token=settings.twilio_auth_token.get_secret_value(),
+                from_number=settings.twilio_from_number,
+                to_number=settings.twilio_to_number,
+                timezone=settings.site_timezone,
+                min_interval_s=settings.twilio_min_interval_s,
+                max_per_instance=settings.twilio_max_per_instance,
+            )
+        )
+        logger.info("notices: twilio sms sink enabled")
+    else:
+        logger.info("notices: twilio not configured, in-app banner only")
+
+    return HubRuntime(
+        settings, store, EventBus(), build_client(settings), notice_sinks=notice_sinks
+    )
 
 
 @asynccontextmanager
@@ -61,7 +93,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=__version__,
         summary="The app-facing edge of the Hawk Eye agent mesh.",
         description=(
-            "The iOS app never talks to the nine agents directly. It talks to this service, "
+            "The iOS app never talks to the five agents directly. It talks to this service, "
             "which talks to agents/master. That keeps the ANS-verified agent-to-agent mesh "
             "separate from the human-facing surface."
         ),
@@ -77,6 +109,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.runtime = build_runtime(settings)
     app.include_router(api.router)
+
+    # The replay console. Mounted last so it cannot shadow an API route, and
+    # behind a flag because serving a human surface is a deployment decision.
+    if settings.replay_site_enabled and REPLAY_SITE.is_dir():
+        app.mount(
+            "/replay",
+            StaticFiles(directory=REPLAY_SITE, html=True),
+            name="replay-console",
+        )
+
+        @app.get("/", include_in_schema=False)
+        async def root() -> RedirectResponse:
+            return RedirectResponse(url="/replay/")
+
+        logger.info("replay console served at /replay from %s", REPLAY_SITE)
+    elif settings.replay_site_enabled:
+        logger.warning("replay console enabled but %s does not exist", REPLAY_SITE)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict[str, str]:

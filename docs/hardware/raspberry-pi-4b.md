@@ -393,7 +393,7 @@ sudo timeout 10 tcpdump -i wlan0 dst port 5500 -w /dev/null 2>&1 | tail -3
 ```
 
 Target is 100+ per second.
-10 Hz is the floor and it is not enough for collapse or heart rate.
+10 Hz is the floor and it is not enough for a short motion transient or for heart rate.
 
 ### Dead output
 
@@ -490,4 +490,4 @@ A first session was captured 2026-09-19 (60s, ~4300 packets) to prove the pipeli
 
 - It does not see through walls "like a camera." It resolves coarse, room-level zones, not coordinates.
 - It does not identify people. Presence IDs are stable within a session only.
-- It does not sense gas. Not CO, not oxygen, not smoke as a chemical. That is `agents/environment`, it reads a separate sensor interface, and on this build that reading is simulated and labeled `demo-trigger`.
+- It does not sense gas. Not CO, not oxygen, not smoke as a chemical. That is the air-quality reading `agents/master` takes, it comes through a separate sensor interface, and on this build that reading is simulated and labeled `demo-trigger`.

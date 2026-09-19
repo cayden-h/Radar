@@ -25,8 +25,8 @@
     },
     "agents": [
       {
-        "name": "agents/collapse",
-        "ansname": "collapse.hawkeye.invalid",
+        "name": "agents/people",
+        "ansname": "people.hawkeye.invalid",
         "tier": 1,
         "reachability": "reachable",
         "last_seen_at": "2026-09-20T04:12:33Z",
@@ -34,8 +34,8 @@
         "detail": null
       },
       {
-        "name": "agents/environment",
-        "ansname": "environment.hawkeye.invalid",
+        "name": "agents/master",
+        "ansname": "master.hawkeye.invalid",
         "tier": 3,
         "reachability": "degraded",
         "last_seen_at": "2026-09-20T04:12:33Z",

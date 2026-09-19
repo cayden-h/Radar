@@ -1,6 +1,6 @@
 # Bring-up checklist
 
-One linear path from unboxed hardware to "CSI frames are flowing and `agents/occupancy` sees a person."
+One linear path from unboxed hardware to "CSI frames are flowing and `agents/people` sees a person."
 
 Work top to bottom.
 Do not skip ahead.
@@ -23,6 +23,12 @@ Timebox agreed: `TBD - decide and record here.`
 - [ ] Confirm the bill of materials is all present: Pi 4B, USB ethernet adapter, Cat5, microSD, 5V/3A USB-C supply, Archer AX1450 and its supply, the MacBook.
 
   No further hardware is being purchased. If something is missing, the answer is the fallback ladder, not a store.
+
+- [ ] Note what is deliberately **not** on that list: a monitor, a keyboard, a mouse, and an HDMI cable.
+
+  The Pi runs headless for the entire project and none of those are needed.
+  The MacBook is the Pi's screen, over SSH on the Cat5.
+  Phase 2 sets that up, and it has to be set up before first boot rather than after.
 
 ---
 
@@ -48,7 +54,7 @@ Do this first. The Pi's capture parameters have to match the router's channel ex
   Expect: a list of nearby networks and their channels. Record your choice.
 
   Chosen channel: **40** (80MHz), recorded 2026-09-19.
-  Note: `airport -s` has been removed entirely from recent macOS versions — go straight to Wireless Diagnostics > Window > Scan.
+  Note: `airport -s` has been removed entirely from recent macOS versions - go straight to Wireless Diagnostics > Window > Scan.
 
 - [ ] Apply every row of the configuration table in [router-archer-ax1450.md](router-archer-ax1450.md): fixed channel, 80MHz width, `802.11a/n/ac mixed`, band steering off, separate SSIDs per band, WPS off, guest network off.
 - [ ] Join the MacBook to the **5GHz** SSID explicitly, by name.
@@ -72,12 +78,56 @@ Do this first. The Pi's capture parameters have to match the router's channel ex
 
 ---
 
-## Phase 2: flash and boot the Pi
+## Phase 2: flash and boot the Pi, headless
 
-- [ ] Pick **Raspberry Pi OS (Legacy, 32-bit), Lite**. `TBD - decide and record here` re: 4.19/5.4/5.10 is **outdated** — current Imager catalogs no longer serve those kernels at all. See "Kernel reality, corrected 2026-09-19" in `sensor/CLAUDE.md`. Take whatever `Legacy, 32-bit` actually gives you and use the `Makefile.rpi` build path in `raspberry-pi-4b.md` Step 4.
-- [ ] Flash with Raspberry Pi Imager. Newer versions use tabbed dialogs (Hostname/Localization/User/Wifi/Remote access) rather than one settings sheet — SSH lives under **Remote access**. Set hostname, enable SSH, set username and password, and **leave the Wifi tab's SSID field empty**.
-- [ ] Insert the card. The Pi 4B's onboard Ethernet port works directly — no USB adapter needed for the Pi itself (only the bring-up laptop needs one, if it lacks a built-in Ethernet port, for Internet Sharing). Cat5 from the Pi to a router LAN port, or directly to the laptop's adapter if you have no wired uplink at all — see the no-uplink note below.
+There is no monitor, no keyboard, and no mouse on the Pi at any point in this project.
+Everything below is either done on the MacBook or over SSH from the MacBook.
+The credentials have to be written onto the card **before** first boot, because there is no screen on which to type them afterwards.
+
+### Flash the card
+
+- [ ] Pick **Raspberry Pi OS (Legacy, 32-bit), Lite**. The old instruction to find a 4.19, 5.4 or 5.10 kernel is **outdated** - current Imager catalogs no longer serve those kernels at all. See "Kernel reality, corrected 2026-09-19" in `sensor/CLAUDE.md`. Take whatever `Legacy, 32-bit` actually gives you and use the `Makefile.rpi` build path in `raspberry-pi-4b.md` Step 4.
+
+  Imager hides these under "Raspberry Pi OS (other)".
+  A release name is not evidence. Only `uname -r` on first boot is, and on this path you record what it says rather than gate on it.
+
+- [ ] In Raspberry Pi Imager, choose Device: Raspberry Pi 4, then the image above, then the microSD card.
+- [ ] **Before writing**, open the settings editor (the gear icon, or "Edit Settings" on the "use OS customisation?" prompt) and set every row of this table.
+
+  Newer Imager versions split that editor into tabs (Hostname/Localization/User/Wifi/Remote access) rather than one settings sheet - SSH lives under **Remote access**, and "off, empty" for wireless means leaving the Wifi tab's SSID field blank.
+
+  | Setting | Value | Why it matters |
+  |---|---|---|
+  | Hostname | `radar-pi` | This is how you find the Pi. Without it you are reading DHCP leases off the router all weekend. |
+  | Enable SSH | on, password or public key | This is the only way in. Forgetting it means reflashing. |
+  | Username | `radar` | Every path in these guides assumes it. Changing it means editing the build steps. |
+  | Password | `TBD - decide and record here.` | Write it down and tell the team before you write the card. |
+  | Configure wireless LAN | **off, empty** | The Pi's network path is the Cat5. A configured `wpa_supplicant` fights `nexmon_csi` for `wlan0` in Phase 6. |
+  | Locale and timezone | whatever is convenient | Does not affect CSI. |
+
+- [ ] Write, and let it verify. Do not skip the verify.
+
+- [ ] If you already flashed without the settings editor, do the manual equivalent rather than reflashing.
+
+  ```sh
+  # The boot partition is bootfs on recent images and boot on older ones.
+  # Check what actually mounted rather than assuming.
+  ls /Volumes/
+
+  touch /Volumes/bootfs/ssh
+  echo "radar:$(openssl passwd -6)" > /Volumes/bootfs/userconf.txt
+  ```
+  Expect: an `ssh` file and a `userconf.txt` on the boot partition.
+  Do **not** create `wpa_supplicant.conf`.
+
+### First boot, which you cannot watch
+
+- [ ] Insert the card. The Pi 4B's onboard Ethernet port works directly - no USB adapter needed for the Pi itself (only the bring-up laptop needs one, if it lacks a built-in Ethernet port, for Internet Sharing). Cat5 from the Pi to a router LAN port, or directly to the laptop's adapter if you have no wired uplink at all - see the no-uplink note below.
 - [ ] Power the Pi from the kit's 5V/3A wall supply. Never from a router or laptop USB port.
+
+  A brownout under load corrupts the card silently. It does not reboot where you can see it.
+
+- [ ] Wait about 60 seconds. First boot resizes the filesystem and reboots itself once, so it is slower than every boot after it.
 - [ ] Pi is reachable over the wire.
 
   ```sh
@@ -86,9 +136,13 @@ Do this first. The Pi's capture parameters have to match the router's channel ex
   ```
   Expect: replies, then a shell prompt. If mDNS fails, find the lease in Advanced > Network > DHCP Server > DHCP Client List (or, over an Internet-Sharing bridge, `arp -a | grep 192.168.2` on the Mac).
 
-  Set up an SSH key immediately after first login — see `raspberry-pi-4b.md` Step 2 — the rest of this checklist has you SSHing in constantly.
+  If nothing appears in the lease list either, the Pi did not get far enough to reach the network.
+  See "The Pi never appears on the network" at the bottom of this file.
+  Do not start swapping cables until you have read the boot partition back on the MacBook.
 
-- [ ] **The kernel check.** Confirmed 2026-09-19: `6.12.109+rpt-rpi-v8`, **not** 4.19/5.4/5.10 — that's expected now, not a failure. See the status note at the top of this file.
+  Set up an SSH key immediately after first login - see `raspberry-pi-4b.md` Step 2 - the rest of this checklist has you SSHing in constantly.
+
+- [ ] **The kernel check.** Confirmed 2026-09-19: `6.12.109+rpt-rpi-v8`, **not** 4.19/5.4/5.10 - that's expected now, not a failure. See the status note at the top of this file.
 
   ```sh
   uname -r
@@ -96,7 +150,7 @@ Do this first. The Pi's capture parameters have to match the router's channel ex
   ```
   Confirm it's `armhf` userspace regardless of kernel version; that's what the rest of the build assumes.
 
-  **No wired uplink available? See `docs/hardware/bring-up-checklist.md`'s companion note and `sensor/CLAUDE.md`** — a MacBook can bridge venue/campus WiFi to the Pi over Internet Sharing for the install phase only, then the router never needs a WAN connection at all for actual capture. Known Internet Sharing flake: toggle shows "on" but the bridge never gets an IP (`log show --predicate 'process == "InternetSharing"'` shows `BRDGADD: failed Resource busy`) — fix by unplugging/replugging the USB-Ethernet adapter, then re-toggling.
+  **No wired uplink available? See `docs/hardware/bring-up-checklist.md`'s companion note and `sensor/CLAUDE.md`** - a MacBook can bridge venue/campus WiFi to the Pi over Internet Sharing for the install phase only, then the router never needs a WAN connection at all for actual capture. Known Internet Sharing flake: toggle shows "on" but the bridge never gets an IP (`log show --predicate 'process == "InternetSharing"'` shows `BRDGADD: failed Resource busy`) - fix by unplugging/replugging the USB-Ethernet adapter, then re-toggling.
 
 - [ ] Chip is the expected one.
 
@@ -108,6 +162,50 @@ Do this first. The Pi's capture parameters have to match the router's channel ex
 - [ ] Reserve the Pi's DHCP address on the router, against the **USB ethernet adapter's** MAC.
 
   Reserved address: `TBD - decide and record here.`
+
+  Note the MAC belongs to the adapter, not the Pi's onboard ethernet, and not `wlan0`.
+  Reserving the wrong one produces a Pi that moves address after a reboot and looks like it died.
+
+### Make the MacBook the console
+
+The Pi's screen is a terminal on your Mac. Set it up once, now, rather than during Phase 6 when something is on fire.
+
+- [ ] Install `tmux` on the Pi so a long-running build or capture survives a dropped SSH session.
+
+  ```sh
+  sudo apt-get update && sudo apt-get install -y tmux
+  tmux new -s bringup
+  ```
+  Expect: a status bar at the bottom of the terminal.
+  Detach with `ctrl-b d`, reattach with `tmux a -t bringup`.
+
+  Run Phase 4's build and Phase 6's capture inside tmux.
+  Without it, closing the laptop lid kills them.
+
+- [ ] Confirm you can open a second session at the same time, so you can watch one thing while doing another.
+
+  ```sh
+  # in a second MacBook terminal tab
+  ssh radar@radar-pi.local 'uptime'
+  ```
+  Expect: a load average, and your first session unaffected.
+
+- [ ] Decide how code gets onto the Pi, and use only that way.
+
+  ```sh
+  # push from the MacBook, fastest to iterate
+  rsync -av --exclude '.git' sensor/ radar@radar-pi.local:~/sensor/
+
+  # or pull on the Pi, which makes "what is actually running" answerable
+  ssh radar@radar-pi.local 'cd ~/VTHacks && git pull && git rev-parse --short HEAD'
+  ```
+  Expect: files present on the Pi under `~/sensor/`.
+
+  Mixing the two is how you spend an hour debugging code the Pi is not running.
+
+- [ ] Optional, and worth the five minutes: connect VS Code to the Pi with Remote-SSH, host `radar-pi.local`.
+
+  That gives an editor, a file tree, and a terminal on the Pi in one window, which is the whole of what a monitor would have given you.
 
 ---
 
@@ -125,21 +223,23 @@ Do this before building, so the first CSI you ever see comes from a geometry tha
 
 ## Phase 4: build nexmon_csi
 
-**Corrected 2026-09-19: use the `Makefile.rpi` path, not the kernel-pinned steps this phase originally had.** Full corrected procedure — dependencies, the Python 2.7/Stretch-archive step, the `libisl`/`libmpfr` symlink fix, the build itself, and `nexutil` — is in `docs/hardware/raspberry-pi-4b.md` Step 4. Follow that directly rather than this file; duplicating it here would just drift out of sync.
+**Corrected 2026-09-19: use the `Makefile.rpi` path, not the kernel-pinned steps this phase originally had.** Full corrected procedure - dependencies, the Python 2.7/Stretch-archive step, the `libisl`/`libmpfr` symlink fix, the build itself, and `nexutil` - is in `docs/hardware/raspberry-pi-4b.md` Step 4. Follow that directly rather than this file; duplicating it here would just drift out of sync.
 
-Do it inside `tmux` (start one now if you haven't: `tmux new -s bringup`) — the build is long enough that a dropped SSH session mid-compile means starting over.
+Do it inside `tmux` (start one now if you haven't: `tmux new -s bringup`) - the build is long enough that a dropped SSH session mid-compile means starting over.
 
 Start this, then do Phase 5 while it compiles.
+Run all of it inside the tmux session from Phase 2.
+The nexmon base build takes long enough that a dropped SSH session during it is a real risk, and losing it means starting the compile over.
 
 - [ ] Confirmed path once built, 2026-09-19: `~/nexmon/patches/bcm43455c0/7_45_189/nexmon_csi/utils/makecsiparams/makecsiparams`.
 - [ ] Confirm the patch actually loaded before moving on: `dmesg | grep -i 'Firmware:'` should show today's build date and `(nexmon.org/csi: <hash>)`, not the stock BCM firmware date.
-- [ ] Reboot once, so the patched firmware (now the default via `update-alternatives`) is what loads. **Runtime state — NetworkManager unmanaged, monitor mode, extractor config — does not survive the reboot and must be redone after it**; the firmware install itself does persist.
+- [ ] Reboot once, so the patched firmware (now the default via `update-alternatives`) is what loads. **Runtime state - NetworkManager unmanaged, monitor mode, extractor config - does not survive the reboot and must be redone after it**; the firmware install itself does persist.
 
 ---
 
 ## Phase 5: traffic generator
 
-**If the bring-up laptop is busy bridging internet to the Pi (Internet Sharing, no wired uplink available — see the note in Phase 2), it can't also be the traffic generator.** A single WiFi radio can't be associated to the venue/campus network and the router's `Radar-5g` network at the same time. Use a **second device** for this role in that case; otherwise the one laptop can do both.
+**If the bring-up laptop is busy bridging internet to the Pi (Internet Sharing, no wired uplink available - see the note in Phase 2), it can't also be the traffic generator.** A single WiFi radio can't be associated to the venue/campus network and the router's `Radar-5g` network at the same time. Use a **second device** for this role in that case; otherwise the one laptop can do both.
 
 - [ ] Generator device is on the **5GHz** SSID (`Radar-5g`) with `PHY Mode: 802.11ac` (verified in Phase 1).
 - [ ] Start the generator.
@@ -147,19 +247,19 @@ Start this, then do Phase 5 while it compiles.
   ```sh
   sudo ping -i 0.01 192.168.0.1
   ```
-  (Drop `caffeinate` if not on macOS, or it's not relevant to your setup — the point is just a sustained high-rate ping.) Expect: a continuous stream of requests. If it errors on the interval, you forgot `sudo` (fractional `-i` below 0.2s needs root).
+  (Drop `caffeinate` if not on macOS, or it's not relevant to your setup - the point is just a sustained high-rate ping.) Expect: a continuous stream of requests. If it errors on the interval, you forgot `sudo` (fractional `-i` below 0.2s needs root).
 
-  **The router may not reliably reply to ICMP aimed at its own gateway address** — we saw exactly this on 2026-09-19. That's fine; what matters for CSI is the router's *own* outgoing frames if you filter `-m` on it, or the generator's *outgoing request frames* if you filter `-m` on the generator instead — see the `-m` guidance in `raspberry-pi-4b.md` Step 5. We got a more reliable capture filtering on the generator's own MAC.
+  **The router may not reliably reply to ICMP aimed at its own gateway address** - we saw exactly this on 2026-09-19. That's fine; what matters for CSI is the router's *own* outgoing frames if you filter `-m` on it, or the generator's *outgoing request frames* if you filter `-m` on the generator instead - see the `-m` guidance in `raspberry-pi-4b.md` Step 5. We got a more reliable capture filtering on the generator's own MAC.
 
 - [ ] Confirm the rate on the generator side: interrupt after ~20 seconds and read the summary.
 
-  Expect: transmitted divided by elapsed seconds close to 100. This is the generator's own send rate, not the CSI packet rate the Pi sees — those can differ (see Phase 6).
+  Expect: transmitted divided by elapsed seconds close to 100. This is the generator's own send rate, not the CSI packet rate the Pi sees - those can differ (see Phase 6).
 
 - [ ] Restart it and leave it running for the rest of the bring-up.
 
   The script at `sensor/tools/trafficgen.sh` in [macbook-traffic-generator.md](macbook-traffic-generator.md) does start, stop, and status.
 
-  **If the generator device rejoins the WiFi network mid-session (sleep/wake, moving out of range and back), recheck its MAC address** before assuming a capture failure — some OSes assign a new random/private MAC per network join, which silently breaks a `-m` filter configured for the old one.
+  **If the generator device rejoins the WiFi network mid-session (sleep/wake, moving out of range and back), recheck its MAC address** before assuming a capture failure - some OSes assign a new random/private MAC per network join, which silently breaks a `-m` filter configured for the old one.
 
 ---
 
@@ -235,7 +335,7 @@ Do this the moment Phase 6 passes. Not after one more thing.
   diskutil unmountDisk /dev/diskN
   sudo dd if=/dev/rdiskN of=/Users/<you>/radar-backups/radar-pi-working-$(date +%Y%m%d-%H%M).img bs=4m status=progress
   ```
-  Expect: an image file roughly the size of the card. **Use the fully-expanded path, not `~`** — in `zsh`, `of=~/path` can silently fail to expand and `dd` errors "No such file or directory" against a directory that genuinely exists. Also run this in a real interactive terminal, not backgrounded — `sudo` needs a TTY for the password.
+  Expect: an image file roughly the size of the card. **Use the fully-expanded path, not `~`** - in `zsh`, `of=~/path` can silently fail to expand and `dd` errors "No such file or directory" against a directory that genuinely exists. Also run this in a real interactive terminal, not backgrounded - `sudo` needs a TTY for the password.
 
   Done 2026-09-19: `radar-pi-working-20260919-1454.img`, 15.6GB, ~3 minutes at ~86MB/s.
 
@@ -245,9 +345,9 @@ Do this the moment Phase 6 passes. Not after one more thing.
   ```sh
   sudo tcpdump -i wlan0 dst port 5500 -w ~/csi-session-$(date +%Y%m%d-%H%M).pcap
   ```
-  Expect: a growing pcap. Let it run through a representative sequence, including a fall.
+  Expect: a growing pcap. Let it run through a representative sequence, including someone going still and staying still.
 
-  A first 60-second session was captured 2026-09-19 (`csi-session-20260919-1510.pcap`, ~4300 packets) to prove the pipeline end to end — **not yet the representative sequence with a staged fall this step calls for.** Capture that one during the actual house shoot.
+  A first 60-second session was captured 2026-09-19 (`csi-session-20260919-1510.pcap`, ~4300 packets) to prove the pipeline end to end - **not yet the representative sequence this step calls for, with someone going still and staying still.** Capture that one during the actual house shoot.
 
 - [ ] Pull the pcap off the Pi and store it with the disk image.
 
@@ -258,17 +358,17 @@ Do this the moment Phase 6 passes. Not after one more thing.
 
 - [ ] Record in this file: the image filename, the kernel version, the channel, the router MAC, the base64 blob, and the `makecsiparams` path. All of it, in one place.
 
-  Done, 2026-09-19 — see the full recorded-values table in `sensor/CLAUDE.md` ("Recorded values, from the 2026-09-19 bring-up session"). Summary: kernel `6.12.109+rpt-rpi-v8` (armhf), channel 40/80MHz, router's real `Radar-5g` BSSID `58:d8:12:3c:f5:63` (not the label MAC), `makecsiparams` at `~/nexmon/patches/bcm43455c0/7_45_189/nexmon_csi/utils/makecsiparams/makecsiparams`.
+  Done, 2026-09-19 - see the full recorded-values table in `sensor/CLAUDE.md` ("Recorded values, from the 2026-09-19 bring-up session"). Summary: kernel `6.12.109+rpt-rpi-v8` (armhf), channel 40/80MHz, router's real `Radar-5g` BSSID `58:d8:12:3c:f5:63` (not the label MAC), `makecsiparams` at `~/nexmon/patches/bcm43455c0/7_45_189/nexmon_csi/utils/makecsiparams/makecsiparams`.
 
 ---
 
 ## Phase 8: the agent sees a person
 
 - [ ] The `sensor/` layer is producing the output contract in `sensor/CLAUDE.md`, with a populated `occupancy` array.
-- [ ] `agents/occupancy` is consuming it and reporting at least one presence with a `zone` and a `confidence`.
+- [ ] `agents/people` is consuming it and reporting at least one presence with a `zone` and a `confidence`.
 - [ ] `calibration.healthy` is `true` and `baseline_age_s` is climbing sensibly.
 
-  Remember that `occupancy` is the one tier 1 agent that genuinely needs a baseline, and the baseline is a rolling percentile with deliberately slow adaptation, not a calibration ritual.
+  Remember that `agents/people` is the one tier 1 agent that genuinely needs a baseline, and the baseline is a rolling percentile with deliberately slow adaptation, not a calibration ritual.
   If a motionless person disappears after a few minutes, the adaptation constant is too fast. That is the worst bug available to this project.
 
 - [ ] Walk out of the space and confirm the presence count drops. Walk back in and confirm it comes back.
@@ -279,18 +379,18 @@ Do this the moment Phase 6 passes. Not after one more thing.
 
 All of these are true at the same time:
 
-1. The Pi is running the `nexmon_csi` patch via the `Makefile.rpi` path — kernel doesn't need to be 4.19/5.4/5.10, that plan is superseded (see `sensor/CLAUDE.md`). **Know what kernel is actually on the card** (`uname -r`) rather than assuming.
+1. The Pi is running the `nexmon_csi` patch via the `Makefile.rpi` path - kernel doesn't need to be 4.19/5.4/5.10, that plan is superseded (see `sensor/CLAUDE.md`). **Know what kernel is actually on the card** (`uname -r`) rather than assuming.
 2. The generator device is associated at `PHY Mode: 802.11ac` on the fixed channel the router is pinned to.
-3. The traffic generator is running and the Pi is seeing CSI packets on port 5500 well above the 10Hz beacon-only floor. **Target 100+/sec; our own achieved rate was 30-70/sec**, which was sufficient to confirm the pipeline works — don't block on hitting 100 if there's no time left to chase it.
-4. Payloads are non-zero. **A raw byte-diff "does it respond to a person" test is not valid evidence either way** — per-packet phase noise swamps it; that needs proper per-subcarrier CSI parsing, which is downstream `sensor/` software, not a hardware check.
+3. The traffic generator is running and the Pi is seeing CSI packets on port 5500 well above the 10Hz beacon-only floor. **Target 100+/sec; our own achieved rate was 30-70/sec**, which was sufficient to confirm the pipeline works - don't block on hitting 100 if there's no time left to chase it.
+4. Payloads are non-zero. **A raw byte-diff "does it respond to a person" test is not valid evidence either way** - per-packet phase noise swamps it; that needs proper per-subcarrier CSI parsing, which is downstream `sensor/` software, not a hardware check.
 5. A `dd` image of the working microSD exists on at least two machines.
 6. A recorded CSI session pcap exists, covering a representative sequence, stored with the image.
-7. `agents/occupancy` reports a presence when someone is in the space and stops reporting one when they leave.
+7. `agents/people` reports a presence when someone is in the space and stops reporting one when they leave.
 8. The channel, kernel version, router MAC, base64 blob, and image filename are all written down in these files rather than in someone's scrollback.
 
 Item 5 and item 6 are the ones people skip and the ones that save the weekend.
 
-**Items 1-6 confirmed 2026-09-19.** Item 7 depends on `agents/occupancy` existing, which it doesn't yet — that's the next risk item, not a hardware one.
+**Items 1-6 confirmed 2026-09-19.** Item 7 waits on `agents/people` being pointed at live CSI rather than its fixtures; the agent itself is built and tested.
 
 ---
 
@@ -302,6 +402,38 @@ Work the troubleshooting table in the relevant guide first:
 - Band, channel, steering, subnet: [router-archer-ax1450.md](router-archer-ax1450.md)
 - Packet rate, throttling, Internet Sharing: [macbook-traffic-generator.md](macbook-traffic-generator.md)
 - Flat signal with a healthy packet rate: [assembly-and-placement.md](assembly-and-placement.md)
+
+### The Pi never appears on the network
+
+This is the one failure a monitor would have made obvious, so work it deliberately rather than by swapping cables.
+
+1. Confirm the Pi has power and is doing something.
+
+   The red PWR LED solid means power is good.
+   The green ACT LED should flicker as it reads the card.
+   Solid green and never flickering means it is not booting off the card at all.
+
+2. Confirm it is not a network problem before assuming it is a boot problem.
+
+   Check the router's DHCP client list for any new lease.
+   Try the Pi's onboard ethernet port with the Cat5 directly, temporarily, to rule out the USB adapter.
+
+3. Read the card back on the MacBook. This is the substitute for a screen.
+
+   ```sh
+   # power the Pi down, pull the card, insert it into the MacBook
+   ls /Volumes/bootfs/ssh /Volumes/bootfs/userconf.txt
+   ```
+   Expect: both present. If `ssh` is missing, SSH was never enabled and the card must be redone.
+   If a `wpa_supplicant.conf` is present, delete it.
+
+4. If the card looks right and it still never appears, reflash rather than debugging further.
+
+   A card that fails verification writes an image that boots partway and stops, which looks exactly like a dead Pi.
+
+A USB-TTL serial console on the GPIO header would show the boot log directly and settle this in seconds.
+We do not own one and nothing further is being purchased, so the card readback above is the documented recovery route.
+If someone on the team already owns a USB-TTL adapter, say so and this section gets a faster first step.
 
 If none of those fixes it and the timebox has expired, **the fallback ladder is in `sensor/CLAUDE.md`.**
 

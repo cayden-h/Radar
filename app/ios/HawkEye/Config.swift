@@ -83,10 +83,11 @@ enum Config {
         /// different rooms, both moving. This is the demo.
         case burglary
 
-        /// The child goes down in the second bedroom and does not get up, and
-        /// `still_down_s` starts climbing. The long lie, which is the clinical
-        /// outcome the product moves.
-        case faint
+        /// The child's breathing signature in the second bedroom stops being
+        /// resolvable while carbon monoxide climbs, and `respiration_lost_s`
+        /// starts counting. Whether a dispatcher should expect an answer from
+        /// that room is the thing the product moves.
+        case fire
     }
 
     /// The scripted incident the mock runs. Burglary is the demo.
@@ -102,10 +103,10 @@ enum Config {
     /// them to be there.
     static let mockDetectionAfter: Duration? = .seconds(14)
 
-    /// `.faint` only. How long `agents/collapse` waits after a fall transient
-    /// before calling it a collapse. A system that alarms when someone flops
-    /// onto a couch is worse than no system.
-    static let mockFaintDebounce: Duration = .seconds(6)
+    /// How long the mock waits after a presence's breathing signature goes
+    /// missing before it surfaces the loss. The real agent uses the elapsed
+    /// time since the last resolvable signature; this is the mock's stand-in.
+    static let mockRespirationLostDelay: Duration = .seconds(6)
 
     /// `.burglary` only. How long the new presence has no respiration signature,
     /// and so is `unconfirmed`, exactly like the curtain over the laundry vent.
