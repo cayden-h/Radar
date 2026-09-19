@@ -604,10 +604,22 @@ cd agents && $PY -m pytest tests/test_trust.py -v
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Retire the fall fixtures if nothing else uses them**
+
+Task 2 found that `SyntheticCsiFeed.transient()` and `settle()` in `agents/agents/core/dev.py` exist to simulate a fall, and that `tests/test_trust.py` was their last caller. Your rewrite replaces that call with `vacate`. Check whether they are now dead:
 
 ```bash
-git add agents/agents/master/ agents/tests/test_trust.py
+cd agents && grep -rn "transient(\|settle(" agents/ tests/
+```
+
+If the only hits are their own definitions in `dev.py`, delete both methods and the `MOVING_SIGMA`-adjacent comment at `dev.py:114` that ends "and that is `collapse`'s problem rather than this fixture's". A synthetic feed that can still simulate a fall is a fixture inviting someone to write a fall test against a system that does not detect falls.
+
+If anything else still calls them, leave them and say what does.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add agents/agents/master/ agents/agents/core/dev.py agents/tests/test_trust.py
 git commit -m "Classify Fire from CO plus a lost breathing signature; no placeholder verdict"
 ```
 
