@@ -40,6 +40,37 @@ struct Wordmark: View {
     }
 }
 
+/// A near-black backdrop with a faint radial glow seeded from two fixed
+/// points, echoing the aperture motif in `Wordmark`. Used in place of a flat
+/// `Palette.ground` fill so idle screens read as atmospheric rather than a
+/// blank void.
+///
+/// Placed as the first layer of a screen's `ZStack`. Fills and ignores the
+/// safe area itself, so callers never need a separate `.ignoresSafeArea()`.
+struct AmbientBackground: View {
+    var tint: Color = Palette.calm
+
+    var body: some View {
+        ZStack {
+            Palette.ground
+            RadialGradient(
+                colors: [tint.opacity(0.10), Color.clear],
+                center: UnitPoint(x: 0.5, y: 0.06),
+                startRadius: 0,
+                endRadius: 520
+            )
+            RadialGradient(
+                colors: [Palette.surfaceRaised.opacity(0.45), Color.clear],
+                center: UnitPoint(x: 0.88, y: 0.96),
+                startRadius: 0,
+                endRadius: 420
+            )
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+    }
+}
+
 /// Four bars. Empty bars are drawn rather than omitted, so rows do not change
 /// width as signal changes.
 struct SignalBars: View {
@@ -59,9 +90,17 @@ struct SignalBars: View {
 }
 
 /// A card. One corner radius, one border, used everywhere so nothing drifts.
+///
+/// `glow: true` adds a soft outer shadow in the card's tint (or
+/// `Palette.calm` when no tint is given). Reserved for the small number of
+/// elements on a screen that should draw the eye — most cards leave it at the
+/// default `false`, or nothing would stand out.
 struct Card<Content: View>: View {
     var tint: Color = .clear
+    var glow: Bool = false
     @ViewBuilder var content: Content
+
+    private var glowTint: Color { tint == .clear ? Palette.calm : tint }
 
     var body: some View {
         content
@@ -76,6 +115,7 @@ struct Card<Content: View>: View {
                         lineWidth: 1
                     )
             )
+            .shadow(color: glow ? glowTint.opacity(0.22) : .clear, radius: 22, x: 0, y: 10)
     }
 }
 
