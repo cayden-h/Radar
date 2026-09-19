@@ -10,7 +10,7 @@ transport is not wired, so this agent will say so rather than speak anyway.
 That is not a degraded mode to apologise for; it is the rule working.
 
 **Inbound.** The operator talks back, mid-call. "Is the child still breathing?"
-"Anyone in the garage?" "How long since they went down?" Each question is parsed
+"Anyone in the garage?" "How long since you had breathing?" Each question is parsed
 and fanned out through `master` as fresh verified queries, and the answer comes
 back in one short sentence.
 
@@ -65,10 +65,21 @@ from agents.core.ports import ObservationSource
 #: the right trade here, and anything it does not recognise becomes "I don't
 #: know" rather than a guess.
 QUESTION_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "people.respiration_lost",
+        (
+            "responsive",
+            "respond",
+            "answer",
+            "how long",
+            "when did",
+            "since",
+            "unconscious",
+            "passed out",
+        ),
+    ),
     ("people.respiration", ("breathing", "breath", "respiration", "still alive", "conscious")),
     ("people.breathing_bpm", ("how fast", "breathing rate", "breaths")),
-    ("people.still_down_s", ("how long", "when did", "since they fell", "down for", "time")),
-    ("people.collapse_detected", ("fall", "fell", "collapse", "on the floor", "down")),
     ("people.headcount", ("how many", "anyone else", "who else", "occupants", "people")),
     ("people.zone", ("where", "which room", "what room", "located")),
     ("intruder.unexpected_presence", ("intruder", "someone else", "stranger", "break in")),
@@ -360,8 +371,7 @@ class CallerAgent(Agent):
 
 #: What a dispatcher needs first. Life status and location before anything else.
 SPEAK_PRIORITY: tuple[str, ...] = (
-    "people.collapse_detected",
-    "people.still_down_s",
+    "people.respiration_lost",
     "people.respiration",
     "people.zone",
     "people.headcount",
@@ -397,7 +407,7 @@ def route_question(question: str) -> str | None:
 
 #: Claims whose negative value is not worth a dispatcher's attention.
 #:
-#: "No collapse detected" and "nobody unaccounted for" are meaningful to the
+#: "No unexpected presence" and "nobody unaccounted for" are meaningful to the
 #: system and noise on a live call. A dispatcher has seconds and needs what IS
 #: happening; a list of things that are not is how the one thing that matters
 #: gets buried. They stay in the verification feed, where they belong.
@@ -422,24 +432,15 @@ def _speak_value(field: str, value: str, *, zone: str | None = None) -> str:
     """One short sentence a dispatcher can act on. No jargon, no hedging stack."""
     where = f" in the {zone.replace('_', ' ')}" if zone and zone != "site" else ""
     match field:
-        case "people.collapse_detected":
-            return (
-                f"Someone went down{where} and has not gotten up."
-                if value == "true"
-                else f"No fall detected{where}."
-            )
-        case "people.still_down_s":
+        case "people.respiration_lost":
             minutes = float(value) / 60.0
-            return (
-                f"They have been down {minutes:.0f} minutes."
-                if minutes >= 1
-                else f"They went down {float(value):.0f} seconds ago."
+            ago = (
+                f"{minutes:.0f} minutes ago" if minutes >= 1 else f"{float(value):.0f} seconds ago"
             )
-        case "people.long_lie":
             return (
-                "They have been on the floor more than an hour."
-                if value == "true"
-                else "They have not been down an hour."
+                f"I had a breathing signature{where} {ago} and I do not have one now. "
+                "That is not the same as them having stopped breathing - I cannot resolve "
+                "shallow breathing. Do not expect them to answer."
             )
         case "people.respiration":
             return (

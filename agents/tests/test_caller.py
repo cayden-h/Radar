@@ -13,6 +13,7 @@ from agents.caller import (
     ParticipationMode,
     route_question,
 )
+from agents.caller.agent import _speak_value
 from agents.master import MasterAgent, SimulatedCoSensor
 from agents.people import PeopleAgent
 
@@ -31,7 +32,7 @@ def test_an_unrecognised_question_is_i_dont_know(mesh):
 def test_questions_match_on_meaning_not_exact_strings():
     """A dispatcher will not say the phrase anyone hardcoded."""
     assert route_question("is she still breathing?") == "people.respiration"
-    assert route_question("how long has she been down for?") == "people.still_down_s"
+    assert route_question("how long has she been down for?") == "people.respiration_lost"
     assert route_question("is anyone else in there?") == "people.headcount"
     assert route_question("which room is he in") == "people.zone"
 
@@ -46,7 +47,7 @@ def test_nothing_is_spoken_when_the_transport_verifies_nothing(mesh, feed, roste
 
     master = MasterAgent(mesh, gas=SimulatedCoSensor())
     master.run_once()
-    lines = CallerAgent(mesh, master).opening_report(IncidentType.FAINT, "1 Fictional Way")
+    lines = CallerAgent(mesh, master).opening_report(IncidentType.FIRE, "1 Fictional Way")
 
     assert "I am not a person" in lines[0].text
     assert any("will not repeat anything I cannot verify" in line.text for line in lines)
@@ -62,7 +63,7 @@ def test_a_verified_claim_is_spoken_and_attributed(verified_mesh, feed, roster):
     master = MasterAgent(verified_mesh)
     master.run_once()
     lines = CallerAgent(verified_mesh, master).opening_report(
-        IncidentType.FAINT, "1 Fictional Way"
+        IncidentType.FIRE, "1 Fictional Way"
     )
 
     spoken = [line for line in lines if line.claim_fields]
@@ -87,7 +88,7 @@ def test_a_negative_claim_is_never_read_to_a_dispatcher(mesh, verified_mesh, fee
     master = MasterAgent(verified_mesh)
     master.run_once()
     lines = CallerAgent(verified_mesh, master).opening_report(
-        IncidentType.FAINT, "1 Fictional Way"
+        IncidentType.FIRE, "1 Fictional Way"
     )
 
     spoken = " ".join(line.text for line in lines)
@@ -105,7 +106,7 @@ def test_a_quiet_verified_house_says_so_rather_than_nothing(mesh, verified_mesh,
     master = MasterAgent(verified_mesh)
     master.run_once()
     lines = CallerAgent(verified_mesh, master).opening_report(
-        IncidentType.FAINT, "1 Fictional Way"
+        IncidentType.FIRE, "1 Fictional Way"
     )
 
     assert len(lines) >= 2
@@ -195,18 +196,10 @@ def test_guidance_defers_to_the_dispatcher(mesh):
     """Dispatchers are trained in emergency medical dispatch protocols. We are not."""
     caller = CallerAgent(mesh)
     caller.operator_said("I've dispatched units, they're two minutes out")
-    instructions = caller.resident_guidance(IncidentType.FAINT)
+    instructions = caller.resident_guidance(IncidentType.FIRE)
 
     assert caller.resident.deferring is True
     assert [i.text for i in instructions] == ["Follow what the dispatcher is telling you."]
-
-
-def test_first_aid_never_moves_a_fall_victim(mesh):
-    """The canonical never-do, present as a 'do not' rather than absent."""
-    instructions = CallerAgent(mesh).resident_guidance(IncidentType.FAINT)
-
-    assert instructions[0].text.startswith("Do not move them")
-    assert instructions[0].urgent is True
 
 
 def test_fire_guidance_is_to_leave_not_to_investigate(mesh):
@@ -223,3 +216,28 @@ def test_operator_cues_match_on_meaning(mesh):
 
     assert len(instructions) == 2
     assert all(i.defers_to_operator for i in instructions)
+
+
+def test_a_lost_signature_is_spoken_with_its_limit_attached():
+    """The one line that justifies keeping respiration, and it must not overclaim.
+
+    A dispatcher hearing "she is not breathing" will act on it. The radio cannot
+    support that sentence, so the caller says what it measured and what that
+    does not mean, in that order.
+    """
+    spoken = _speak_value("people.respiration_lost", "240", zone="main_bedroom")
+
+    assert "main bedroom" in spoken
+    assert "4 minutes" in spoken
+    assert "not the same as" in spoken
+    assert "stopped breathing" in spoken
+
+
+def test_asking_whether_to_expect_an_answer_routes_to_the_lost_signature():
+    """The dispatcher's actual question, in the words a dispatcher uses."""
+    for question in (
+        "is she responsive?",
+        "will she answer the door?",
+        "how long since you had breathing?",
+    ):
+        assert route_question(question) == "people.respiration_lost", question
