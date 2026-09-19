@@ -108,6 +108,54 @@ See [router-archer-ax1450.md](router-archer-ax1450.md).
 Decide before filming whether the Pi needs internet at all.
 If the sensing agents run on a laptop on the same LAN rather than on Vultr, the uplink stops mattering during the take, which is one less thing that can break on camera.
 
+### What actually needs internet, and what survives without it
+
+The AX1450 is meant to have an uplink, so "Wi-Fi but no internet" is a failure state rather than the
+plan. It is worth knowing exactly what that failure costs, because the answer is not "everything"
+and the parts that survive are the parts the demo leans on.
+
+| Path | Needs internet | What happens without it |
+|---|---|---|
+| Phone to hub | **No** | Nothing. Bonjour and the websocket are both on the LAN. The Connect screen, the interior view, the roster and the banner all work. |
+| Pi to hub, CSI | **No** | Nothing. Wired LAN. |
+| Hub in `simulated` mode | **No** | Nothing. The whole scripted incident runs on loopback. |
+| Hub to Twilio, the SMS | Yes, **at the hub** | The send fails, is logged and swallowed, and the in-app banner still appears. `twilio refused` or a connection error in the log; nothing on screen says so. |
+| Hub to `agents/master` in `live` mode | Yes, if master is on Vultr | `503 agent mesh unavailable`. Correct behaviour: the hub refuses to invent state. |
+| `agents/caller`, ElevenLabs, the 911 call | Yes | **The call cannot happen.** This is the part that genuinely dies. |
+| ANS verification, Gemini | Yes | No verification events, so the refusal beat is gone. |
+
+**The resident's phone does not need internet, and this is not an accident worth losing.**
+
+The phone joins the AX1450 because device association is what makes a presence "unexpected": the
+roster rule is two registered residents with both of their phones associated, and one more presence
+than those devices account for. So the phone has to be on that network. If that network has no
+uplink, the phone has no internet.
+
+It still gets the text, **because SMS rides the cellular network rather than Wi-Fi.** A phone parked
+on an internet-less sensing router, with the Hawk Eye app closed, still receives the notice.
+
+An APNs push would not have arrived. Push needs IP connectivity on the device, and the device has
+none. The SMS sink was chosen because it reaches a phone that is locked with the app closed, and it
+turns out to also be the only option that survives the network topology this project requires the
+phone to be on. Say that out loud if a judge asks why there is no push: it is a better answer than
+"we ran out of time".
+
+The honest caveat is cellular coverage, not Wi-Fi. No bars means no SMS, and a basement shoot is
+exactly where that bites.
+
+**So the uplink matters for the hub and the agents, not for the phone.** At the house the AX1450's
+WAN goes to the home router and everything has internet through two layers of NAT, which is fine
+because all agent traffic is outbound. At a venue it comes from MacBook Internet Sharing. If neither
+is available, you still have a complete sensing demo and a complete app demo, and you do not have a
+911 call.
+
+**One tension to settle before demo day rather than during it.** The note above suggests running the
+sensing agents on a laptop on the same LAN so the uplink stops mattering. That is the robust choice
+for filming. It is also directly against the primary track's hard requirement that agents be built
+and hosted on the internet and reachable, not on localhost. Both cannot be true in the same run, so
+pick per run: LAN-local agents for the recorded fallback, Vultr-hosted agents for anything a judge
+verifies live. Root `CLAUDE.md` has the requirement; `docs/swapping-in-real-parts.md` has the seam.
+
 ### The venue fallback
 
 We are demoing live at judging, but **not the sensing pipeline**.
