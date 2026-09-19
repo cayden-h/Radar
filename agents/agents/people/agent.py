@@ -3,10 +3,14 @@
 **The load-bearing agent.** It is the only consumer of the CSI stream and it
 answers every question about occupants: how many, in which room, whether each
 one is a person at all, whether they are breathing, whether they are moving, and
-whether one of them is on the floor and for how long.
+how long it has been since a breathing signature was last resolvable on one of
+them.
 
 Merged from what were three agents (occupancy, biometrics, collapse) on
-2026-09-19. The merge is the right shape, and the reason is not that three was
+2026-09-19, and fall detection was cut from it on 2026-09-19. What remains is
+personhood, location and responsiveness.
+
+The merge is the right shape, and the reason is not that three was
 too many - it is that they were one question asked three ways:
 
 - They read the **same CSI window**. Three agents meant three copies of the same
@@ -23,12 +27,11 @@ the ANS story is between the agent that senses and the agent that decides, and
 that line is `people` to `master` - it is untouched, and it is the hop where a
 claim becomes something a dispatcher hears.
 
-The three readers run in a fixed order each tick, because each depends on the
-one before:
+The two readers run in a fixed order each tick, because the second depends on
+the first:
 
     respiration  ->  is this a person, breathing at what rate, moving or not
     presence     ->  which zone, how many, what coarse class
-    collapse     ->  did one of them go down, and for how long
 
 Everything the agent will not claim is on its card, published, and each line has
 a test. See `docs/research/agent-briefs.md`.
@@ -42,13 +45,12 @@ from agents.core.base import Agent
 from agents.core.identity import identity
 from agents.core.observations import AgentObservation
 from agents.core.ports import CsiFeed, RosterSource
-from agents.people.collapse import STILLNESS_WINDOW_S, CollapseReader
 from agents.people.presence import BASELINE_SEED_S, DISTURBANCE_WINDOW_S, PresenceReader
 from agents.people.respiration import RESPIRATION_HI_HZ, WINDOW_S, RespirationReader
 
 
 class PeopleAgent(Agent):
-    """One CSI consumer, three readers, one observation."""
+    """One CSI consumer, two readers, one observation."""
 
     interval_s = 1.0
 
@@ -58,7 +60,6 @@ class PeopleAgent(Agent):
         self._roster = roster
         self._respiration = RespirationReader(self.identity.name)
         self._presence = PresenceReader(self.identity.name, self.identity.ansname)
-        self._collapse = CollapseReader()
 
     def tick(self) -> AgentObservation:
         frames = self._feed.window(WINDOW_S)
@@ -110,18 +111,6 @@ class PeopleAgent(Agent):
         )
         assertions.extend(presence_assertions)
         unknowns.extend(presence_unknowns)
-
-        # 3. Falls, over a shorter window than respiration uses.
-        recent = [
-            f
-            for f in frames
-            if (newest.captured_at - f.captured_at).total_seconds() <= STILLNESS_WINDOW_S
-        ]
-        collapse_assertions, collapse_unknowns = self._collapse.analyse(
-            recent or frames, vitals, provenance
-        )
-        assertions.extend(collapse_assertions)
-        unknowns.extend(collapse_unknowns)
 
         return self.observe(
             assertions=tuple(assertions),
