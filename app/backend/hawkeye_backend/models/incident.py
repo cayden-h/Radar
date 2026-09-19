@@ -12,11 +12,16 @@ from hawkeye_backend.models.verification import VerificationResult
 
 
 class IncidentType(StrEnum):
-    """The three incident types. Nothing else classifies."""
+    """The two incident types. Nothing else classifies.
+
+    Faint was the third until 2026-09-19. Fall detection was the weakest link
+    in the chain - a debounce problem dressed as a clinical variable - and what
+    a dispatcher actually needs is narrower and defensible: whether the people
+    inside can respond. That is carried by respiration, per presence.
+    """
 
     BURGLARY = "burglary"
     FIRE = "fire"
-    FAINT = "faint"
 
 
 class RaisedBy(StrEnum):
@@ -59,8 +64,10 @@ class CallState(StrEnum):
 class IncidentClassification(BaseModel):
     """Why master called it what it called it.
 
-    Classification is the interesting part and should be visible. A fall plus
-    elevated CO is a fire incident with a casualty, not a faint.
+    Classification is the interesting part and should be visible. Elevated CO
+    plus a breathing signature that has gone missing is a fire with an occupant
+    who may not be able to respond, and that is two independent modalities
+    rather than one signal crossing a threshold.
     """
 
     incident_type: IncidentType
