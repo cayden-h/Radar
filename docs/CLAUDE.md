@@ -6,6 +6,7 @@ Research, the pitch, the agent roster, and the Devpost writeup.
 
 | | |
 |---|---|
+| `swapping-in-real-parts.md` | **Written 2026-09-19.** The switchboard. Every mock and simulated part, its seam, the flip, and the half-flipped states that waste an evening. |
 | `hardware/` | **Written 2026-09-19.** Step-by-step guides for every hardware item, the hookup geometry, and a bring-up checklist. `hardware/README.md` is the index. |
 | `notion-backup/` | Pre-write snapshots of the shared Notion page, taken before anything is appended to it. |
 | `research/` | **Verified background, written 2026-09-19.** Incident statistics, per-agent domain briefs, footage licensing. Every figure sourced. Start there. |
@@ -57,7 +58,9 @@ Once you make that substitution, thirteen payment probes become a checklist for 
 
 The battery is thirteen ways of asking one question: **does this implementation treat a valid signature as authorization?** Ten of the thirteen pass only if the answer is no.
 
-**Still outstanding: we have not run it.** The deployment is broken, so the results column is deliberately empty rather than guessed.
+**Resolved 2026-09-19.** The battery cannot be aimed at us: verified against its MCP endpoint, `run_battery` and all thirteen attack tools take no target parameter and the target is hardwired to `supplier.webmesh.ai`. It is a reference implementation of a threat model, not a scanner.
+So we implemented all thirteen shapes ourselves against `app/backend/hawkeye_backend/verification/`, and they pass. Writing them found two real bugs, both recorded in `docs/fraud-13.md` rather than quietly cleaned up.
+The line for stage: "His battery only attacks his own supplier, so we implemented all thirteen against ours. Here they are, and here are the two bugs they found."
 Run it Saturday, record all thirteen verdicts verbatim including failures, and fill the column in.
 "We ran your attack suite, here are the thirteen results" is the strongest single sentence available to us on Sunday morning, and it is only available if we actually ran it.
 
@@ -180,7 +183,7 @@ Must include:
   - We do not prevent swatting. We make a call attributable after the fact. State it that narrowly.
   - We have no TEE attestation of the sensing runtime, so we score zero on the Trust Index `enclaveAttestation` signal. That is the correct score and we say why.
   - The CSI ingest path parses untrusted binary from a patched firmware blob. Containment comes from the wired-only network path and from credential separation, not from the parser being good.
-  - If the `fraud.webmesh.ai` battery has not been run by submission time, say so rather than implying it passed. A documented failure beats a claimed pass.
+  - We did not run his battery against our agents, because it cannot be aimed at anything but `supplier.webmesh.ai`. We reimplemented all thirteen shapes. Say it that way; implying we ran his suite is the kind of claim that dies to one question from the person who wrote it.
 
   Overclaiming any of these is how a good project loses to a single question.
 

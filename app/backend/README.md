@@ -39,6 +39,44 @@ python3.13 -m venv .venv
 It listens on `0.0.0.0:8787` by default.
 Interactive API docs are at `http://127.0.0.1:8787/docs`.
 
+## Tests
+
+```sh
+cd app/backend
+uv pip install -e '.[dev]'
+.venv/bin/python -m pytest -q
+```
+
+37 tests, all of them security. `tests/test_battery.py` is the local reimplementation of the
+`fraud.webmesh.ai` attack battery; `tests/test_card.py` covers agent-card hardening.
+
+## `hawkeye_backend/verification/`
+
+The defence `agents/master` runs on every claim. A standalone package with no FastAPI or hub
+imports, so it moves into `agents/master` as an import change rather than a rewrite.
+
+| Module | What it does |
+|---|---|
+| `canonical.py` | RFC 8785 JCS. The only canonicalizer in the codebase, which is what battery probe #13 asks for. |
+| `envelope.py` | The signed claim envelope and its possession proof. The mandate analogue. |
+| `verifier.py` | The ordered pipeline, ANS-6 §7.4. Where "a valid signature is not authorization" is enforced. |
+| `trust.py` | Registered agents and their profiles. Unknown key means refused, never unknown-therefore-allow. |
+| `replay.py` | Single-use proofs. Bounded, fail-closed, and spent **last**. |
+| `card.py` | Agent-card signing, drift fingerprinting, dispatch-address commitment. |
+| `errors.py` | Rejection taxonomy, named to line up with the battery's own verdicts. |
+
+Why it exists and what each piece defends against: `docs/fraud-13.md` and `ans/CARD.md`.
+
+Two things in here are easy to break by accident and both are load-bearing:
+
+- **The replay id is recorded last**, after every other check. Recording it earlier lets anyone
+  submitting garbage flood a bounded cache and fail-close authentication for every legitimate
+  caller, which here is a denial of service against a 911 call. `test_replay_id_not_recorded_when_verification_fails`
+  is the guard.
+- **Canonicalization is shared.** Sign through the pydantic model, never by assembling a dict by
+  hand. Doing the latter is how the first draft of the test signer broke, and it is the exact
+  drift probe #13 looks for.
+
 ### The whole demo, with nothing else running
 
 ```sh
@@ -47,14 +85,17 @@ SPEED=0.35 ./scripts/demo.sh   # rehearsal speed
 PORT=9000 ./scripts/demo.sh
 ```
 
-That boots the hub in simulated mode, curls `/v1/hub` and `/v1/state`, connects to the websocket, runs the scripted incident end to end, posts a mid-incident context note as the resident, and then fetches the sealed replay record.
+That boots the hub in simulated mode, curls `/v1/hub` and `/v1/state`, connects to the websocket, runs the scripted detection, waits, taps Faint the way the app would, watches the call that tap releases, posts a mid-incident context note as the resident, and then fetches the sealed replay record.
+
+The pause in the middle is the product.
+The detection raises no incident and dials nothing; the tap is what starts the call.
 
 **There is no hardware in that path and no agent process in that path.**
 No Raspberry Pi, no router, no `agents/master`, no network beyond loopback.
 One environment variable is the entire difference:
 
 ```sh
-HAWKEYE_MODE=simulated   # default. SimulatedMasterClient drives a scripted incident.
+HAWKEYE_MODE=simulated   # default. SimulatedMasterClient drives the scripted detection, and the call a tap releases.
 HAWKEYE_MODE=live        # LiveMasterClient talks to a real agents/master.
 ```
 
@@ -79,7 +120,7 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_MASTER_BASE_URL` | `http://127.0.0.1:8900` | Live mode only. Where `agents/master` is. |
 | `HAWKEYE_MASTER_TIMEOUT_S` | `5.0` | Live mode only. |
 | `HAWKEYE_SIM_SPEED` | `1.0` | Simulated mode only. Multiplies every scripted delay. |
-| `HAWKEYE_SIM_AUTOSTART` | `false` | Simulated mode only. Run the script on boot. |
+| `HAWKEYE_SIM_AUTOSTART` | `false` | Simulated mode only. Run the **detection** on boot, so a demo rig comes up already showing the fall. It cannot start a call. |
 | `HAWKEYE_STORE_BACKEND` | `memory` | `memory` or `mongodb`. See the storage seam below. |
 | `HAWKEYE_MONGODB_URI` | empty | MongoDB Atlas connection string, when that lands. |
 
@@ -98,6 +139,7 @@ Every reading carries a required `provenance` object.
 | `LiveMasterClient` HTTP surface | Written, never exercised | `agents/master` does not exist yet. Every assumption is a `TODO(master)` in `master/live.py`. |
 | Interior state, presences, positions | **Simulated** | `provenance.source = "ruview-sim"`, `source_class = "simulated"`, `simulated = true`. |
 | Carbon monoxide reading | **Simulated** | `provenance.source = "demo-trigger"`, exactly the literal string the root `CLAUDE.md` requires. No gas sensor was purchased. |
+| A human tap being the only thing that dials | **Real** | `assert_human_released` in `master/base.py` gates every path that can end in a call. A `SYSTEM`-raised incident raises `AutonomousDialRefused` rather than dialing. |
 | The 911 call, the operator's voice, the transcript | **Simulated** | `provenance.source = "agent-inference"` for our side, `"operator-audio"` for theirs. No phone call is placed. ElevenLabs is not wired in. |
 | ANS verification results | **Simulated** | The decisions follow the real `recommendedProfile` table from `agents/CLAUDE.md`, but no certificate was actually resolved and no Trust Index was actually queried. See the TODOs. |
 | Trust Index scores | **Simulated, and the unimplemented dimensions are named** | `solvency`, `behavior` and `safety` come back `null`, not `0`, with `unimplemented_dimensions` listing them. Upstream hardcodes them to 0; a 0 that means "not scored" and a 0 that means "scored zero" are different facts. |
@@ -341,6 +383,17 @@ The decision follows the `recommendedProfile` table from `agents/CLAUDE.md`:
 
 The resident raises an incident from the app. One tap.
 
+**This is the only path to a call.**
+Hawk Eye never calls 911 on its own; settled 2026-09-19.
+`collapse` and `environment` still detect, and their detections surface on the stream as interior state the app renders as an alert: the presence moves to `confirmed_still`, `still_down_s` climbs and does not reset, the CO reading rises.
+An alert is information a person acts on. It is not a call.
+
+The request carries `raised_by: user` and nothing else is accepted downstream: `assert_human_released` in `master/base.py` refuses a `SYSTEM`-raised incident on every path that can end in a phone call.
+`RaisedBy.SYSTEM` stays in the enum for wire compatibility and for records raised before that decision.
+
+What the detection buys is an informed tap rather than an autonomous one.
+By the time the resident presses Faint, the hub already knows who is down, in which room, whether they are breathing, and for how long.
+
 Request ([`schema/request-raise-incident.json`](schema/request-raise-incident.json)):
 
 ```json
@@ -411,7 +464,7 @@ Full example: [`schema/replay.json`](schema/replay.json). Abridged:
       "seq": 1,
       "at": "2026-09-20T04:12:33Z",
       "kind": "incident",
-      "summary": "fire raised by system",
+      "summary": "faint raised by user",
       "detail": { },
       "entry_hash": "9a1e26430b4002eb...",
       "prev_hash": null
@@ -436,7 +489,24 @@ In simulated mode the hub assembles the record from its own buffer, in the same 
 
 ### `POST /v1/demo/run`
 
-Starts the scripted incident. **Simulated mode only; 404s in live mode, deliberately.**
+Drives the scripted detection and then stops. **Simulated mode only; 404s in live mode, deliberately.**
+
+The default is detection only, because that is what the system does on its own.
+The fall appears in `state`, `still_down_s` climbs, CO rises, and no `incident` or `transcript` event is emitted at all.
+The system notices and waits.
+
+```sh
+curl -X POST localhost:8787/v1/demo/run
+# {"started":true,"detail":"scripted detection started; no incident raised, waiting on a human tap","raised_incident_id":null}
+```
+
+`?simulate_human_tap=true` additionally raises a Faint incident exactly as `POST /v1/incident` would, with `raised_by: user`, so one curl exercises detection and call end to end.
+The parameter is named for what it is standing in for, which is a person.
+Without it this endpoint cannot start a call, and with it the thing being faked is the tap, not the system's authority to dial.
+
+```sh
+curl -X POST 'localhost:8787/v1/demo/run?simulate_human_tap=true'
+```
 
 There must be no way to trigger a scripted incident against a live mesh.
 A demo button that fabricates an emergency on a system wired to a phone line is not a thing this project gets to have.
@@ -452,7 +522,7 @@ app/backend/
   pyproject.toml            uv / pip project, Python 3.13
   requirements.txt          plain-pip fallback
   README.md                 this file
-  scripts/demo.sh           boots simulated mode and runs the scripted incident
+  scripts/demo.sh           boots simulated mode, runs the detection, taps Faint, watches the call
   schema/                   generated example payloads, one per endpoint and event kind
   tools/
     gen_schema.py           regenerates schema/ from the live models
@@ -474,7 +544,7 @@ app/backend/
       events.py             the tagged-union stream envelope
     master/
       base.py               MasterClient protocol, EventSink protocol
-      simulated.py          the scripted incident
+      simulated.py          the scripted detection, and the scripted call a human tap releases
       live.py               HTTP client against agents/master
       scenario.py           floorplan, agent roster, ANSName map
 ```

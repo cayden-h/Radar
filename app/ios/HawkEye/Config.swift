@@ -69,15 +69,62 @@ enum Config {
 
     // MARK: Mock script
 
-    /// In mock mode, how long after connecting the scripted fall is detected.
+    /// Which scripted incident the mock runs.
+    ///
+    /// Both scripts are complete and both run off the same sensor loop and the
+    /// same detection timer, so switching here changes the demo and nothing
+    /// else. There is no scenario branch anywhere in the views.
+    enum MockScenario {
+
+        /// An unexpected person enters through the garage, is identified as a
+        /// person once respiration is acquired, and routes through the house
+        /// toward the resident. Two tracked presences, different rooms, both
+        /// moving. This is the demo.
+        case burglary
+
+        /// The child goes down in the west bedroom and does not get up, and
+        /// `still_down_s` starts climbing. The long lie, which is the clinical
+        /// outcome the product moves.
+        case faint
+    }
+
+    /// The scripted incident the mock runs. Burglary is the demo.
+    static let mockScenario: MockScenario = .burglary
+
+    /// In mock mode, how long after connecting the scripted detection fires.
     /// Set to `nil` to disable it and drive the demo from the buttons only.
     ///
     /// **It raises an alert, not a call.** Hawk Eye never dials 911 on its own;
     /// a human tap is what releases `agents/caller`. The detection is what makes
-    /// the tap informed: by the time the resident presses Faint, the system
-    /// already knows who is down, in which room, whether they are breathing, and
-    /// for how long.
-    static let mockFallDetectedAfter: Duration? = .seconds(22)
+    /// the tap informed: by the time the resident presses a button, the system
+    /// already knows who is in the house, in which room, and whether it expected
+    /// them to be there.
+    static let mockDetectionAfter: Duration? = .seconds(14)
+
+    /// `.faint` only. How long `agents/collapse` waits after a fall transient
+    /// before calling it a collapse. A system that alarms when someone flops
+    /// onto a couch is worse than no system.
+    static let mockFaintDebounce: Duration = .seconds(6)
+
+    /// `.burglary` only. How long the new presence has no respiration signature,
+    /// and so is `unconfirmed`, exactly like the curtain over the garage vent.
+    /// After this, respiration is acquired and it becomes a confirmed person the
+    /// system did not expect.
+    static let mockIntruderIdentifiedAfter: Double = 5
+
+    /// `.burglary` only. The intruder's route through the house, as
+    /// `(zone, seconds dwelled there)`, walked in order from the entry zone.
+    /// Positions are interpolated between zone centroids across
+    /// `mockIntruderTravelSeconds`, so the presence visibly moves rather than
+    /// teleporting from room to room.
+    static let mockIntruderRoute: [(zone: String, dwellS: Double)] = [
+        ("garage", 13),
+        ("hallway", 10),
+        ("kitchen", .infinity),
+    ]
+
+    /// Seconds spent in transit between two zones on that route.
+    static let mockIntruderTravelSeconds: Double = 4.5
 
     // MARK: Site
 

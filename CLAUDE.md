@@ -18,18 +18,18 @@ Still outstanding, in rough order of risk:
 1. **The CSI capture path.** No hardware has been brought up yet. This is the largest single risk in the project. `docs/hardware/bring-up-checklist.md` is the path; `sensor/CLAUDE.md` has the fallback ladder and the point at which to stop.
 2. **The nine agents.** Contracts are written in `agents/CLAUDE.md`; the code is not.
 3. **ANS registration and hosting.** The deployment is currently broken, and the agents must be internet-reachable rather than on localhost. That is a hard requirement of the primary track, not a nicety.
-4. **Agent cards are not written.** This is cheaper than it looks and it is the surface the judge's own verifier inspects. `ans/CARD.md` is the spec and checklist.
-5. **The thirteen probe shapes are not implemented against `master`.** `docs/fraud-13.md` has an empty results column on purpose. Note that the battery itself cannot be aimed at us, so this is work we do rather than a suite we invoke.
+4. **Agent cards are not published.** The signing, drift and address-commitment code exists and is tested (`app/backend/hawkeye_backend/verification/card.py`); what is missing is real cards served at real hostnames. This is the surface the judge's own verifier inspects. `ans/CARD.md` is the spec and checklist.
+5. ~~The thirteen probe shapes are not implemented.~~ **Done 2026-09-19.** All thirteen, plus both bonus structural checks, implemented and passing in `app/backend/tests/` against `hawkeye_backend/verification/`. Results table in `docs/fraud-13.md`. Still to move from the hub into `agents/master` once master exists.
 
 Re-run `/init` once the agents land so this file can describe actual build and test commands for them.
 
 ## What we are building
 
-**Hawk Eye.** A home that can call 911 itself, and prove to the other agents involved that it is not lying.
+**Hawk Eye.** A home that speaks to 911 for you, and proves to the other agents involved that it is not lying.
 
 A Raspberry Pi connected to the home WiFi router reads Channel State Information and maps where people are inside the house, through walls and in darkness, with no camera and no microphone.
 Nine always-running agents interpret that signal and act on it.
-One of them places a phone call to a 911 operator and holds a conversation in plain English.
+When a person decides to call, one of them places the phone call to a 911 operator and holds a conversation in plain English.
 Another talks the resident through what to do while it happens.
 
 Three incident types: **Burglary, Fire, Faint.** Each is raised by a human, from the iOS app.
@@ -162,6 +162,7 @@ That keeps the ANS-verified agent mesh on one side of a line and the human surfa
 
 - **`app/ios/`** is the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. There is no `.xcodeproj` in the repo; `app/ios/project.yml` is an XcodeGen spec. Two stages: a Connect screen listing Hawk Eye hubs found over Bonjour, then the main screen. It is not a WiFi picker and cannot be, because enumerating SSIDs needs the `NEHotspotHelper` entitlement. See `app/CLAUDE.md`.
 - **`app/backend/`** is the edge service the app talks to. See `app/backend/README.md`.
+  It also holds **`hawkeye_backend/verification/`**, the claim-envelope defence: the thirteen `fraud.webmesh.ai` shapes, agent-card signing and drift, and the dispatch-address commitment. Standalone package, no FastAPI imports, so it moves into `agents/master` as an import change. `cd app/backend && python -m pytest -q` is 37 security tests.
 
 One flag, `app/ios/HawkEye/Config.swift`, runs the entire app with no hardware and no agents up.
 **The demo must never depend on hardware being alive**, so the mock path is a first-class implementation rather than a branch inside a view.
@@ -208,7 +209,7 @@ These are action items from the briefing, not optional background.
 
 **All three were written 2026-09-19.** They live in `docs/`, not `docs/research/`, because they are deliverables rather than background.
 
-1. `docs/fraud-13.md` - the 13 attacks at fraud.webmesh.ai, each translated into its Hawk Eye analogue. **The battery cannot be aimed at our agents** (no target parameter; hardwired to `supplier.webmesh.ai`, verified 2026-09-19), so we implement the shapes rather than invoke the suite. The results column is deliberately empty until we do.
+1. `docs/fraud-13.md` - the 13 attacks at fraud.webmesh.ai, each translated into its Hawk Eye analogue. **The battery cannot be aimed at our agents** (no target parameter; hardwired to `supplier.webmesh.ai`, verified 2026-09-19), so we implement the shapes rather than invoke the suite. **All thirteen are implemented and passing** in `app/backend/tests/`; the results table is filled in.
 2. `docs/geo.md` - GEO, and an opinion on the crawler tradeoff he raised without giving one.
 3. `docs/threat-landscape.md` - current agent attacks, OSI coverage, OWASP ASI01-10, MAESTRO, sandbox breakout. The centerpiece of the three.
 
@@ -308,6 +309,9 @@ A registered domain is required regardless, because ANS is domain-anchored.
 Register through GoDaddy Registry and the MLH "Best Domain Name" prize comes along for free.
 
 ### The honesty rule
+
+**`docs/swapping-in-real-parts.md` is the switchboard**: every simulated or mocked thing, where its seam is, how to flip it, how to tell the flip worked, and which half-flipped states look like something else.
+Read it before wiring anything real in.
 
 Some capabilities are demonstrated rather than measured.
 `agents/environment` is the clear case: no gas sensor exists, so the reading is simulated.

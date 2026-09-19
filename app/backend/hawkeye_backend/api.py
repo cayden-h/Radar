@@ -9,8 +9,11 @@ Six capabilities, per app/CLAUDE.md:
   POST /v1/incident/{id}/context    the "what is happening" box
   GET  /v1/incident/{id}/replay     the sealed post-incident record
 
-Plus POST /v1/demo/run, which starts the scripted incident in simulated mode and
-404s in live mode. It exists so scripts/demo.sh has something to hit.
+Plus POST /v1/demo/run, which drives the scripted detection in simulated mode and
+404s in live mode. It exists so scripts/demo.sh has something to hit. It stops at
+the detection: Hawk Eye never calls 911 on its own (settled 2026-09-19), so the
+call runs only once a person taps, and `?simulate_human_tap=true` is the explicit
+opt-in that stands in for that person.
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from hawkeye_backend import __version__
@@ -31,6 +34,7 @@ from hawkeye_backend.models.incident import (
     ContextRequest,
     Incident,
     IncidentAck,
+    IncidentType,
     RaiseIncidentRequest,
     RaisedBy,
     ReplayRecord,
@@ -51,6 +55,7 @@ def _runtime(request: Request) -> HubRuntime:
 class DemoRunAck(BaseModel):
     started: bool
     detail: str
+    raised_incident_id: str | None = None
 
 
 @router.get("/hub", response_model=HubStatus, summary="Hub identity and health")
@@ -183,13 +188,33 @@ async def get_replay(request: Request, incident_id: str) -> ReplayRecord:
     return built
 
 
-@router.post("/demo/run", response_model=DemoRunAck, summary="Start the scripted incident")
-async def post_demo_run(request: Request) -> DemoRunAck:
-    """Simulated mode only. 404s in live mode, deliberately.
+@router.post("/demo/run", response_model=DemoRunAck, summary="Run the scripted detection")
+async def post_demo_run(
+    request: Request,
+    simulate_human_tap: bool = Query(
+        default=False,
+        description=(
+            "Stand in for a person pressing Faint in the app. Off by default. "
+            "The hub itself never raises an incident; this parameter exists so "
+            "one curl can exercise detection plus call end to end, and it is "
+            "the human, not the system, that it is imitating."
+        ),
+    ),
+) -> DemoRunAck:
+    """Drive the scripted detection, then stop. Simulated mode only.
 
-    There must be no way to trigger a scripted incident against a live mesh. A
-    demo button that fabricates an emergency on a system wired to a phone line is
-    not a thing this project gets to have.
+    The detection is expressed purely in interior state: the presence goes to
+    `confirmed_still`, `still_down_s` climbs, the CO reading rises. No incident
+    is created and no call is placed, because Hawk Eye never calls 911 on its
+    own (settled 2026-09-19). The system notices and waits for a human tap.
+
+    `?simulate_human_tap=true` additionally raises a Faint incident exactly as
+    `POST /v1/incident` would, with `raised_by: user`, because the thing being
+    simulated is the person. Without it this endpoint cannot start a call.
+
+    404s in live mode, deliberately. There must be no way to trigger a scripted
+    incident against a live mesh. A demo button that fabricates an emergency on
+    a system wired to a phone line is not a thing this project gets to have.
     """
     runtime = _runtime(request)
     client = runtime.client
@@ -197,8 +222,24 @@ async def post_demo_run(request: Request) -> DemoRunAck:
         raise HTTPException(status_code=404, detail="not available in live mode")
     if client.script_running:
         return DemoRunAck(started=False, detail="scripted incident already running")
-    asyncio.create_task(client.run_script())
-    return DemoRunAck(started=True, detail="scripted incident started")
+
+    started = not (client.detection_running or client.fall_detected)
+    if started:
+        asyncio.create_task(client.run_detection())
+        detail = "scripted detection started; no incident raised, waiting on a human tap"
+    else:
+        detail = "detection already run; no incident raised, waiting on a human tap"
+
+    raised_incident_id: str | None = None
+    if simulate_human_tap:
+        # Exactly the path POST /v1/incident takes. RaisedBy.USER is not a
+        # label of convenience here: assert_human_released refuses anything
+        # else on the way to the call.
+        incident = await client.raise_incident(IncidentType.FAINT, RaisedBy.USER, None)
+        raised_incident_id = incident.incident_id
+        detail += "; simulated human tap raised a faint incident"
+
+    return DemoRunAck(started=started, detail=detail, raised_incident_id=raised_incident_id)
 
 
 @router.websocket("/stream")

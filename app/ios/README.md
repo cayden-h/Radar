@@ -47,12 +47,31 @@ It runs the whole demo:
 
 - Two hubs appear on the Connect screen, one already paired, a beat apart so it looks like discovery rather than a fixture.
 - Three presences move through the house at 4 Hz: an adult in the kitchen and living room, a child in the west bedroom, and a curtain over a vent in the garage.
-- After `Config.mockAutonomousFaintAfter` (22 seconds by default) the child goes down and a six second debounce runs.
+- A detection lands after `Config.mockDetectionAfter` (14 seconds by default) and **raises an alert, not a call.**
+  Hawk Eye never dials 911 on its own; a human tap is what releases `agents/caller`.
+  Set the constant to `nil` to disable the detection and drive everything from the buttons.
+- A scripted two-way 911 call plays out in the transcript once a human taps, with guidance arriving alongside it and the ANS verification feed including a claim that is refused.
 
-  **This constant needs changing (2026-09-19).** Hawk Eye does not call 911 on its own: a fall detection raises an **alert**, and the incident is only created when a human taps Faint. The mock should stop at the alert and wait for the tap. Rename to `mockFallDetectedAfter`, which describes what it should now do.
+### The two scenarios
 
-  Set the constant to `nil` to disable the simulated fall and drive everything from the buttons.
-- A scripted two-way 911 call plays out in the transcript, with guidance arriving alongside it.
+`Config.mockScenario` selects which incident the script runs.
+Both are complete, both run off the same sensor loop and the same detection timer, and there is no scenario branch anywhere in the views.
+
+**`.burglary`, the default.** The one the project is built around.
+
+A fourth presence appears in the garage.
+For the first `Config.mockIntruderIdentifiedAfter` seconds it has no respiration signature, so it is `unconfirmed`, exactly like the curtain over the vent it is standing beside.
+Then respiration is acquired and it becomes a confirmed person with `expected: false`: the system has identified a person in the building it did not expect.
+It then walks `Config.mockIntruderRoute`, garage to hallway to kitchen, with its position interpolated between zone centroids so it visibly moves across the floorplan rather than teleporting between rooms.
+
+The frame that matters is then on screen: the intruder and the resident as two distinct tracked presences, in different rooms, both moving.
+The unexpected person is violet with tracking brackets; the residents are the calm blue; the curtain is still a dashed grey lozenge in the same room the intruder came through.
+That last contrast is the argument, and it is why the curtain was kept rather than replaced.
+
+**`.faint`.** The child goes down in the west bedroom, a six second debounce runs, and `still_down_s` starts climbing and does not reset.
+The long lie, which is the clinical outcome the product moves.
+
+Per-scenario timings live next to the selector in `Config.swift` and nowhere else.
 
 ## What is real and what is not
 
@@ -64,6 +83,7 @@ The project has an explicit honesty rule, so here is the line, drawn plainly.
 - **The client transport.** `LiveHawkEyeClient` is a real `URLSessionWebSocketTask` with reconnect backoff, plus REST for commands. No part of it is scaffolding.
 - **The data model.** Every `Codable` type in `Models/` is matched field for field against the generated example payloads in `app/backend/schema/`, which are produced from the live Pydantic models. All eighteen example files plus a 1,661-frame capture from a running hub decode without error. See "Wire format" below.
 - **The verification feed.** `verification` events are modelled in full: the claim, the agent, its ANSName and version-bound certificate, the Trust Index with its unimplemented dimensions named rather than zeroed, the decision, and every check with its reason. The incident screen renders refusals as refusals.
+- **The unexpected person.** `Presence.expected` is an orthogonal axis to `PresenceState`, not a fourth state, and it is rendered as one: a confirmed person the system did not expect turns violet and gains tracking brackets on the floorplan, and takes a violet headline, border and row tint in the roster, whichever of the two person states they are in. `nil` means expected, so a frame that omits the field does not turn the household into intruders. The words are factual, "Unexpected person" and "Not accounted for", because the claim `agents/intruder` makes is that the presence is unaccounted for and not that it knows who anyone is.
 - **The presence states.** The hub decides `presence.state` and the client trusts it. `PresenceState.derive` remains as the fallback for a frame that omits the field, and it follows `agents/biometrics`: respiration carries the verdict, a recorded collapse outranks a marginal respiration estimate, and absence of respiration is never treated as absence of a person.
 - **The interior view.** Everything drawn is computed from the frame that just arrived. Confidence drives blur radius, opacity, jitter and drift, so a 0.4 presence genuinely looks uncertain. No baked animation, no asset files.
 - **The simulated-CO label.** The app reads `environment.provenance.simulated`, which the hub computes from `source` rather than accepting from a producer, and renders a `SIM` chip off it. A simulated reading cannot reach the screen dressed as a measured one.

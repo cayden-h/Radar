@@ -24,6 +24,36 @@ class MasterUnavailable(RuntimeError):
     """
 
 
+class AutonomousDialRefused(RuntimeError):
+    """Something tried to put a SYSTEM-raised incident on the dialing path.
+
+    Hawk Eye never calls 911 on its own; settled 2026-09-19. Detections from
+    `agents/collapse` and `agents/environment` surface as interior state a
+    person acts on, and a human tap is what releases `agents/caller` to dial.
+
+    This is raised rather than logged because the failure it guards against is
+    the whole project in reverse: a house that dials emergency services with
+    nobody having asked it to.
+    """
+
+
+def assert_human_released(incident: Incident) -> None:
+    """Gate on the dialing path. Only a human tap releases `agents/caller`.
+
+    Structural, not conventional, in the same way `Provenance.source_class` is
+    computed rather than trusted. Every path that can end in a phone call calls
+    this first, so a future change that reintroduces an autonomous raise fails
+    loudly at the point it would have dialed.
+    """
+    if incident.raised_by is not RaisedBy.USER:
+        raise AutonomousDialRefused(
+            f"incident {incident.incident_id} was raised by "
+            f"{incident.raised_by.value!r} and must not reach the dialing path. "
+            "Hawk Eye never calls 911 on its own (settled 2026-09-19); a detection "
+            "surfaces as interior state and a human tap releases the call."
+        )
+
+
 @runtime_checkable
 class EventSink(Protocol):
     """Where a MasterClient publishes. Implemented by HubRuntime."""

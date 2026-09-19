@@ -37,6 +37,16 @@ enum Palette {
     /// A perturbation with no respiration signature. Not a person.
     static let unconfirmed = Color(hex: 0x6E7889)
 
+    /// A confirmed person the system did not expect to be in the building.
+    ///
+    /// Deliberately the same violet as the Burglary button: the colour the
+    /// roster turns and the button the resident presses are the same fact, and
+    /// pairing them means the screen does not have to explain the link.
+    ///
+    /// `expected` is an orthogonal axis to `PresenceState`, not a fourth state,
+    /// so this tint replaces the state tint rather than adding a case to it.
+    static let personUnexpected = Color(hex: 0x8B7CFF)
+
     // MARK: Incidents
 
     static let burglary = Color(hex: 0x8B7CFF)

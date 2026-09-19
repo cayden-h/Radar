@@ -24,6 +24,16 @@ import SwiftUI
 ///
 /// The difference between 2 and 3 is the difference between dispatching an
 /// ambulance and reporting a curtain.
+///
+/// Crossing those three states is one orthogonal axis, `Presence.expected`. A
+/// confirmed person the system did not expect turns violet and gains tracking
+/// brackets, whichever of the two person states they are in. That is not a
+/// fourth `PresenceState` and must not become one: what changes is whether
+/// their being here is accounted for, not what they are.
+///
+/// For burglary this is the frame the whole project is built around: the
+/// intruder and the resident as two distinct tracked presences, in different
+/// rooms, both moving.
 struct InteriorView: View {
     var state: InteriorState
 
@@ -54,7 +64,8 @@ struct InteriorView: View {
         guard !state.presences.isEmpty else { return "Nothing detected inside." }
         return state.presences.map { p in
             let room = state.floorplan.room(named: p.zone)?.name ?? p.zone
-            return "\(p.state.headline) in the \(room)."
+            let headline = p.isUnexpected ? "Unexpected person, \(p.state.headline.lowercased())," : p.state.headline
+            return "\(headline) in the \(room)."
         }.joined(separator: " ")
     }
 
@@ -149,12 +160,19 @@ struct InteriorView: View {
                                        in: plan, t: t)
 
             switch presence.state {
-            case .personMoving:
+            case .personMoving, .personUnresponsive:
+                let unresponsive = presence.state == .personUnresponsive
+                // `expected` is an orthogonal axis, so it swaps the tint rather
+                // than adding a case. An unexpected person who is also
+                // unresponsive keeps the alarm ring and turns violet.
+                let tint: Color = presence.isUnexpected
+                    ? Palette.personUnexpected
+                    : (unresponsive ? Palette.personUnresponsive : Palette.personMoving)
                 drawPerson(&context, at: center, presence: presence, t: t,
-                           tint: Palette.personMoving, alarm: false)
-            case .personUnresponsive:
-                drawPerson(&context, at: center, presence: presence, t: t,
-                           tint: Palette.personUnresponsive, alarm: true)
+                           tint: tint, alarm: unresponsive)
+                if presence.isUnexpected {
+                    drawTrackingBrackets(&context, at: center, presence: presence, t: t)
+                }
             case .unconfirmed, .unresolved:
                 drawUnconfirmed(&context, at: center, presence: presence, t: t)
             }
@@ -251,6 +269,57 @@ struct InteriorView: View {
                 width: radius * 0.88, height: radius * 0.88
             )),
             with: .color(tint)
+        )
+    }
+
+    /// Tracking brackets around a confirmed person the system did not expect.
+    ///
+    /// Four corner brackets and a slow sweep ring, in the same violet as the
+    /// Burglary button. The read is "this one is being followed", which is what
+    /// is actually happening, and it is the only thing on the canvas that gets
+    /// a hard edge: every other presence is soft. That contrast does the work
+    /// without a label, a skull, or an exclamation mark.
+    ///
+    /// Coherence still governs it, so the brackets sit wider and fainter on a
+    /// low-confidence track. The system does not get more certain about who
+    /// someone is by deciding it does not like them.
+    private func drawTrackingBrackets(
+        _ context: inout GraphicsContext,
+        at center: CGPoint,
+        presence: Presence,
+        t: Double
+    ) {
+        let c = presence.confidence
+        // Low confidence stands the box off further, so an uncertain track
+        // reads as a loose one.
+        let half: CGFloat = 30 + CGFloat(1 - c) * 12
+        let arm = half * 0.42
+
+        var ctx = context
+        ctx.opacity = 0.45 + 0.5 * c
+
+        var brackets = Path()
+        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+            let corner = CGPoint(x: center.x + CGFloat(sx) * half,
+                                 y: center.y + CGFloat(sy) * half)
+            brackets.move(to: CGPoint(x: corner.x - CGFloat(sx) * arm, y: corner.y))
+            brackets.addLine(to: corner)
+            brackets.addLine(to: CGPoint(x: corner.x, y: corner.y - CGFloat(sy) * arm))
+        }
+        ctx.stroke(brackets, with: .color(Palette.personUnexpected),
+                   style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+
+        // One slow sweep, an order of magnitude calmer than the unresponsive
+        // alarm ring. An intruder is not a medical emergency and must not
+        // out-shout one.
+        let cycle = (t * 0.45).truncatingRemainder(dividingBy: 1)
+        var sweep = context
+        sweep.opacity = (1 - cycle) * 0.4 * (0.4 + 0.6 * c)
+        let r = half * (0.7 + 0.8 * cycle)
+        sweep.stroke(
+            Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
+            with: .color(Palette.personUnexpected),
+            lineWidth: 1
         )
     }
 

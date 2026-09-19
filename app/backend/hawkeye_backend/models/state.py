@@ -67,7 +67,7 @@ class Position(BaseModel):
     jitter, not a localization claim. Do not promise coordinates.
     """
 
-    zone: str = Field(description="Room-level zone id, e.g. 'west_bedroom'. Coarse by design.")
+    zone: str = Field(description="Room-level zone id, e.g. 'main_bedroom'. Coarse by design.")
     x: float = Field(description="Metres from floorplan origin. Zone centroid, not a fix.")
     y: float = Field(description="Metres from floorplan origin. Zone centroid, not a fix.")
     zone_confidence: float = Field(ge=0.0, le=1.0, description="Confidence in the zone, 0-1.")

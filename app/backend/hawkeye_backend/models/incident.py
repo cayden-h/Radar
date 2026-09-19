@@ -22,8 +22,14 @@ class IncidentType(StrEnum):
 class RaisedBy(StrEnum):
     """Who raised it.
 
-    SYSTEM is the path that matters: the person who would have tapped the button
-    is on the floor.
+    USER is the only path to a call. Hawk Eye never dials 911 on its own;
+    settled 2026-09-19. A human tap is what releases `agents/caller` to dial,
+    and `agents/collapse` and `agents/environment` surface their detections as
+    interior state the resident acts on rather than as a call.
+
+    SYSTEM is kept for wire compatibility and for records raised before that
+    decision. It must never reach the dialing path: `assert_human_released` in
+    `master/base.py` enforces that structurally rather than by convention.
     """
 
     USER = "user"

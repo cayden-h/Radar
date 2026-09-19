@@ -10,10 +10,15 @@ dependencies = [
     "pydantic-settings>=2.6",
     "httpx>=0.28",
     "websockets>=13.0",
+    "cryptography>=44",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
 
 [build-system]
 requires = ["hatchling"]

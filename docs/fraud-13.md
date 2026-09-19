@@ -13,10 +13,52 @@ Being able to say "we ran your attack suite, here are the thirteen results" is t
 
 ## Status
 
-**The battery has not been run against `agents/caller` yet, because the deployment is still broken.**
-Nothing here claims a result we have not measured.
-This file documents what each probe tests, what its analogue is in Hawk Eye, and what we must implement to survive it.
-The results column gets filled in Saturday, after the agents are reachable.
+Two facts, and they are different facts. Keep them apart when speaking to a judge.
+
+**1. We have not run his battery, and we cannot.**
+Verified 2026-09-19 against `https://fraud.webmesh.ai/mcp/`: all sixteen tools, and `run_battery` plus every one of the thirteen attack tools takes **no target parameter**. The target is hardwired to `supplier.webmesh.ai`, which its own card states in its first line.
+It is a reference implementation of a threat model, not a scanner.
+
+**2. We implemented all thirteen shapes ourselves, and we pass them.**
+`app/backend/hawkeye_backend/verification/` is the defence. `app/backend/tests/` is the local battery.
+
+```
+$ cd app/backend && python -m pytest -q
+37 passed
+```
+
+Run it before believing this table.
+
+| # | Probe | Our test | Result |
+|---|---|---|---|
+| - | baseline: an honest claim is accepted | `test_00_honest_claim_is_accepted` | ASSERTED, spoken |
+| 1 | `replay_booking` | `test_01_replay_booking` | PROOF_REJECTED `proof_replay` |
+| 2 | `underpay_booking` | `test_02_underpay_booking` | CLAIM_REJECTED `claim_signature` |
+| 3 | `tamper_mandate` | `test_03_tamper_mandate` | CLAIM_REJECTED `claim_signature` |
+| 4 | `underpay_valid_sig` | `test_04_underpay_valid_sig` | Signature valid, authority **capped** to CORROBORATING, not spoken |
+| 4 | lower bound: UNTRUSTED source | `test_04b_untrusted_is_discarded` | CLAIM_REJECTED `profile_authorization` |
+| 5 | `quote_swap_attack` | `test_05_quote_swap_attack` | CLAIM_REJECTED `incident_binding` |
+| 6 | `wrong_audience_attack` | `test_06_wrong_audience_attack` | CLAIM_REJECTED `audience_binding` |
+| 7 | `wrong_scope_attack` | `test_07_wrong_scope_attack` | Zone carried and bound; cannot be widened |
+| 8 | `wrong_dpop_key_attack` | `test_08_wrong_dpop_key_attack` | PROOF_REJECTED `proof_key_binding` |
+| 9 | `corrupt_jws_attack` | `test_09_corrupt_jws_attack` | CLAIM_REJECTED `claim_signature`, no exception |
+| 9 | harder: not even valid base64 | `test_09b_garbage_signature_does_not_throw` | CLAIM_REJECTED, no exception |
+| 10 | `superseded_format_attack` | `test_10_superseded_format_attack` | CLAIM_PARSE_ERROR |
+| 10 | other direction: future schema | `test_10b_unknown_schema_version_refused` | CLAIM_REJECTED `schema_version` |
+| 11 | `unknown_key_mandate` | `test_11_unknown_key_mandate` | CLAIM_REJECTED `known_issuer` |
+| 12 | `replay_settled` | `test_12_replay_settled` | CLAIM_REJECTED `incident_lifecycle` |
+| 13 | `canonicalization_probe` | `test_13_canonicalization_probe` | `1` and `1.0` canonicalize identically |
+| B1 | `card_drift_watch` | `test_fingerprint_*` in `test_card.py` | Stable across key order, changes on content |
+| M4 | `payTo_binding_check` | `test_dispatch_address_*` in `test_card.py` | Committed, not published; swap refused |
+
+Nine further tests cover things the battery does not probe: proof-target binding, lifting a proof onto a different claim, claim and proof expiry, oversize payloads refused before parsing, agent suppression, replay-cache fail-closed, and the ordering rule below.
+
+**Two real bugs were found by writing these**, which is the argument for writing them rather than only documenting them:
+
+- `self._replay = replay or ReplayCache()` silently discarded an injected cache, because `ReplayCache` defines `__len__` and an empty cache is falsy. Every verifier got a private throwaway. That is exactly the failure ANS-6 §7.6 names under "shared scope behind load balancers": a proof replays cleanly against any replica holding its own cache. It passed every other test. Regression test: `test_injected_replay_cache_is_actually_used`.
+- The test signer built its signing input by hand and serialized datetimes differently from pydantic, so nothing verified. That is the canonicalization-drift class probe #13 exists to catch, arriving for free in our own code within an hour of writing it. The signer now goes through the model rather than around it.
+
+**What we say on stage:** "His battery only attacks his own supplier, so we implemented all thirteen against ours. Here they are, and here are the two bugs they found." That is true, checkable, and stronger than a claimed pass.
 
 ## The translation that makes the battery apply to us
 
@@ -110,9 +152,10 @@ Verified directly against `https://fraud.webmesh.ai/mcp/`. It exposes 16 tools. 
 
 It is a reference implementation of a threat model, not a scanner. That does not reduce the value of the thirteen translations above; it changes who does the work.
 
-1. **Implement the thirteen shapes locally** against `agents/master`, which is where the verification logic lives. Build to ANS-6 Method B rather than inventing a scheme; the wire-level verification order is in `ans/CARD.md`.
-2. Capture all thirteen verdicts verbatim.
-3. Fill in the results column above, including failures.
+1. ~~**Implement the thirteen shapes locally.**~~ **Done 2026-09-19.** `app/backend/hawkeye_backend/verification/`, built to ANS-6 Method B rather than an invented scheme. The wire-level verification order is in `ans/CARD.md` and in `verifier.py`'s docstring.
+   Still to do: move this from the hub into `agents/master` proper once master exists, or have master import it. It is deliberately a standalone package with no FastAPI or hub dependencies so that move is an import change.
+2. ~~Capture all thirteen verdicts verbatim.~~ Done; see the table above.
+3. ~~Fill in the results column above, including failures.~~ Done. Two bugs found and fixed, both recorded above rather than quietly cleaned up.
    A documented failure with a stated reason is worth more than a claimed pass, and the track owner wrote these probes specifically to be failed by naive implementations.
 4. **Separately, run `agent.webmesh.ai verify_agent` against all nine hostnames.** That one does take an arbitrary host, and it is what will actually be pointed at us: DNS, DNSSEC, Transparency Log proof, published agent card, plus a live A2A message. Its `compatibility_verdict` is the thing to have clean before judging. See `ans/CARD.md`.
 5. Pick one probe for the live demo.

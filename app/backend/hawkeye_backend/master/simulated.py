@@ -1,11 +1,23 @@
 """SimulatedMasterClient: the whole demo, with zero hardware and zero agents up.
 
-Set HAWKEYE_MODE=simulated and this drives a scripted incident end to end with
-realistic timing: a collapse nobody pressed a button for, corroboration from a
-second modality, verification of every source, a DISCARDED claim from an
-impostor, an ElevenLabs-shaped call to a human operator, an operator question
-that fans back out as fresh verified queries, and an "I don't know" where the
-honest answer is that nothing could be verified.
+Set HAWKEYE_MODE=simulated and this drives the demo in two halves, because the
+product works in two halves.
+
+First the detection: `agents/collapse` sees an adult go down in the main
+bedroom, the presence goes to `confirmed_still`, `still_down_s` starts climbing
+and does not reset, and the CO reading rises. That is expressed purely in
+interior state. **No incident is created and nothing is dialled.** Hawk Eye
+never calls 911 on its own; settled 2026-09-19.
+
+Then, and only if a human taps a button, the call: corroboration from a second
+modality, verification of every source, a DISCARDED claim from an impostor, an
+ElevenLabs-shaped call to a human operator, an operator question that fans back
+out as fresh verified queries, and an "I don't know" where the honest answer is
+that nothing could be verified.
+
+What the detection buys is an informed tap, not an autonomous one: by the time
+the resident presses Faint, the hub already knows who is down, in which room,
+whether they are breathing, and for how long.
 
 Everything it emits is labelled. Interior state carries `ruview-sim`, the CO
 reading carries `demo-trigger`, both come out with `source_class: "simulated"`
@@ -22,7 +34,7 @@ import logging
 import random
 from datetime import timedelta
 
-from hawkeye_backend.master.base import EventSink
+from hawkeye_backend.master.base import EventSink, assert_human_released
 from hawkeye_backend.master.scenario import (
     ANSNAME,
     PROFILE,
@@ -130,6 +142,8 @@ class SimulatedMasterClient:
 
         self._incident: Incident | None = None
         self._script_running = False
+        self._detection_running = False
+        self._fall_detected = False
         self._counters: dict[str, itertools.count[int]] = {
             "incident": itertools.count(1),
             "line": itertools.count(1),
@@ -153,7 +167,7 @@ class SimulatedMasterClient:
             ),
             "p2": self._presence(
                 "p2",
-                zone="east_bedroom",
+                zone="second_bedroom",
                 state=PresenceState.CONFIRMED_MOVING,
                 moving=True,
                 breathing_bpm=24.0,
@@ -206,8 +220,13 @@ class SimulatedMasterClient:
         await asyncio.sleep(seconds * self._speed)
 
     async def _delayed_autostart(self) -> None:
+        """HAWKEYE_SIM_AUTOSTART runs the detection on boot, never the call.
+
+        Autostart exists so a demo rig comes up already showing the fall. It
+        cannot start a call, because nothing in this process is allowed to.
+        """
         await self._sleep(3.0)
-        await self.run_script()
+        await self.run_detection()
 
     # ------------------------------------------------------------------ queries
 
@@ -247,12 +266,16 @@ class SimulatedMasterClient:
             raised_by=raised_by,
             address=self._address,
         )
+        # Structural, not conventional. The scripted conversation below ends in
+        # a phone call to a human being, so the only thing that may start it is
+        # a human tap. A SYSTEM raise fails here rather than dialing.
+        assert_human_released(incident)
         self._incident = incident
         await self._emit(IncidentEvent(phase=IncidentPhase.RAISED, incident=incident), incident.incident_id)
         if note:
             await self.submit_context(incident.incident_id, note)
         if not self._script_running:
-            self._spawn(self.run_script(existing=incident))
+            self._spawn(self.run_call_script(incident))
         return incident
 
     async def submit_context(self, incident_id: str, text: str) -> ContextNote:
@@ -531,18 +554,79 @@ class SimulatedMasterClient:
 
     # ------------------------------------------------------------------ script
 
-    async def run_script(self, existing: Incident | None = None) -> None:
-        """The scripted incident, end to end.
+    async def run_detection(self) -> None:
+        """The detection, and nothing else. No incident. No call.
 
-        Follows the demo sequence in agents/CLAUDE.md. Step 7, the refusal, is
-        the submission; steps 1 through 6 are the setup.
+        `agents/collapse` sees an adult go down in the main bedroom and
+        `agents/environment` sees carbon monoxide climb. Both surface here as
+        interior state on the 2 Hz tick: the presence moves to
+        `confirmed_still`, `still_down_s` starts climbing and does not reset,
+        and `environment.co_ppm` rises.
+
+        The system notices and then waits. Hawk Eye never calls 911 on its own;
+        settled 2026-09-19. What the detection buys is an informed tap.
         """
+        if self._detection_running or self._fall_detected:
+            logger.info("detection already run, ignoring request")
+            return
+        self._detection_running = True
+        try:
+            await self._run_detection()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("scripted detection failed")
+        finally:
+            self._detection_running = False
+
+    async def _run_detection(self) -> None:
+        await self._sleep(1.0)
+        # agents/collapse debounces before it calls anything a collapse: a
+        # system that alarms when somebody flops onto a couch is worse than no
+        # system. The fall is only an event once normal movement stays absent.
+        self._apply_fall()
+        logger.info("collapse detected in main_bedroom; no incident raised, waiting on a human tap")
+
+        await self._sleep(2.0)
+        self._co_ppm = 94.0
+        await self._sleep(2.0)
+        self._co_ppm = 186.0
+
+    def _apply_fall(self) -> None:
+        """Put the interior state into the still-but-breathing case.
+
+        Idempotent, so a Faint tap that arrives without a prior detection still
+        describes a coherent house.
+        """
+        if self._fall_detected:
+            return
+        self._presences["p1"] = self._presence(
+            "p1",
+            zone="main_bedroom",
+            state=PresenceState.CONFIRMED_STILL,
+            moving=False,
+            breathing_bpm=9.0,
+            heart_bpm=112.0,
+            presence_class=PresenceClass.ADULT,
+            confidence=0.89,
+            person_confidence=0.92,
+            still_down_s=4.0,
+        )
+        self._fall_detected = True
+
+    async def run_call_script(self, incident: Incident) -> None:
+        """The scripted conversation. Runs only on a human-raised incident.
+
+        Follows the demo sequence in agents/CLAUDE.md. The refusal is the
+        submission; everything before it is the setup.
+        """
+        assert_human_released(incident)
         if self._script_running:
             logger.info("script already running, ignoring request")
             return
         self._script_running = True
         try:
-            await self._run_script(existing)
+            await self._run_call_script(incident)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -550,24 +634,26 @@ class SimulatedMasterClient:
         finally:
             self._script_running = False
 
-    async def _run_script(self, existing: Incident | None) -> None:
-        """Two scripts, because the two paths are genuinely different.
+    async def _run_call_script(self, incident: Incident) -> None:
+        """Two scripts, because the two cases read differently to the operator.
 
-        No existing incident means the autonomous path: agents/collapse fired and
-        nobody pressed anything. That is the one worth demoing, because the
-        person who would have pressed the button is on the floor.
+        A Faint tap is the case the whole system exists for, and it gets the
+        full collapse narrative: corroboration, reclassification, the operator's
+        follow-up questions, and the refusal.
 
-        An existing incident means the resident tapped a button, and the script
-        has to speak about the incident type they actually chose rather than
-        replaying the collapse narrative at them.
+        A Burglary or Fire tap gets a script that speaks about the type the
+        resident actually chose rather than replaying the collapse at them.
+
+        Either way a person pressed a button first.
         """
-        if existing is not None:
-            await self._run_user_script(existing)
+        assert_human_released(incident)
+        if incident.incident_type is IncidentType.FAINT:
+            await self._run_collapse_call(incident)
             return
-        await self._run_autonomous_script()
+        await self._run_typed_call(incident)
 
-    async def _run_user_script(self, incident: Incident) -> None:
-        """The manual path. One tap: Burglary, Fire, or Faint."""
+    async def _run_typed_call(self, incident: Incident) -> None:
+        """One tap: Burglary or Fire."""
         incident_id = incident.incident_id
         await self._sleep(1.2)
 
@@ -590,9 +676,10 @@ class SimulatedMasterClient:
                     incident_id,
                     "agents/intruder",
                     "A second adult is moving through the living room. The residents reported one "
-                    "occupant at this hour, and this presence entered through the rear door.",
+                    "occupant at this hour. The patio is outside sensor coverage, so this presence "
+                    "was not seen approaching: the first frame that shows them is already inside.",
                     "intruder.unexpected_presence",
-                    "unexpected adult, living_room",
+                    "unexpected adult, first_seen_zone=living_room",
                     presence_id="p3",
                 )
             )
@@ -601,19 +688,19 @@ class SimulatedMasterClient:
                 await self._verify(
                     incident_id,
                     "agents/occupancy",
-                    "The resident who raised this is in the east bedroom. The unexpected presence "
+                    "The resident who raised this is in the second bedroom. The unexpected presence "
                     "is in the living room. They are in different rooms.",
                     "occupancy.zones",
-                    "resident east_bedroom, unexpected living_room",
+                    "resident second_bedroom, unexpected living_room",
                 )
             )
             opening = (
                 f"This is an automated call from a monitoring system at {self._address}. "
                 "The resident has reported an intruder. Two adults are tracked inside: the "
-                "resident in the east bedroom, and an unexpected presence in the living room. "
+                "resident in the second bedroom, and an unexpected presence in the living room. "
                 "They are in different rooms."
             )
-        elif incident.incident_type is IncidentType.FIRE:
+        else:  # Fire. Faint is routed to the collapse script above.
             self._co_ppm = 142.0
             self._smoke = True
             claims.append(
@@ -630,7 +717,7 @@ class SimulatedMasterClient:
                 await self._verify(
                     incident_id,
                     "agents/occupancy",
-                    "Two confirmed occupants: one adult in the kitchen, one child in the east bedroom.",
+                    "Two confirmed occupants: one adult in the kitchen, one child in the second bedroom.",
                     "occupancy.count",
                     "2 confirmed",
                 )
@@ -638,33 +725,17 @@ class SimulatedMasterClient:
             opening = (
                 f"This is an automated call from a monitoring system at {self._address}. "
                 "The resident has reported a fire. Two people are still inside: an adult in the "
-                "kitchen and a child in the east bedroom. Both are breathing."
+                "kitchen and a child in the second bedroom. Both are breathing."
             )
-        else:
-            claims.append(
-                await self._verify(
-                    incident_id,
-                    "agents/biometrics",
-                    "The adult in the kitchen is breathing at 16 breaths per minute and is moving.",
-                    "biometrics.respiration",
-                    "breathing, 16 bpm",
-                    presence_id="p1",
-                )
-            )
-            opening = (
-                f"This is an automated call from a monitoring system at {self._address}. "
-                "The resident has reported that someone has fainted."
-            )
-
         await self._sleep(1.0)
 
         # The refusal beat runs on every path, because it is the submission.
         await self._verify(
             incident_id,
             "agents/occupancy",
-            "A further occupant is unresponsive in the garage and is not breathing.",
+            "A further occupant is unresponsive on the patio and is not breathing.",
             "biometrics.respiration",
-            "no respiration, garage",
+            "no respiration, patio",
             ansname="occupancy.hawkeye-secure.invalid",
             profile=TrustProfile.UNTRUSTED,
             checks=[
@@ -742,33 +813,27 @@ class SimulatedMasterClient:
         )
         logger.info("user-raised incident %s complete", incident_id)
 
-    async def _run_autonomous_script(self) -> None:
-        """The path that matters. Nobody pressed anything."""
-        # 1. agents/collapse fires. Someone went down and has not gotten up.
-        self._presences["p1"] = self._presence(
-            "p1",
-            zone="west_bedroom",
-            state=PresenceState.CONFIRMED_STILL,
-            moving=False,
-            breathing_bpm=9.0,
-            heart_bpm=112.0,
-            presence_class=PresenceClass.ADULT,
-            confidence=0.89,
-            person_confidence=0.92,
-            still_down_s=4.0,
-        )
-        await self._sleep(1.0)
-        incident = await self.raise_incident(IncidentType.FAINT, RaisedBy.SYSTEM, None)
+    async def _run_collapse_call(self, incident: Incident) -> None:
+        """The case the whole system exists for. A human tapped Faint.
+
+        By this point `agents/collapse` has usually already surfaced the fall as
+        interior state and the resident tapped knowing who was down and for how
+        long. `_apply_fall` covers the other order, where the tap comes first.
+        """
+        assert_human_released(incident)
+        # 1. The fall is already in the interior state. Nothing was dialled for
+        #    it; the tap that released this call is what dialled.
+        self._apply_fall()
         incident_id = incident.incident_id
 
         await self._sleep(1.2)
 
         # 2. The other sensing agents corroborate, from a second modality.
-        self._co_ppm = 94.0
+        self._co_ppm = max(self._co_ppm, 94.0)
         collapse_claim = await self._verify(
             incident_id,
             "agents/collapse",
-            "An adult occupant went down in the west bedroom and has not gotten up.",
+            "An adult occupant went down in the main bedroom and has not gotten up.",
             "collapse.event",
             "fall, still_down_s=6",
             presence_id="p1",
@@ -786,12 +851,12 @@ class SimulatedMasterClient:
         occupancy_claim = await self._verify(
             incident_id,
             "agents/occupancy",
-            "Two confirmed occupants in the building: one adult in the west bedroom, one child in the east bedroom.",
+            "Two confirmed occupants in the building: one adult in the main bedroom, one child in the second bedroom.",
             "occupancy.count",
             "2 confirmed, 1 unconfirmed perturbation",
         )
         await self._sleep(0.9)
-        self._co_ppm = 186.0
+        self._co_ppm = max(self._co_ppm, 186.0)
         co_claim = await self._verify(
             incident_id,
             "agents/environment",
@@ -807,9 +872,9 @@ class SimulatedMasterClient:
         impostor_claim = await self._verify(
             incident_id,
             "agents/occupancy",
-            "A third adult is unresponsive in the garage and is not breathing.",
+            "A third adult is unresponsive on the patio and is not breathing.",
             "biometrics.respiration",
-            "no respiration, garage",
+            "no respiration, patio",
             ansname="occupancy.hawkeye-secure.invalid",
             profile=TrustProfile.UNTRUSTED,
             checks=[
@@ -837,7 +902,10 @@ class SimulatedMasterClient:
                 VerificationCheck(
                     name="corroboration.sensor",
                     passed=False,
-                    detail="No CSI perturbation in the garage zone. No other agent reports a third occupant.",
+                    detail=(
+                        "The patio is outside the sensed volume, so no agent in this mesh can "
+                        "see it, and no other agent reports a third occupant."
+                    ),
                 ),
             ],
             reason=(
@@ -892,7 +960,7 @@ class SimulatedMasterClient:
             TranscriptSpeaker.CALLER,
             (
                 f"This is an automated call from a monitoring system at {self._address}. "
-                "An adult occupant collapsed in the west bedroom about ninety seconds ago and "
+                "An adult occupant collapsed in the main bedroom about ninety seconds ago and "
                 "has not gotten up. They are breathing, shallowly, at nine breaths a minute. "
                 "Carbon monoxide in the building is elevated at 186 parts per million and rising."
             ),
@@ -914,7 +982,7 @@ class SimulatedMasterClient:
         await self._say(
             incident_id,
             TranscriptSpeaker.CALLER,
-            "Yes. One child in the east bedroom, moving and breathing normally at twenty-four breaths a minute.",
+            "Yes. One child in the second bedroom, moving and breathing normally at twenty-four breaths a minute.",
             claim_ids=[occupancy_claim],
         )
 
@@ -929,7 +997,7 @@ class SimulatedMasterClient:
         live_claim = await self._verify(
             incident_id,
             "agents/biometrics",
-            "Live query: the child in the east bedroom is breathing at 26 breaths per minute, elevated.",
+            "Live query: the child in the second bedroom is breathing at 26 breaths per minute, elevated.",
             "biometrics.respiration",
             "breathing, 26 bpm",
             presence_id="p2",
@@ -951,14 +1019,14 @@ class SimulatedMasterClient:
 
         # The "I don't know" beat. Nothing could be verified, so nothing is claimed.
         await self._say(
-            incident_id, TranscriptSpeaker.OPERATOR, "Is there anyone in the garage?"
+            incident_id, TranscriptSpeaker.OPERATOR, "Is there anyone out on the patio?"
         )
         await self._sleep(0.9)
         await self._verify(
             incident_id,
             "agents/occupancy",
-            "Live query: is there an occupant in the garage?",
-            "occupancy.zone.garage",
+            "Live query: is there an occupant on the patio?",
+            "occupancy.zone.patio",
             "no answer",
             checks=[
                 VerificationCheck(
@@ -975,8 +1043,9 @@ class SimulatedMasterClient:
                     name="coverage.zone",
                     passed=False,
                     detail=(
-                        "The garage is outside the sensed volume. The agent returned no answer "
-                        "rather than a guess, which is the correct behaviour."
+                        "The patio is outdoors and outside the sensed volume. CSI does not reach "
+                        "it. The agent returned no answer rather than a guess, which is the correct "
+                        "behaviour."
                     ),
                 ),
             ],
@@ -990,7 +1059,7 @@ class SimulatedMasterClient:
         await self._say(
             incident_id,
             TranscriptSpeaker.CALLER,
-            "I don't know. The garage is outside what the sensors cover, and I will not guess about it.",
+            "I don't know. The patio is outdoors and outside what the sensors cover, and I will not guess about it.",
         )
 
         await self._sleep(1.8)
@@ -1008,7 +1077,7 @@ class SimulatedMasterClient:
         await self._sleep(1.0)
         await self._instruct(
             incident_id,
-            "Get the child out of the house and wait outside. Do not move the person in the west bedroom; responders will handle that.",
+            "Get the child out of the apartment and wait outside. Do not move the person in the main bedroom; responders will handle that.",
             InstructionOrigin.RELAYED_OPERATOR,
             urgent=True,
         )
@@ -1042,6 +1111,15 @@ class SimulatedMasterClient:
     @property
     def script_running(self) -> bool:
         return self._script_running
+
+    @property
+    def detection_running(self) -> bool:
+        return self._detection_running
+
+    @property
+    def fall_detected(self) -> bool:
+        """True once the collapse is in the interior state. Still not a call."""
+        return self._fall_detected
 
     @property
     def elapsed_hint(self) -> timedelta:

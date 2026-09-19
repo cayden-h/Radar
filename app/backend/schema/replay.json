@@ -12,10 +12,11 @@
         "seq": 1,
         "at": "2026-09-20T04:12:33Z",
         "kind": "incident",
-        "summary": "fire raised by system",
+        "summary": "faint raised by user",
         "detail": {
           "incident_id": "inc-0001",
-          "incident_type": "fire"
+          "incident_type": "faint",
+          "raised_by": "user"
         },
         "entry_hash": "9a1e26430b4002eb059215c2a1e0a0f0f6d8f3bbd4c6a5f0b2e9a7c1d3f5e7a9",
         "prev_hash": null
