@@ -46,13 +46,13 @@ struct HomeView: View {
         }
         .padding(.horizontal, Space.gutter)
         .padding(.bottom, Space.lg)
-        .fullScreenCover(item: Binding(
+        .fullScreenCover(item: Binding<Incident?>(
             get: {
                 guard let incident = client.incident,
                       incident.id != locallyEndedIncidentID else { return nil }
                 return incident
             },
-            set: { _ in }
+            set: { _, _ in }
         )) { incident in
             IncidentView(incident: incident) {
                 locallyEndedIncidentID = incident.id
