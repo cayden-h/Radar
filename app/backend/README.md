@@ -65,6 +65,36 @@ mistake in the wiring itself would pass every other test and surface only in pro
 banner appears and no text ever arrives" - which is also the signature of a half-configured Twilio
 account, and therefore indistinguishable from it.
 
+## Household
+
+Who the house is not surprised by. `hawkeye_backend/household/` is standalone, with no FastAPI and
+no hub imports, the way `verification/` is, so it moves into `agents/intruder` as an import change.
+
+| Route | What it does |
+|---|---|
+| `GET /v1/household` | The roster. |
+| `GET /v1/household/unclaimed-devices` | Devices seen associated that no member claims. |
+| `POST /v1/household/remember` | Name a person, optionally bind a device. 404 if the device was never observed, 409 if it already belongs to someone. |
+| `DELETE /v1/household/members/{id}` | Forget a member; their devices become unclaimed. |
+| `POST /v1/presences/{id}/approve` | Vouch for a presence. Session-scoped, never persisted. |
+
+Device identifiers are stored as HMAC-SHA256 under the site salt, never in the clear. A roster is a
+list of which humans were in a building and what they carry, which is exactly the file that should
+not be useful to whoever steals it. `identity.py` says plainly what that does and does not buy,
+since the salt today is the site id and is not a secret.
+
+`household/accounting.py` holds the surplus rule and is the only copy of it. `agents/intruder`
+imports this when it exists rather than reimplementing it, because two versions of the rule that
+decides whether someone is an intruder will drift.
+
+**`known_devices_present` counts members, not devices**, and that distinction is load-bearing. The
+number is subtracted from a count of people, so it has to be a count of people: a resident carrying
+a phone and a watch is one human, and counting two would let them account for two presences, which
+is how an intruder reads as accounted for.
+
+One device has exactly one owner. `remember` refuses a device another member already claims, for
+the same reason.
+
 ## `hawkeye_backend/verification/`
 
 The defence `agents/master` runs on every claim. A standalone package with no FastAPI or hub

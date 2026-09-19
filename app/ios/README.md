@@ -117,6 +117,7 @@ The project has an explicit honesty rule, so here is the line, drawn plainly.
 
 ### Not real yet
 
+- **The household.** A notice carries two actions. "This is expected" vouches for that presence for the session; "Remember this visitor" opens a sheet that names them and optionally binds the device that just appeared. The sheet says which device it is about to bind and offers "no device", because binding is an inference from timing rather than proof: two people arriving together can bind the wrong phone. The Household list in the header is read-only plus swipe to delete, and it says plainly when a member has no device and so will not be recognised automatically. `HouseholdTour` covers the whole flow on the mock path, which is what makes it safe to show at a judging table.
 - **The hub.** Nothing answers at `_hawkeye._tcp` today. With `useMocks = false` the Connect screen will sit on "Looking for your home" until something does.
 - **Endpoint resolution.** `LiveHawkEyeClient.resolveBaseURL` uses the port from the Bonjour service record when the hub publishes one, and falls back to `Config.defaultHubPort` (8787, the backend's default) when it does not.
 - **Hub verification.** Connecting checks that `GET /v1/hub` reports the same ANSName the hub advertised over Bonjour. That is a consistency check and **not** ANS verification, which is per claim, happens in the agent mesh, and reaches the app on the `verification` event. The UI never claims otherwise, and it must not start to.

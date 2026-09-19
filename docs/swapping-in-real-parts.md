@@ -177,6 +177,32 @@ Fixing the hub scenario belongs to whoever owns `master/scenario.py` and `master
 is deliberately not done here. Until it lands, demo the notice off the app's mock path, and do not
 narrate the hub path as "the system told the resident, and then they decided".
 
+## The household roster
+
+**What is simulated: the association table.** No router integration exists, so `associated_devices`
+on a state frame comes from `master/simulated.py` with `Provenance` saying `ruview-sim` and a detail
+of "association table, simulated". Swapping in the real table is a producer change behind a field
+that already exists, and nothing above it moves.
+
+**What is real:** the roster itself, the hashing, the matching, the approval, and the record that a
+human made the decision. A roster entry carries `USER_INPUT` provenance, which computes to
+`SourceClass.HUMAN`, so `caller` can say "the resident says this person is expected" and cannot say
+"the system verified this person".
+
+**How to tell which you are looking at:** the Household list shows a device fingerprint per member.
+The simulated ones come from the fixed pair in `master/simulated.py`. Real ones will not.
+
+**The half-flipped state that looks like something else:** a member remembered with no device is
+legal and is not a bug. They were named by a resident and carry no phone the system can see, so they
+will never be auto-recognised, and the Household list says "no device, will not be recognised
+automatically" for exactly that reason. If every member reads that way, the association table is not
+arriving at all, which is a different problem: check `associated_devices` on a state frame.
+
+**The one that will look like the feature is broken:** remembering a visitor changes nothing until
+the devices present actually account for the people present. Two residents remembered, both phones
+associated, and a third presence in the house still raises a notice, because the surplus is one.
+That is the feature working, not failing.
+
 ## ANS identity
 
 Every ANSName in the codebase today ends in `.invalid`, which is reserved by RFC 2606 and can therefore never be mistaken for a real registration.

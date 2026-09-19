@@ -42,6 +42,18 @@ conservative: a confirmed person only, five seconds of continuous hold, suppress
 baseline is unhealthy, and once per presence while it is here.
 A notice is unrecallable once it is an SMS on someone's phone.
 
+A notice is answerable, not just readable.
+**This is expected** vouches for that presence for this session and nothing persists.
+**Remember this visitor** names the person and optionally binds the device that just joined the network, so the next visit raises nothing at all.
+They are separate controls with separate words on purpose: one is a mute button and the other changes what the house believes, and a single control for both would persist strangers because someone wanted a banner to go away.
+
+The roster is reached through the notice and through a read-only Household list in the header.
+There is still no settings screen, and that rule still holds: adding someone happens by approving a real detection, which is also the only moment the system has a device to bind.
+
+**The identifier is a phone on the Wi-Fi, because CSI cannot recognise a person and must never claim to.**
+iOS randomises the Wi-Fi address per network and then keeps it stable for that network, which is what makes a guest recognisable on a later visit.
+A guest who never joins the Wi-Fi can be named and approved but will never be auto-recognised, and the Household list says so rather than leaving the line blank.
+
 The value is not that the system dials for you. It is that when you do tap, the dispatcher is told how many people are in the house, which rooms they are in, whether each is breathing, and how long since one of them went down.
 
 ## During the call
