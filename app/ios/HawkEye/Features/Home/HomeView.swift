@@ -15,37 +15,48 @@ struct HomeView: View {
     private var client: any HawkEyeClienting { model.client }
 
     var body: some View {
-        VStack(spacing: Space.lg) {
-            header
+        ScrollView {
+            VStack(spacing: Space.lg) {
+                header
 
-            VStack(spacing: Space.xs) {
-                // The panel flexes to whatever height is going spare rather
-                // than locking to the plan's aspect ratio. This plan is wider
-                // than it is deep, so an aspect-locked panel is limited by the
-                // screen's width and strands a dead band above the incident
-                // buttons. `planRect` aspect-fits and centres the drawing, so a
-                // taller panel simply frames it with more margin, and the panel
-                // gives the height back when a fourth roster row arrives.
-                InteriorView(state: client.interior)
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
+                VStack(spacing: Space.xs) {
+                    // The panel flexes to whatever height is going spare rather
+                    // than locking to the plan's aspect ratio. This plan is wider
+                    // than it is deep, so an aspect-locked panel is limited by the
+                    // screen's width and strands a dead band above the incident
+                    // buttons. `planRect` aspect-fits and centres the drawing, so a
+                    // taller panel simply frames it with more margin, and the panel
+                    // gives the height back when a fourth roster row arrives.
+                    InteriorView(state: client.interior)
+                        .frame(maxWidth: .infinity)
+                        .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
 
-                // The honesty rule applied to the drawing. The plan is
-                // authored, not discovered: walls are the static baseline the
-                // system subtracts to see people, and it never maps them.
-                Text("Floor plan set up once, by hand. Hawk Eye does not map walls.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Palette.inkFaint)
+                    // The honesty rule applied to the drawing. The plan is
+                    // authored, not discovered: walls are the static baseline the
+                    // system subtracts to see people, and it never maps them.
+                    Text("Floor plan set up once, by hand. Hawk Eye does not map walls.")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Palette.inkFaint)
+                }
+
+                PresenceRoster(state: client.interior)
+
+                IncidentBar(client: client)
+
+                BackToConnectButton { model.disconnectAndForget() }
             }
-
-            PresenceRoster(state: client.interior)
-
-            IncidentBar(client: client)
-
-            BackToConnectButton { model.disconnectAndForget() }
+            .padding(.horizontal, Space.gutter)
+            .padding(.bottom, Space.lg)
         }
-        .padding(.horizontal, Space.gutter)
-        .padding(.bottom, Space.lg)
+        // A plain VStack overflowed on shorter devices once the back-control
+        // row was added: `RootView`'s ZStack centers its content and does not
+        // clip visibly, so anything taller than the screen loses equal slices
+        // off both the top (the interior map) and the bottom (the back
+        // button) instead of scrolling. The ScrollView above makes this
+        // screen's height dynamic across every phone size rather than
+        // assuming the content always fits.
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
         .fullScreenCover(item: Binding<Incident?>(
             get: {
                 guard let incident = client.incident,
