@@ -61,8 +61,49 @@ class Settings(BaseSettings):
     mongodb_uri: str = ""
     mongodb_database: str = "hawkeye"
 
+    # Notices. A notice is information the resident acts on, never a dispatch.
+    # The hold before an unexpected presence becomes one; see
+    # hawkeye_backend/notices/detector.py for why it is not zero.
+    notice_hold_s: float = 5.0
+
+    # How long a presence must be absent before its notice mark lapses, so a
+    # genuine re-entry hours later notifies again while a brief CSI dropout
+    # behind a wall does not.
+    notice_forget_after_s: float = 900.0
+
+    # Twilio, for the SMS sink. All four or none: three out of four is a
+    # misconfiguration and is treated as unconfigured rather than as a partial
+    # feature that fails at the moment it matters.
+    #
+    # Trial accounts only send to numbers verified in the Twilio console, and
+    # prefix every message with "Sent from your Twilio trial account".
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_from_number: str = ""
+    twilio_to_number: str = ""
+
+    # Rate limits on the SMS sink. A rehearsal loop must not be able to send
+    # fifty texts, and a bug in the trigger must not burn the trial credit.
+    twilio_min_interval_s: float = 60.0
+    twilio_max_per_instance: int = 5
+
+    # Used to render the local time in an SMS. The demo home is in Blacksburg.
+    site_timezone: str = "America/New_York"
+
     host: str = "0.0.0.0"
     port: int = 8787
+
+    @property
+    def twilio_configured(self) -> bool:
+        """True only when every value needed to send is present."""
+        return all(
+            (
+                self.twilio_account_sid,
+                self.twilio_auth_token,
+                self.twilio_from_number,
+                self.twilio_to_number,
+            )
+        )
 
 
 _settings: Settings | None = None

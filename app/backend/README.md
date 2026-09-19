@@ -124,6 +124,24 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_STORE_BACKEND` | `memory` | `memory` or `mongodb`. See the storage seam below. |
 | `HAWKEYE_MONGODB_URI` | empty | MongoDB Atlas connection string, when that lands. |
 
+## Notices
+
+An unexpected presence that holds for `HAWKEYE_NOTICE_HOLD_S` seconds raises a notice: a banner in the app, and an SMS if Twilio is configured.
+A notice is information the resident acts on.
+It never creates an incident and never dials.
+
+Twilio is optional and the service runs normally without it.
+All four values are required together:
+
+```sh
+export HAWKEYE_TWILIO_ACCOUNT_SID=ACxxxxxxxx
+export HAWKEYE_TWILIO_AUTH_TOKEN=xxxxxxxx
+export HAWKEYE_TWILIO_FROM_NUMBER=+15550001111
+export HAWKEYE_TWILIO_TO_NUMBER=+15550002222    # must be verified in the Twilio console
+```
+
+On a trial account the destination number must be verified in the console, and every message arrives prefixed "Sent from your Twilio trial account".
+
 ## Real versus simulated
 
 The honesty rule from the root `CLAUDE.md` is enforced in the schema, not in a comment.
