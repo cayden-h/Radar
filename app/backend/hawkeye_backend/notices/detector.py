@@ -29,7 +29,7 @@ INTRUDER_PROVENANCE = Provenance(
     detail="presence surplus against roster and device association",
 )
 
-_PERSON_STATES = frozenset({PresenceState.CONFIRMED_MOVING, PresenceState.CONFIRMED_STILL})
+PERSON_STATES = frozenset({PresenceState.CONFIRMED_MOVING, PresenceState.CONFIRMED_STILL})
 
 # Where the verification gate is, since it is not in this file.
 #
@@ -52,7 +52,7 @@ def _is_unexpected(p: Presence) -> bool:
 
     `None` means not yet decided, and must never make an intruder.
     """
-    return p.state in _PERSON_STATES and p.expected is False
+    return p.state in PERSON_STATES and p.expected is False
 
 
 def _room_name(state: InteriorState, zone: str) -> str:
