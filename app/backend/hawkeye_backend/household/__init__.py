@@ -5,6 +5,6 @@ standalone, so this moves into `agents/intruder` as an import change rather than
 a rewrite.
 """
 
-from hawkeye_backend.household.identity import fingerprint, hash_identifier
+from hawkeye_backend.household.identity import MalformedAddress, fingerprint, hash_identifier
 
-__all__ = ["fingerprint", "hash_identifier"]
+__all__ = ["MalformedAddress", "fingerprint", "hash_identifier"]

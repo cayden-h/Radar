@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from hawkeye_backend.household.identity import fingerprint, hash_identifier
+import pytest
+
+from hawkeye_backend.household.identity import MalformedAddress, fingerprint, hash_identifier
 
 MAC = "a4:83:e7:2c:19:91"
 SALT = "site-demo-01-salt"
@@ -46,3 +48,20 @@ def test_the_fingerprint_is_short_and_stable():
 
 def test_different_devices_get_different_fingerprints():
     assert fingerprint(MAC, SALT) != fingerprint("b8:27:eb:11:22:33", SALT)
+
+
+def test_a_malformed_address_is_refused_rather_than_hashed():
+    """A digest from garbage is a device that can never match, and nothing
+    downstream can tell. This is the only place the real input still exists."""
+    with pytest.raises(MalformedAddress):
+        hash_identifier("hello", SALT)
+
+
+def test_a_truncated_address_is_refused():
+    with pytest.raises(MalformedAddress):
+        hash_identifier("a4:83:e7", SALT)
+
+
+def test_an_overlong_address_is_refused():
+    with pytest.raises(MalformedAddress):
+        hash_identifier("a4:83:e7:2c:19:91:ab", SALT)
