@@ -12,6 +12,7 @@
         "seq": 1,
         "at": "2026-09-20T04:12:33Z",
         "kind": "incident",
+        "actor": null,
         "summary": "faint raised by user",
         "detail": {
           "incident_id": "inc-0001",
@@ -25,6 +26,7 @@
         "seq": 2,
         "at": "2026-09-20T04:12:39Z",
         "kind": "verification",
+        "actor": null,
         "summary": "ASSERTED: An adult occupant went down in the main bedroom (people.hawkeye.invalid)",
         "detail": {
           "verification_id": "ver-001",
