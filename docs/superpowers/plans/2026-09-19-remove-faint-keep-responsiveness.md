@@ -325,12 +325,20 @@ def test_co_with_a_lost_breathing_signature_is_a_fire_with_someone_who_may_not_r
     lost signature is not a finding that breathing stopped.
     """
     people = PeopleAgent(feed, roster)
-    feed.occupy("main_bedroom", bpm=15.0, moving=True)
+    # Still and breathing, NOT moving. `SyntheticCsiFeed.occupy(moving=True)`
+    # deliberately makes respiration unrecoverable - broadband motion noise
+    # swamps the chest sinusoid - so a moving presence never establishes a
+    # signature and therefore can never lose one. Task 1 found this the hard
+    # way.
+    feed.occupy("main_bedroom", bpm=15.0)
     for _ in range(35):
         feed.advance(1)
         verified_mesh.publish(people.run_once())
     feed.vacate("main_bedroom")
-    for _ in range(40):
+    # 70 rather than 40: the 30s analysis window keeps resolving residual
+    # breathing frames for roughly 22s after the body leaves, so the clock
+    # only starts then.
+    for _ in range(70):
         feed.advance(1)
         verified_mesh.publish(people.run_once())
 
@@ -884,6 +892,11 @@ Replace the last `must_not_claim` entry (lines 224-226, the couch one) with:
             "That a person has stopped breathing. A signature that is no longer resolvable "
             "is a reason to look, never a finding about a body. Shallow breathing and range "
             "limits produce exactly this reading.",
+            "Anything at all about a presence that never established a breathing signature. "
+            "A moving body swamps its own chest sinusoid with broadband motion, so someone "
+            "who goes from walking to gone leaves no transition to report. Only "
+            "breathing-then-silent is a signal; that limit is the price of the claim being "
+            "worth anything.",
 ```
 
 - [ ] **Step 5: Update the agent description, question and merge comment**
