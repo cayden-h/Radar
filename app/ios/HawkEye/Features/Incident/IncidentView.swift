@@ -42,7 +42,7 @@ struct IncidentView: View {
     var body: some View {
         GeometryReader { proxy in
         ZStack(alignment: .top) {
-            Palette.ground.ignoresSafeArea()
+            AmbientBackground(tint: incident.type.tint)
 
             // One scroll for the whole page, with the context field pinned.
             //
@@ -142,6 +142,7 @@ struct IncidentView: View {
             RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
                 .strokeBorder(incident.type.tint.opacity(0.3), lineWidth: 1)
         )
+        .shadow(color: incident.type.tint.opacity(0.20), radius: 24, x: 0, y: 10)
         .padding(.top, Space.sm)
     }
 
@@ -222,6 +223,7 @@ struct IncidentView: View {
                 RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                     .strokeBorder(Palette.personUnresponsive.opacity(0.5), lineWidth: 1)
             )
+            .shadow(color: Palette.personUnresponsive.opacity(0.22), radius: 20, x: 0, y: 8)
         }
         .buttonStyle(.pressable)
         .accessibilityLabel("\(refusals.count) refused claims. Open the verification feed.")
@@ -368,6 +370,7 @@ struct IncidentView: View {
                         .background(
                             Circle().fill(canSend ? Palette.calm : Palette.surfaceRaised)
                         )
+                        .shadow(color: canSend ? Palette.calm.opacity(0.4) : .clear, radius: 10)
                 }
                 .buttonStyle(.pressable)
                 .disabled(!canSend)
@@ -410,6 +413,10 @@ private struct CallStateBadge: View {
                     .fill(state == .connected ? Palette.live : Palette.inkFaint)
                     .frame(width: 6, height: 6)
                     .opacity(state == .connected ? (pulse ? 1 : 0.2) : 1)
+                    .shadow(
+                        color: state == .connected ? Palette.live.opacity(pulse ? 0.9 : 0.2) : .clear,
+                        radius: 5
+                    )
                 Text(state.label)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(state == .connected ? Palette.live : Palette.inkMuted)
@@ -448,8 +455,8 @@ private struct TranscriptRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
                 Text(line.speaker.label)
                     .eyebrowStyle(rail.opacity(0.9))
                 Text(line.at, style: .time)
@@ -520,6 +527,12 @@ private struct InstructionCard: View {
                     latest && instruction.urgent ? Palette.fire.opacity(0.4) : Palette.hairline,
                     lineWidth: 1
                 )
+        )
+        .shadow(
+            color: latest
+                ? (instruction.urgent ? Palette.fire.opacity(0.22) : Palette.calm.opacity(0.14))
+                : .clear,
+            radius: 18, x: 0, y: 6
         )
         .opacity(latest ? 1 : 0.7)
         .scaleEffect(latest ? 1 : 0.985, anchor: .top)
