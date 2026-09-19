@@ -67,17 +67,17 @@ def build_floorplan(site_id: str) -> Floorplan:
             ),
             Room(
                 zone="main_bath",
-                name="Main bath",
+                name="Bath 1",
                 polygon=[(1.9, 0.0), (3.7, 0.0), (3.7, 1.9), (1.9, 1.9)],
             ),
             Room(
                 zone="second_bath",
-                name="Second bath",
+                name="Bath 2",
                 polygon=[(3.7, 0.0), (5.8, 0.0), (5.8, 1.9), (3.7, 1.9)],
             ),
             Room(
                 zone="linen_closet",
-                name="Linen closet",
+                name="Linen",
                 polygon=[(5.8, 0.0), (6.9, 0.0), (6.9, 1.9), (5.8, 1.9)],
             ),
             Room(

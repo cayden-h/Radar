@@ -18,6 +18,13 @@ struct HomeView: View {
             header
 
             VStack(spacing: Space.xs) {
+                // The panel flexes to whatever height is going spare rather
+                // than locking to the plan's aspect ratio. This plan is wider
+                // than it is deep, so an aspect-locked panel is limited by the
+                // screen's width and strands a dead band above the incident
+                // buttons. `planRect` aspect-fits and centres the drawing, so a
+                // taller panel simply frames it with more margin, and the panel
+                // gives the height back when a fourth roster row arrives.
                 InteriorView(state: client.interior)
                     .frame(maxWidth: .infinity)
                     .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
@@ -31,8 +38,6 @@ struct HomeView: View {
             }
 
             PresenceRoster(state: client.interior)
-
-            Spacer(minLength: 0)
 
             IncidentBar { type in
                 pendingIncident = type

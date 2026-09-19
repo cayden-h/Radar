@@ -154,7 +154,10 @@ struct InteriorView: View {
         room: Floorplan.Room,
         in rect: CGRect
     ) {
-        let inset: CGFloat = 5
+        // 3pt rather than 5pt. At this plan's scale a 2m room is only about
+        // 40pt wide, so four points of inset is the difference between a
+        // labelled room and a blank rectangle.
+        let inset: CGFloat = 3
         let maxSize = CGSize(width: rect.width - inset * 2, height: rect.height - inset * 2)
         guard maxSize.width > 8, maxSize.height > 7 else { return }
         let text = room.name.uppercased()
@@ -162,8 +165,8 @@ struct InteriorView: View {
         let unbounded = CGSize(width: CGFloat.greatestFiniteMagnitude,
                                height: CGFloat.greatestFiniteMagnitude)
 
-        for size in [8.0, 7.0] as [CGFloat] {
-            let tracking: CGFloat = size >= 8 ? 0.7 : 0.4
+        for size in [8.0, 7.0, 6.0] as [CGFloat] {
+            let tracking: CGFloat = size >= 8 ? 0.7 : (size >= 7 ? 0.4 : 0.2)
             func resolved(_ string: String) -> GraphicsContext.ResolvedText {
                 context.resolve(
                     Text(string)
