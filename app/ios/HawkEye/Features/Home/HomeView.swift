@@ -38,6 +38,8 @@ struct HomeView: View {
             PresenceRoster(state: client.interior)
 
             IncidentBar(client: client)
+
+            BackToConnectButton { model.disconnectAndForget() }
         }
         .padding(.horizontal, Space.gutter)
         .padding(.bottom, Space.lg)
@@ -319,5 +321,30 @@ private struct IncidentBar: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Back
+
+/// Leaves the current hub. A plain tap, not a hold: unlike raising an
+/// incident, changing hubs is not something a mistaken tap can hurt anyone
+/// with — worst case, discovery restarts and the resident reconnects.
+private struct BackToConnectButton: View {
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("Change hub")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .foregroundStyle(Palette.inkMuted)
+            .frame(height: Hit.min)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.pressable)
+        .accessibilityLabel("Change hub, return to hub selection")
     }
 }
