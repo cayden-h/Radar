@@ -35,9 +35,13 @@ Taken 2026-09-19, with the reasoning, because each had a live alternative.
 
 ### `hawkeye_backend/replay/chain.py`
 
-The one canonical-JSON SHA-256 implementation.
-`store.py` and `agents/replay` both converge on it, so three hash formats cannot drift apart and fail by luck.
-Canonical form is `json.dumps(..., sort_keys=True, separators=(",", ":"))` over `{"prev": prev_hash, "entry": body}`, matching what `store.py` already does.
+The one canonical-JSON **serializer**, shared by `store.py`, `agents/replay`, the export's `verify.py`, and the console's JavaScript.
+Canonical form is `json.dumps(..., sort_keys=True, separators=(",", ":"))`.
+
+**Corrected during the build:** the serializer is shared, the *body shape* is not.
+The hub hashes `{"prev": prev_hash, "entry": body}`; `agents/replay` puts `previous_hash` inside the body it hashes.
+Converging the shapes would change the agent's wire format, which is not something to do quietly the night before a demo, so the difference is documented at both ends instead.
+Both are chains and both catch the same edits; a record written by one simply does not verify under the other, and none is expected to move between them.
 
 ### `hawkeye_backend/replay/session.py`
 
@@ -129,6 +133,24 @@ tampering entry 4 fails at entry 4 and not before;
 the export bundle contains what it claims and `verify.py` runs.
 
 The existing 37 security tests stay green.
+
+## What the build found
+
+Two things worth keeping, because neither was visible from the design.
+
+**The browser verifier cannot reparse before it rehashes.**
+The first working version parsed the response with `JSON.parse` and re-serialized it, and it declared an intact record altered at entry 2.
+`JSON.stringify` writes the float `1.0` as `1` where Python writes `1.0`, and leaves non-ASCII unescaped where Python's default `ensure_ascii` writes `\uXXXX`.
+Either difference changes the hash of an entry nobody touched.
+The console now canonicalizes from the raw served text, keeping every number literal exactly as it arrived, and re-emits strings by Python's escaping rules.
+`tests/test_replay_console_js.py` runs that JavaScript under node and holds it to `chain.py` byte for byte.
+
+This is worth more than the bug it fixed.
+A verifier that cries tampering on a clean record is the single most damaging thing this page could do, and the only reason it was caught is that the server and the browser were made to answer the same question independently.
+
+**`[hidden]` does not survive `display: grid`.**
+The entry-kind filters set `node.hidden`, which the UA stylesheet honours only until an author rule sets `display`.
+Frames therefore filled the log despite the filter reporting itself off.
 
 ## What this does not do
 

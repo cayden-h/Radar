@@ -32,6 +32,8 @@ import contextlib
 import itertools
 import logging
 import random
+import time
+from dataclasses import dataclass
 from datetime import timedelta
 
 from hawkeye_backend.master.base import EventSink, assert_human_released
@@ -102,6 +104,46 @@ logger = logging.getLogger(__name__)
 # Source.REPLAY_CSI and the label changes to measured-replay everywhere at once.
 # That is the only edit required, and it is deliberately a single line so nobody
 # has to remember to update a second place.
+@dataclass
+class _Walk:
+    """A presence crossing the floorplan, one zone at a time.
+
+    The interpolated `x`/`y` exist so the map has something to animate. **The
+    zone is the claim**, and it flips at the midpoint of a leg rather than
+    sliding, because a coarse room-level answer is what the radio can actually
+    support and the position is not a localization result. `Position` says the
+    same thing in its own docstring; this is the producer honouring it.
+    """
+
+    presence_id: str
+    route: list[str]
+    seconds_per_leg: float
+    started_at: float
+
+    def at(self, now: float) -> tuple[str, float, float, bool]:
+        """(zone, x, y, still_moving) for this instant."""
+        elapsed = max(0.0, now - self.started_at)
+        leg = int(elapsed // self.seconds_per_leg)
+        if leg >= len(self.route) - 1:
+            zone = self.route[-1]
+            cx, cy = ZONE_CENTROID[zone]
+            return zone, cx, cy, False
+        t = (elapsed % self.seconds_per_leg) / self.seconds_per_leg
+        ax, ay = ZONE_CENTROID[self.route[leg]]
+        bx, by = ZONE_CENTROID[self.route[leg + 1]]
+        zone = self.route[leg] if t < 0.5 else self.route[leg + 1]
+        return zone, ax + (bx - ax) * t, ay + (by - ay) * t, True
+
+
+#: The route an unexpected presence takes: in at the living room, across the
+#: unit, stopping in the hallway outside the second bedroom where a resident is.
+#:
+#: **It stops at the doorway and does not enter.** A 1x1 radio has no spatial
+#: diversity and resolves two people within about a metre as one presence, so
+#: walking it in would draw a separation this link cannot measure. The call
+#: states that limit rather than showing past it.
+INTRUDER_ROUTE: tuple[str, ...] = ("living_room", "dining_room", "hallway")
+
 SIM_SENSOR_SOURCE = Source.RUVIEW_SIM
 
 CSI = Provenance(
@@ -144,6 +186,8 @@ class SimulatedMasterClient:
         self._script_running = False
         self._detection_running = False
         self._fall_detected = False
+        self._intrusion_detected = False
+        self._walk: _Walk | None = None
         self._counters: dict[str, itertools.count[int]] = {
             "incident": itertools.count(1),
             "line": itertools.count(1),
@@ -152,6 +196,7 @@ class SimulatedMasterClient:
             "claim": itertools.count(1),
             "note": itertools.count(1),
         }
+        self._counters["presence"] = itertools.count(4)
 
         self._presences: dict[str, Presence] = {
             "p1": self._presence(
@@ -354,6 +399,11 @@ class SimulatedMasterClient:
         """
         if not presence.moving:
             return presence
+        if self._walk is not None and self._walk.presence_id == presence.presence_id:
+            # A walking presence already has a position for this instant, and
+            # jittering it around a zone centroid would drag it back into the
+            # room it is leaving.
+            return presence
         cx, cy = ZONE_CENTROID[presence.position.zone]
         presence.position.x = round(cx + self._rng.uniform(-0.7, 0.7), 2)
         presence.position.y = round(cy + self._rng.uniform(-0.5, 0.5), 2)
@@ -380,10 +430,40 @@ class SimulatedMasterClient:
             active_incident_id=self._incident.incident_id if self._incident else None,
         )
 
+    def _advance_walk(self) -> None:
+        """Move a walking presence along its route. Called once per tick."""
+        if self._walk is None:
+            return
+        presence = self._presences.get(self._walk.presence_id)
+        if presence is None:
+            self._walk = None
+            return
+        zone, x, y, moving = self._walk.at(time.monotonic())
+        presence.position.zone = zone
+        presence.position.x = round(x, 2)
+        presence.position.y = round(y, 2)
+        if not moving:
+            # Arrived. The presence stays tracked and stays unexpected; it has
+            # stopped crossing rooms, not stopped being there. `agents/intruder`
+            # holds a declared track through clear ticks rather than dropping
+            # it, because a track that flickers off tells a responding officer
+            # the intruder left.
+            #
+            # **It stays CONFIRMED_MOVING.** `CONFIRMED_STILL` is not a synonym
+            # for stationary in this system: it means still but breathing, a
+            # person who is not responding, and it is the loudest thing on
+            # screen because it is the case the whole project exists for.
+            # Spending it on somebody standing in a hallway would render an
+            # intruder identically to a collapsed resident. From here `_jitter`
+            # nudges them around the hallway, which is what somebody who has
+            # just walked in actually does.
+            self._walk = None
+
     async def _state_loop(self) -> None:
         """Interior state ticks continuously. Nothing spawns on incident."""
         while not self._stopping.is_set():
             self._baseline_age_s += 0.5
+            self._advance_walk()
             for presence in self._presences.values():
                 if presence.still_down_s is not None:
                     presence.still_down_s += 0.5
@@ -554,30 +634,131 @@ class SimulatedMasterClient:
 
     # ------------------------------------------------------------------ script
 
-    async def run_detection(self) -> None:
+    async def run_detection(self, scenario: str = "burglary") -> None:
         """The detection, and nothing else. No incident. No call.
 
-        `agents/people` sees an adult go down in the main bedroom and
-        `agents/master` sees carbon monoxide climb. Both surface here as
-        interior state on the 2 Hz tick: the presence moves to
-        `confirmed_still`, `still_down_s` starts climbing and does not reset,
-        and `environment.co_ppm` rises.
+        Two scenarios, because they exercise different halves of the system.
 
-        The system notices and then waits. Hawk Eye never calls 911 on its own;
-        settled 2026-09-19. What the detection buys is an informed tap.
+        `burglary` is the frame this project is built around: an unexpected
+        presence enters and crosses the unit toward a resident, tracked
+        separately from the people who live there.
+
+        `faint` is the case the system exists for: `agents/people` sees an adult
+        go down and `agents/master` sees carbon monoxide climb, so
+        `still_down_s` starts climbing and does not reset.
+
+        Either way the system notices and then waits. Hawk Eye never calls 911
+        on its own; settled 2026-09-19. What a detection buys is an informed
+        tap, not a dispatch.
         """
-        if self._detection_running or self._fall_detected:
+        already = self._fall_detected if scenario == "faint" else self._intrusion_detected
+        if self._detection_running or already:
             logger.info("detection already run, ignoring request")
             return
         self._detection_running = True
         try:
-            await self._run_detection()
+            if scenario == "faint":
+                await self._run_detection()
+            else:
+                await self._run_burglary_detection()
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("scripted detection failed")
         finally:
             self._detection_running = False
+
+    async def _run_burglary_detection(self) -> None:
+        """Someone who is not supposed to be here comes in and crosses the unit.
+
+        The order matters and it is the argument the burglary view makes.
+
+        A perturbation appears at the living room first, with **no respiration
+        signature**, so it is `unconfirmed` - indistinguishable at that instant
+        from the curtain already sitting in the same room. It is not called a
+        person, because it is not yet known to be one.
+
+        Then respiration resolves. The perturbation becomes a confirmed person,
+        and only now can `agents/intruder` ask its own question: does any
+        registered device account for this body? Two residents on the roster,
+        two phones associated, and one body left over.
+
+        Then it walks. Living room to dining room to the hallway outside the
+        second bedroom, which is where it stops.
+        """
+        await self._sleep(1.0)
+        self._apply_intrusion()
+        logger.info("unexplained perturbation in living_room; no respiration signature yet")
+
+        # Respiration resolves it into a person. Until this moment calling it an
+        # intruder would have been calling a curtain an intruder, which is the
+        # failure mode the whole personhood test exists to avoid.
+        await self._sleep(2.5)
+        intruder = self._presences["p4"]
+        intruder.state = PresenceState.CONFIRMED_MOVING
+        intruder.vitals.respiration = RespirationStatus.BREATHING
+        intruder.vitals.breathing_bpm = 19.0
+        intruder.vitals.heart_bpm = 104.0
+        intruder.vitals.person_confidence = 0.83
+        intruder.presence_class = PresenceClass.ADULT
+        intruder.class_basis = "respiration_rate"
+        intruder.confidence = 0.74
+        # Set only now. `expected` is a question about a *person*, and there was
+        # no person to ask it about until this tick.
+        intruder.expected = False
+        logger.info("respiration resolved: confirmed person, no device accounts for it")
+
+        await self._sleep(1.5)
+        self._walk = _Walk(
+            presence_id="p4",
+            route=list(INTRUDER_ROUTE),
+            seconds_per_leg=6.0 * self._speed,
+            started_at=time.monotonic(),
+        )
+        logger.info("unexpected presence moving: %s", " -> ".join(INTRUDER_ROUTE))
+
+    async def _settle_track(self, timeout_s: float) -> None:
+        """Wait for a walking presence to arrive, up to a cap.
+
+        Capped rather than unbounded: an operator waiting on a synthesized voice
+        that has gone quiet is a worse failure than a room name one hop stale,
+        and a walk that never ends must not be able to stall the call.
+        """
+        deadline = time.monotonic() + timeout_s * self._speed
+        while self._walk is not None and time.monotonic() < deadline:
+            await asyncio.sleep(0.25)
+
+    def _apply_intrusion(self) -> None:
+        """Put an unexplained perturbation in the living room.
+
+        Idempotent, so a Burglary tap that arrives with no prior detection still
+        describes a coherent house.
+
+        It enters as `UNCONFIRMED` with no respiration on purpose. `p3`, the
+        curtain over the dryer vent, is already in that same state in that same
+        room, and at this instant the two are genuinely indistinguishable. That
+        contrast is the burglary view's whole argument: what separates them is
+        not amplitude or size, it is whether a respiration signature turns up.
+        """
+        if self._intrusion_detected:
+            return
+        self._presences["p4"] = self._presence(
+            "p4",
+            zone="living_room",
+            state=PresenceState.UNCONFIRMED,
+            moving=True,
+            breathing_bpm=None,
+            heart_bpm=None,
+            presence_class=PresenceClass.UNKNOWN,
+            confidence=0.52,
+            person_confidence=0.19,
+            respiration=RespirationStatus.UNKNOWN,
+            # Not `False` yet, and not `True` either. Nothing has decided,
+            # because an unconfirmed perturbation is not a person and
+            # `expected` is a question you can only ask about a person.
+            expected=None,
+        )
+        self._intrusion_detected = True
 
     async def _run_detection(self) -> None:
         await self._sleep(1.0)
@@ -659,29 +840,63 @@ class SimulatedMasterClient:
 
         claims: list[str] = []
         if incident.incident_type is IncidentType.BURGLARY:
-            self._presences["p3"] = self._presence(
-                "p3",
-                zone="living_room",
-                state=PresenceState.CONFIRMED_MOVING,
-                moving=True,
-                breathing_bpm=19.0,
-                heart_bpm=104.0,
-                presence_class=PresenceClass.ADULT,
-                confidence=0.74,
-                person_confidence=0.83,
-                expected=False,
+            # The detection usually ran first and the resident tapped knowing
+            # where the intruder was. `_apply_intrusion` covers the other order.
+            self._apply_intrusion()
+            intruder = self._presences["p4"]
+            if intruder.expected is not False:
+                # Tapped before respiration resolved it. Resolve it now rather
+                # than speaking to an operator about an unconfirmed
+                # perturbation, which is a curtain until proven otherwise.
+                intruder.state = PresenceState.CONFIRMED_MOVING
+                intruder.vitals.respiration = RespirationStatus.BREATHING
+                intruder.vitals.breathing_bpm = 19.0
+                intruder.vitals.heart_bpm = 104.0
+                intruder.vitals.person_confidence = 0.83
+                intruder.presence_class = PresenceClass.ADULT
+                intruder.class_basis = "respiration_rate"
+                intruder.confidence = 0.74
+                intruder.expected = False
+            if self._walk is None and intruder.position.zone == INTRUDER_ROUTE[0]:
+                # A cold tap: Burglary pressed with no detection having run, so
+                # nothing has started the presence moving. Start it here, or the
+                # record would show a stranger standing motionless at the front
+                # of the unit for the length of a 911 call.
+                self._walk = _Walk(
+                    presence_id="p4",
+                    route=list(INTRUDER_ROUTE),
+                    seconds_per_leg=6.0 * self._speed,
+                    started_at=time.monotonic(),
+                )
+            # A resident who sees a stranger in their living room taps
+            # immediately; they do not wait to see where he goes. So the track
+            # is usually still moving at this point, and what the operator needs
+            # is where that person is *now*, not where they were when the button
+            # was pressed. Wait for the track to settle, briefly and with a cap,
+            # then report the current room.
+            await self._settle_track(timeout_s=14.0)
+            here = intruder.position.zone
+            zone_name = here.replace("_", " ")
+            # Derived, never hardcoded. An earlier version asserted "next to the
+            # second bedroom" unconditionally and told an operator the intruder
+            # was "in the living room, next to the second bedroom", which is
+            # both false and the kind of false a dispatcher would act on.
+            where = (
+                f"is now in the {zone_name}, directly outside the second bedroom"
+                if here == "hallway"
+                else f"is now in the {zone_name}"
             )
+
             claims.append(
                 await self._verify(
                     incident_id,
                     "agents/intruder",
-                    "One body in the apartment has no corresponding device. Three presences are "
-                    "tracked, the roster holds two registered residents, and both resident phones "
-                    "are associated with the network. The presence with no device is in the living "
-                    "room and is moving.",
+                    "One body in the apartment has no corresponding device. The roster holds two "
+                    "registered residents and both of their phones are associated with the "
+                    f"network. The presence with no device is in the {zone_name} and is moving.",
                     "intruder.unexpected_presence",
-                    "presences=3, roster=2, associated=2, zone=living_room",
-                    presence_id="p3",
+                    f"roster=2, associated=2, unaccounted=1, zone={here}",
+                    presence_id="p4",
                 )
             )
             await self._sleep(0.9)
@@ -689,17 +904,33 @@ class SimulatedMasterClient:
                 await self._verify(
                     incident_id,
                     "agents/people",
-                    "The resident who raised this is in the second bedroom. The unexpected presence "
-                    "is in the living room. They are in different rooms.",
+                    "The unexpected presence entered at the living room and has crossed the unit. "
+                    "The two residents are in the kitchen and the second bedroom. It is in a "
+                    "different room from both of them.",
                     "people.zones",
-                    "resident second_bedroom, unexpected living_room",
+                    f"unexpected {here}, residents kitchen + second_bedroom",
                 )
+            )
+            # The limit, said out loud and on the record rather than left for a
+            # judge to find. A 1x1 radio resolves two people who are a metre
+            # apart as one presence, so "they are in different rooms" is a claim
+            # this hardware can make and "he is standing over her" is not.
+            await self._verify(
+                incident_id,
+                "agents/people",
+                "Separation between the unexpected presence and the nearest resident can be "
+                "reported while they are in different rooms. If they converge, this link resolves "
+                "them as one presence and the separate tracks cannot be maintained.",
+                "people.separation_limit",
+                "1x1 radio, no spatial diversity, merge distance approx 1m",
+                profile=TrustProfile.READ_ONLY,
             )
             opening = (
                 f"This is an automated call from a monitoring system at {self._address}. "
-                "The resident has reported an intruder. Two adults are tracked inside: the "
-                "resident in the second bedroom, and an unexpected presence in the living room. "
-                "They are in different rooms."
+                "The resident has reported an intruder. Three adults are tracked inside: two "
+                "residents, one in the kitchen and one in the second bedroom, and one more "
+                "person that no registered device accounts for. That person came in at the "
+                f"living room and {where}."
             )
         else:  # Fire. Faint is routed to the collapse script above.
             self._co_ppm = 142.0
@@ -1122,6 +1353,22 @@ class SimulatedMasterClient:
     def fall_detected(self) -> bool:
         """True once the collapse is in the interior state. Still not a call."""
         return self._fall_detected
+
+    @property
+    def intrusion_detected(self) -> bool:
+        """True once the unexpected presence is in the interior state.
+
+        Also still not a call. Detecting an intruder is the one case where the
+        temptation to dial automatically is strongest, and it is refused for the
+        same reason as every other: a false positive here sends armed responders
+        to a real address.
+        """
+        return self._intrusion_detected
+
+    @property
+    def speed(self) -> float:
+        """The configured time multiplier, so callers can scale their own waits."""
+        return self._speed
 
     @property
     def elapsed_hint(self) -> timedelta:
