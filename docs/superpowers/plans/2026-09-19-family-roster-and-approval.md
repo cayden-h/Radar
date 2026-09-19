@@ -1568,6 +1568,27 @@ def test_deleting_an_absent_member_is_a_404(client: TestClient):
     assert client.delete("/v1/household/members/mem-nope").status_code == 404
 
 
+def test_claiming_a_device_twice_is_a_409(client: TestClient):
+    """The device exists and is not free, which is a conflict rather than a
+    missing thing. One device has exactly one owner, because two owners would
+    each count as present when the one phone appears."""
+    devices = client.get("/v1/household/unclaimed-devices").json()["devices"]
+    if not devices:
+        pytest.skip("no observed device to claim; the simulated master had not emitted one yet")
+    device_id = devices[0]["device_id"]
+    client.post(
+        "/v1/household/remember",
+        json={"name": "Grandma", "kind": "guest", "device_id": device_id},
+    )
+
+    second = client.post(
+        "/v1/household/remember",
+        json={"name": "Impostor", "kind": "guest", "device_id": device_id},
+    )
+
+    assert second.status_code == 409
+
+
 def test_approving_a_presence_is_accepted_and_idempotent(client: TestClient):
     """Approving twice is not an error. A resident tapping twice under stress is
     not a condition worth surfacing."""
@@ -1591,7 +1612,7 @@ Expected: 404s, because the routes do not exist.
 In `app/backend/hawkeye_backend/api.py`, add to the imports:
 
 ```python
-from hawkeye_backend.household import UnknownDevice
+from hawkeye_backend.household import DeviceAlreadyClaimed, UnknownDevice
 from hawkeye_backend.models.household import HouseholdMember, ObservedDevice, RememberRequest
 ```
 
@@ -1647,6 +1668,14 @@ async def post_remember(request: Request, body: RememberRequest) -> HouseholdMem
     except UnknownDevice as exc:
         raise HTTPException(
             status_code=404, detail=f"no observed device with id {exc.args[0]!r}"
+        ) from exc
+    except DeviceAlreadyClaimed as exc:
+        # 409 rather than 404: the device exists, it is just not free. A 404
+        # would send the app looking for a device that is sitting right there,
+        # and the resident needs to be told it already belongs to someone.
+        raise HTTPException(
+            status_code=409,
+            detail=f"device {exc.args[0]!r} already belongs to someone on the roster",
         ) from exc
 
 
