@@ -40,7 +40,8 @@ struct IncidentView: View {
     }
 
     var body: some View {
-        ZStack {
+        GeometryReader { proxy in
+        ZStack(alignment: .top) {
             Palette.ground.ignoresSafeArea()
 
             // One scroll for the whole page, with the context field pinned.
@@ -77,18 +78,15 @@ struct IncidentView: View {
                     .padding(.horizontal, Space.gutter)
                     .padding(.bottom, Space.md)
             }
-            // Scrolled content passes under the status bar, so fade it out
-            // rather than letting transcript text collide with the clock.
-            .overlay(alignment: .top) {
-                LinearGradient(
-                    colors: [Palette.ground, Palette.ground.opacity(0)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 28)
+
+            // Content scrolls behind the status bar, so cover that strip in
+            // the ground colour rather than letting transcript text collide
+            // with the clock. The ground is flat, so this reads as seamless.
+            Palette.ground
+                .frame(height: proxy.safeAreaInsets.top)
                 .ignoresSafeArea(edges: .top)
                 .allowsHitTesting(false)
-            }
+        }
         }
         .preferredColorScheme(.dark)
         .animation(Motion.arrive, value: refusals.count)
