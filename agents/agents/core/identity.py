@@ -134,7 +134,6 @@ class AgentIdentity:
 #   biometrics  -> people    personhood is what makes a presence a person, and
 #                            everything people says is conditioned on it
 #   occupancy   -> people    same CSI window, same baseline, same tick
-#   collapse    -> people    a fall is a state a *person* is in
 #   environment -> master    a locally-attached sensor has no counterparty to
 #                            authenticate; see agents/master/environment.py
 #   guidance    -> caller    caller is the agent that talks to humans, and there
@@ -148,13 +147,13 @@ ROSTER: tuple[AgentIdentity, ...] = (
         role=Role.SENSING,
         summary=(
             "Who is in the building, where each one is, whether they are breathing, and "
-            "whether one of them is on the floor."
+            "whether anyone has stopped being resolvable."
         ),
-        question="How many people, where, in what state, and is anyone down?",
+        question="How many people, where, in what state, and should a dispatcher expect an answer?",
         # FIDUCIARY: its verdicts are what turn an occupancy report into a
-        # medical emergency. "An unresponsive occupant in the main bedroom,
-        # down four minutes" originates entirely here, and nothing else in the
-        # stack can tell a human from a curtain.
+        # medical emergency. "A breathing signature in the main bedroom that we
+        # had four minutes ago and do not have now" originates entirely here,
+        # and nothing else in the stack can tell a human from a curtain.
         profile=TrustProfile.FIDUCIARY,
         skills=(
             Skill(
@@ -198,16 +197,17 @@ ROSTER: tuple[AgentIdentity, ...] = (
                 fields=("people.headcount", "people.sensed_presences"),
             ),
             Skill(
-                id="collapse",
-                name="Collapse and time down",
+                id="responsiveness",
+                name="Responsiveness",
                 description=(
-                    "A downward transition followed by absence of normal movement, and the "
-                    "seconds since it happened. A long lie is clinically over an hour; 53% of "
-                    "older fall patients are still on the floor when the ambulance arrives, "
-                    "and half of those down over an hour die within six months absent any "
-                    "injury from the fall."
+                    "Whether a breathing signature that was present in a zone is still "
+                    "resolvable, and the seconds since it was last seen. The transition is "
+                    "the signal: a presence that never resolved a signature carries no "
+                    "information, because shallow breathing, breath-holding and range limits "
+                    "are indistinguishable from an empty room. What this answers for a "
+                    "dispatcher is whether to expect a response from whoever is in that room."
                 ),
-                fields=("people.collapse_detected", "people.still_down_s", "people.long_lie"),
+                fields=("people.respiration_lost",),
             ),
         ),
         must_not_claim=(
@@ -221,9 +221,14 @@ ROSTER: tuple[AgentIdentity, ...] = (
             "subcarriers, no spatial diversity. Two people within roughly a metre read as "
             "one. A sensed count is phrased as 'at least', never as a figure.",
             "Coordinates. Zones are room-level by design.",
-            "A collapse on a single downward transition. Without the absence-of-movement "
-            "confirmation it is a couch, and a system that calls 911 when someone flops "
-            "onto a couch is worse than no system.",
+            "That a person has stopped breathing. A signature that is no longer resolvable "
+            "is a reason to look, never a finding about a body. Shallow breathing and range "
+            "limits produce exactly this reading.",
+            "Anything at all about a presence that never established a breathing signature. "
+            "A moving body swamps its own chest sinusoid with broadband motion, so someone "
+            "who goes from walking to gone leaves no transition to report. Only "
+            "breathing-then-silent is a signal; that limit is the price of the claim being "
+            "worth anything.",
         ),
     ),
     AgentIdentity(

@@ -80,3 +80,26 @@ def test_no_card_leaks_anything_sensitive():
         rendered = cards.serialize(cards.build_a2a_card(agent)).decode()
         for secret in forbidden:
             assert secret not in rendered, f"{agent.slug} card leaks {secret!r}"
+
+
+def _declared(slug):
+    from agents.core.identity import identity
+
+    return {field for skill in identity(slug).skills for field in skill.fields}
+
+
+def test_every_field_an_agent_asserts_is_declared_on_its_card():
+    """Undeclared claims are drift, and drift is what the Trust Index scores.
+
+    `people.respiration_lost` was emitted with no skill declaring it. The gate
+    validates namespace rather than declared fields, so it was admitted anyway
+    and nothing caught it. `agent.webmesh.ai` reads the published card, so this
+    is the surface that matters. This is the test that would have caught it.
+    """
+    assert "people.respiration_lost" in _declared("people")
+
+
+def test_people_declares_no_collapse_fields():
+    declared = _declared("people")
+
+    assert not any("collapse" in f or "still_down" in f or "long_lie" in f for f in declared)
