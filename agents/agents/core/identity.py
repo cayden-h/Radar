@@ -289,9 +289,11 @@ ROSTER: tuple[AgentIdentity, ...] = (
                 id="classify",
                 name="Incident classification",
                 description=(
-                    "Burglary, Fire or Faint, combined from independent modalities rather "
-                    "than switched on one signal. A fall plus elevated CO is a fire with a "
-                    "casualty, not a faint."
+                    "Burglary or Fire, combined from independent modalities rather than "
+                    "switched on one signal. Elevated CO alongside a breathing signature "
+                    "that has gone missing is a fire with an occupant who may not be able "
+                    "to respond - CSI resolved the breathing, a separate gas sensor read "
+                    "the air, and neither alone is that verdict."
                 ),
                 fields=("master.incident_type", "master.classification_basis"),
             ),
