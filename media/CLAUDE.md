@@ -32,6 +32,8 @@ Follow the demo sequence in `agents/CLAUDE.md`. In order:
 1. **The fall.** Open here, silent. The app raises an alert; no call is placed.
 2. **A hand reaches for the phone and taps Faint.** Hawk Eye does not call 911 by itself, and the video should make that unmistakable rather than leaving it to the voiceover.
 3. Sensing agents corroborating, on screen, with confidence.
+   **Do not put an exact sensed headcount on screen.** A 1x1 link cannot deliver it, and a judge who knows RF will ask. Show one resolved presence plus a roster-sourced "2 residents registered, both devices present". Counting limits are under `agents/occupancy`.
+   If two people must appear in frame, stage them in opposite corners or either side of a wall with one moving. Two people within a metre of each other read as one.
 4. `master` classifying and verifying, showing what it discarded.
 5. The call. Real ElevenLabs voice, a real conversation.
 6. The resident's phone: live transcript, the "what is happening" box, instructions arriving.

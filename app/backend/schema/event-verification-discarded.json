@@ -13,9 +13,9 @@
         "checked_at": "2026-09-20T04:12:45Z",
         "claim": {
           "claim_id": "clm-005",
-          "statement": "A third adult is unresponsive in the garage and is not breathing.",
+          "statement": "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
           "field": "biometrics.respiration",
-          "value": "no respiration, garage",
+          "value": "no respiration, building corridor",
           "presence_id": null
         },
         "agent": {
@@ -57,7 +57,7 @@
           {
             "name": "corroboration.sensor",
             "passed": false,
-            "detail": "No CSI perturbation in the garage zone. No other agent reports a third occupant."
+            "detail": "The corridor outside the front door is not part of the unit and is outside the sensed volume, so no agent in this mesh can see it, and no other agent reports a third occupant."
           }
         ],
         "will_be_spoken": false

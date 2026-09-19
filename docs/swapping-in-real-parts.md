@@ -47,7 +47,13 @@ Every other mention of `useMocks` in the codebase is a comment.
 
 **Second switch, same file:** `Config.mockScenario` picks which incident the script runs, `.burglary` or `.faint`.
 Both are complete, both run off the same sensor loop and the same detection timer, and burglary is the default because it is the demo.
-Burglary adds a fourth presence that enters through the garage unconfirmed, is identified as a person the system did not expect once respiration is acquired, and then routes room to room toward the resident.
+Burglary adds a fourth presence that walks into the living room unconfirmed.
+Once respiration is acquired it is a person, and roster plus device association makes it an unexpected one: two registered residents on the roster, both resident phones associated with the network, and **at least one more presence than those devices account for**.
+
+**Phrase it as a surplus, not as arithmetic.** The claim that survives a 1x1 radio is "**at least one presence more than the roster accounts for**", not "three bodies minus two residents". An exact sensed count is not available; a *surplus* is, because it only requires noticing that an additional presence appeared.
+
+The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/occupancy`.
+It then routes room to room across the apartment toward the resident.
 Per-scenario timings sit next to the selector; nothing about the scenario leaks into any view.
 This switch is mock-only and has no effect when `useMocks = false`, where the hub decides what happens.
 

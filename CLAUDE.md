@@ -316,6 +316,7 @@ Read it before wiring anything real in.
 Some capabilities are demonstrated rather than measured.
 `agents/environment` is the clear case: no gas sensor exists, so the reading is simulated.
 **The floor plan is the second case:** the system does not map walls and cannot, because walls are the static baseline it subtracts to see people. The room model is drawn once and room labels come from a one-time enrollment walk. See `sensor/CLAUDE.md`.
+**The headcount is the third case:** a 1x1 radio resolves presence, not an exact number of people. Two people within about a metre merge into one. The count on screen and on the call comes from device association against the known roster; the radio answers which room and whether that presence is breathing. Limits under `agents/occupancy`.
 
 The rule for all of them:
 

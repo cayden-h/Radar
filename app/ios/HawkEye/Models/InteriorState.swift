@@ -219,8 +219,8 @@ struct Presence: Codable, Sendable, Hashable, Identifiable {
     ///
     /// A perturbation with no respiration signature is never unexpected in this
     /// sense, because it is not a person yet. That is the whole contrast the
-    /// burglary view is built on: the curtain over the garage vent and the
-    /// person who came in through the same zone look different on purpose.
+    /// burglary view is built on: the curtain over the laundry vent and the
+    /// person walking through the living room look different on purpose.
     var isUnexpected: Bool { state.isPerson && expected == false }
 
     /// A deterministic per-presence phase so several blobs do not breathe in
@@ -348,32 +348,62 @@ struct Floorplan: Codable, Sendable, Hashable {
         )
     }
 
+    /// The proportions the map card should take on screen.
+    ///
+    /// The plan's own aspect, clamped. The enrolled unit is 14.8m by 6.8m, a
+    /// long shallow band rather than the near-square the card used to assume,
+    /// and a card that does not follow it leaves a stripe of dead space above
+    /// and below the drawing. The clamp keeps an extreme plan from either
+    /// squeezing the roster off the screen or flattening to a letterbox.
+    var cardAspect: CGFloat {
+        guard widthM > 0, depthM > 0 else { return 1.12 }
+        return Swift.min(Swift.max(CGFloat(widthM / depthM), 1.0), 2.0)
+    }
+
     /// A metre position normalised into 0...1 of the plan.
     func normalizedPoint(_ position: Position) -> CGPoint {
         guard widthM > 0, depthM > 0 else { return CGPoint(x: 0.5, y: 0.5) }
         return CGPoint(x: position.x / widthM, y: position.y / depthM)
     }
 
-    /// The demo house, used before the first frame arrives and in previews.
+    /// The demo home, used before the first frame arrives and in previews.
     /// The hub's own plan replaces it the moment one is received.
+    ///
+    /// The Chestnut: a two-bedroom, two-bathroom apartment, 14.8m x 6.8m,
+    /// measured once and authored here. Long and shallow, which is what the
+    /// real unit is, so the map draws as a wide band rather than a square.
+    ///
+    /// Eleven zones tiling the rectangle, all of them inside the unit and
+    /// inside coverage. What is outside coverage is everything past the front
+    /// door, and no agent in the mesh will answer a question about it.
     static let home = Floorplan(
         siteID: "site-demo-01",
-        name: "Ridgeview Lane",
+        name: "Chestnut",
         units: "m",
-        widthM: 12, depthM: 9, wallHeightM: 2.5,
+        widthM: 14.8, depthM: 6.8, wallHeightM: 2.5,
         rooms: [
+            Room(zone: "main_closet", name: "Closet",
+                 polygon: [[0, 0], [1.9, 0], [1.9, 1.9], [0, 1.9]]),
+            Room(zone: "main_bath", name: "Main bath",
+                 polygon: [[1.9, 0], [3.7, 0], [3.7, 1.9], [1.9, 1.9]]),
+            Room(zone: "second_bath", name: "Second bath",
+                 polygon: [[3.7, 0], [5.8, 0], [5.8, 1.9], [3.7, 1.9]]),
+            Room(zone: "linen_closet", name: "Linen closet",
+                 polygon: [[5.8, 0], [6.9, 0], [6.9, 1.9], [5.8, 1.9]]),
+            Room(zone: "dining_room", name: "Dining room",
+                 polygon: [[6.9, 0], [10.8, 0], [10.8, 3.1], [6.9, 3.1]]),
             Room(zone: "living_room", name: "Living room",
-                 polygon: [[0, 0], [6, 0], [6, 5], [0, 5]]),
-            Room(zone: "kitchen", name: "Kitchen",
-                 polygon: [[6, 0], [12, 0], [12, 4], [6, 4]]),
+                 polygon: [[10.8, 0], [14.8, 0], [14.8, 6.8], [10.8, 6.8]]),
+            Room(zone: "main_bedroom", name: "Main bedroom",
+                 polygon: [[0, 1.9], [3.7, 1.9], [3.7, 6.8], [0, 6.8]]),
             Room(zone: "hallway", name: "Hallway",
-                 polygon: [[0, 5], [12, 5], [12, 6.5], [0, 6.5]]),
-            Room(zone: "west_bedroom", name: "West bedroom",
-                 polygon: [[0, 6.5], [5, 6.5], [5, 9], [0, 9]]),
-            Room(zone: "east_bedroom", name: "East bedroom",
-                 polygon: [[5, 6.5], [9, 6.5], [9, 9], [5, 9]]),
-            Room(zone: "garage", name: "Garage",
-                 polygon: [[9, 6.5], [12, 6.5], [12, 9], [9, 9]]),
+                 polygon: [[3.7, 1.9], [6.9, 1.9], [6.9, 3], [3.7, 3]]),
+            Room(zone: "second_bedroom", name: "Second bedroom",
+                 polygon: [[3.7, 3], [6.9, 3], [6.9, 6.8], [3.7, 6.8]]),
+            Room(zone: "kitchen", name: "Kitchen",
+                 polygon: [[6.9, 3.1], [10.8, 3.1], [10.8, 5.4], [6.9, 5.4]]),
+            Room(zone: "laundry", name: "Laundry",
+                 polygon: [[6.9, 5.4], [10.8, 5.4], [10.8, 6.8], [6.9, 6.8]]),
         ]
     )
 }

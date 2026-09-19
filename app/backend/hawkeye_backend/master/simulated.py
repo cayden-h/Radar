@@ -675,11 +675,12 @@ class SimulatedMasterClient:
                 await self._verify(
                     incident_id,
                     "agents/intruder",
-                    "A second adult is moving through the living room. The residents reported one "
-                    "occupant at this hour. The patio is outside sensor coverage, so this presence "
-                    "was not seen approaching: the first frame that shows them is already inside.",
+                    "One body in the apartment has no corresponding device. Three presences are "
+                    "tracked, the roster holds two registered residents, and both resident phones "
+                    "are associated with the network. The presence with no device is in the living "
+                    "room and is moving.",
                     "intruder.unexpected_presence",
-                    "unexpected adult, first_seen_zone=living_room",
+                    "presences=3, roster=2, associated=2, zone=living_room",
                     presence_id="p3",
                 )
             )
@@ -733,9 +734,9 @@ class SimulatedMasterClient:
         await self._verify(
             incident_id,
             "agents/occupancy",
-            "A further occupant is unresponsive on the patio and is not breathing.",
+            "A further occupant is unresponsive in the corridor outside the front door and is not breathing.",
             "biometrics.respiration",
-            "no respiration, patio",
+            "no respiration, building corridor",
             ansname="occupancy.hawkeye-secure.invalid",
             profile=TrustProfile.UNTRUSTED,
             checks=[
@@ -872,9 +873,9 @@ class SimulatedMasterClient:
         impostor_claim = await self._verify(
             incident_id,
             "agents/occupancy",
-            "A third adult is unresponsive on the patio and is not breathing.",
+            "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
             "biometrics.respiration",
-            "no respiration, patio",
+            "no respiration, building corridor",
             ansname="occupancy.hawkeye-secure.invalid",
             profile=TrustProfile.UNTRUSTED,
             checks=[
@@ -903,8 +904,9 @@ class SimulatedMasterClient:
                     name="corroboration.sensor",
                     passed=False,
                     detail=(
-                        "The patio is outside the sensed volume, so no agent in this mesh can "
-                        "see it, and no other agent reports a third occupant."
+                        "The corridor outside the front door is not part of the unit and is "
+                        "outside the sensed volume, so no agent in this mesh can see it, and no "
+                        "other agent reports a third occupant."
                     ),
                 ),
             ],
@@ -1019,14 +1021,14 @@ class SimulatedMasterClient:
 
         # The "I don't know" beat. Nothing could be verified, so nothing is claimed.
         await self._say(
-            incident_id, TranscriptSpeaker.OPERATOR, "Is there anyone out on the patio?"
+            incident_id, TranscriptSpeaker.OPERATOR, "Is there anyone in the hallway outside the front door?"
         )
         await self._sleep(0.9)
         await self._verify(
             incident_id,
             "agents/occupancy",
-            "Live query: is there an occupant on the patio?",
-            "occupancy.zone.patio",
+            "Live query: is there an occupant in the corridor outside the front door?",
+            "occupancy.zone.building_corridor",
             "no answer",
             checks=[
                 VerificationCheck(
@@ -1043,9 +1045,9 @@ class SimulatedMasterClient:
                     name="coverage.zone",
                     passed=False,
                     detail=(
-                        "The patio is outdoors and outside the sensed volume. CSI does not reach "
-                        "it. The agent returned no answer rather than a guess, which is the correct "
-                        "behaviour."
+                        "The corridor outside the front door is not part of the unit and is "
+                        "outside the sensed volume. The agent returned no answer rather than a "
+                        "guess, which is the correct behaviour."
                     ),
                 ),
             ],
@@ -1059,7 +1061,7 @@ class SimulatedMasterClient:
         await self._say(
             incident_id,
             TranscriptSpeaker.CALLER,
-            "I don't know. The patio is outdoors and outside what the sensors cover, and I will not guess about it.",
+            "I don't know. The corridor outside the front door is outside what the sensors cover, and I will not guess about it.",
         )
 
         await self._sleep(1.8)

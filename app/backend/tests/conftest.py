@@ -61,7 +61,7 @@ class Agent:
             issuer=self.ansname,
             audience=MASTER,
             incident_id=INCIDENT,
-            zone_scope="west_bedroom",
+            zone_scope="main_bedroom",
             field="biometrics.respiration",
             value="absent",
             severity_ceiling=Severity.DISPATCHABLE,

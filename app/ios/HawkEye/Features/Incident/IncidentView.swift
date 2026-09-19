@@ -323,7 +323,7 @@ struct IncidentView: View {
     ///
     /// The agents know what the radio can see. They do not know that the
     /// intruder had a knife, that the child is asthmatic, or that the smoke is
-    /// coming from the garage.
+    /// coming from the laundry.
     ///
     /// What is typed here is **context, never instruction**. It is carried with
     /// `user-input` provenance, and `caller` attributes it as something the

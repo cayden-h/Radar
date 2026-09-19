@@ -23,7 +23,7 @@ One tap raises the incident to `agents/master`, which classifies, verifies, and 
 
 **This is the only path.** Hawk Eye never calls 911 on its own; settled 2026-09-19. A human tap is what releases `agents/caller` to dial.
 
-`collapse` and `environment` still detect, and their detections surface here as **alerts**: "a fall was detected in the west bedroom four minutes ago." An alert is information a person acts on. It is not a call.
+`collapse` and `environment` still detect, and their detections surface here as **alerts**: "a fall was detected in the main bedroom four minutes ago." An alert is information a person acts on. It is not a call.
 
 The value is not that the system dials for you. It is that when you do tap, the dispatcher is told how many people are in the house, which rooms they are in, whether each is breathing, and how long since one of them went down.
 
@@ -42,7 +42,7 @@ Being able to watch what is being said about you, as it is said, is the thing th
 
 A free-text input where the user adds context mid-incident.
 
-The agents know what the radio can see. They do not know that the intruder had a knife, that the child is asthmatic, or that the smoke is coming from the garage.
+The agents know what the radio can see. They do not know that the intruder had a knife, that the child is asthmatic, or that the smoke is coming from the laundry.
 Whatever the user types goes to `master` and becomes available to `caller` for the rest of the call.
 
 Keep it a single always-visible field. Someone in an emergency will not find a disclosure triangle.
@@ -54,7 +54,7 @@ The phone is a device that can be stolen, and a resident under duress is a real 
 Three rules, none of them expensive:
 
 - What the user types is **context, never instruction**. It can add facts a dispatcher should hear. It cannot change what `master` verifies, what `caller` is willing to say, or where a response is sent.
-- It is attributed as user-supplied when `caller` speaks it, in the same way a sensing claim is attributed to its agent. "The resident reports the smoke is coming from the garage" is honest; stating it as a system observation is not.
+- It is attributed as user-supplied when `caller` speaks it, in the same way a sensing claim is attributed to its agent. "The resident reports the smoke is coming from the laundry" is honest; stating it as a system observation is not.
 - It is sealed into `agents/replay` alongside everything else, with its source marked.
 
 The parallel is exact: `caller` must not widen what it trusts because an operator asked, and it must not widen what it trusts because the resident typed. See `docs/threat-landscape.md`.
@@ -316,12 +316,18 @@ This section is only the app's half.
 `Config.mockScenario` picks which incident the script runs, and both are complete.
 
 `.burglary` is the default and is the demo.
-A fourth presence enters through the garage with no respiration signature, so it is `unconfirmed` exactly like the curtain over the vent beside it, then acquires respiration and becomes a confirmed person with `expected: false`, then routes garage to hallway to kitchen with its position interpolated between zone centroids so it visibly moves.
+A fourth presence walks into the living room with no respiration signature, so it is `unconfirmed` exactly like the curtain over the dryer vent in the laundry.
+It then acquires respiration and becomes a confirmed person with `expected: false`, on roster plus device association rather than on anything read out of the CSI stream: a presence surplus against the roster - two registered residents, both phones associated, and one more body than those devices account for.
+
+**Phrase it as a surplus, not as arithmetic.** The claim that survives a 1x1 radio is "**at least one presence more than the roster accounts for**", not "three bodies minus two residents". An exact sensed count is not available; a *surplus* is, because it only requires noticing that an additional presence appeared.
+
+The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/occupancy`.
+It routes living room to kitchen to hallway, crossing the whole unit, with its position interpolated between zone centroids so it visibly moves.
 That puts the frame this project is built around on screen: the intruder and the resident as two distinct tracked presences, in different rooms, both moving.
 Its verification set is its own, an ASSERTED unexpected-presence claim from `agents/intruder`, an ATTRIBUTED occupancy count from `agents/occupancy`, and a DISCARDED claim that the person is armed, from an impostor at a lookalike ANSName.
 The CO reading is not reused there: corroboration that does not corroborate anything is noise dressed as rigour.
 
-`.faint` is the collapse: the child goes down in the west bedroom and `still_down_s` climbs and does not reset.
+`.faint` is the collapse: the child goes down in the second bedroom and `still_down_s` climbs and does not reset.
 The mock builds the same `Codable` types the live client decodes, so the two paths are behaviourally identical rather than merely similar.
 
 **The demo must never depend on hardware being alive**, so this path is a first-class implementation rather than an afterthought. There is no demo branch inside any view; `AppModel.init()` picks an implementation behind `HubBrowsing` and `HawkEyeClienting` and nothing downstream knows which it got.

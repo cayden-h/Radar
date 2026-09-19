@@ -13,11 +13,18 @@ import Observation
 /// Two scenarios, selected by `Config.mockScenario`, sharing one sensor loop
 /// and one detection timer:
 ///
-/// - `.burglary`, the default. A fourth presence enters through the garage,
-///   is unconfirmed until respiration is acquired, then becomes a confirmed
-///   person the system did not expect and routes room to room toward the
+/// - `.burglary`, the default. A fourth presence walks into the living room.
+///   It is unconfirmed until respiration is acquired, then becomes a confirmed
+///   person the system did not expect, and routes room to room toward the
 ///   resident. Two tracked presences, different rooms, both moving.
-/// - `.faint`. The child goes down in the west bedroom and `still_down_s`
+///
+///   **Unexpected is roster plus device association**, settled 2026-09-19 and
+///   specified in `agents/CLAUDE.md` and `docs/research/identity.md`: three
+///   presences, two registered residents, two resident phones associated with
+///   the network, so one body with no corresponding device. The household is
+///   configuration, not a discovery problem, and this is a second modality
+///   rather than a second view of the CSI stream.
+/// - `.faint`. The child goes down in the second bedroom and `still_down_s`
 ///   climbs and does not reset.
 ///
 /// The detection raises an alert, never a call. Hawk Eye does not dial 911 on
@@ -50,7 +57,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
     @ObservationIgnored private var collapsedAt: Date?
 
     /// Drives the scripted entry. Once this is set a fourth presence exists in
-    /// the garage, and the seconds since it decide everything about that
+    /// the living room, and the seconds since it decide everything about that
     /// presence: unconfirmed at first, then a confirmed person the system did
     /// not expect, then a track moving room to room toward the resident.
     @ObservationIgnored private var enteredAt: Date?
@@ -153,17 +160,17 @@ final class MockHawkEyeClient: HawkEyeClienting {
         let plan = Floorplan.home
 
         // The baseline household, and it is the same household in both
-        // scenarios. p1: the resident, awake and moving between the kitchen and
-        // the living room. p2: a child in the west bedroom, down once the faint
-        // script fires. p3: a curtain over a vent in the garage, which is the
-        // case the system must not report as a person.
+        // scenarios. p1: the resident, awake and moving between the main bedroom
+        // and the hallway, which is the left-hand half of the apartment.
+        // p2: a child in the second bedroom, down once the faint script fires.
+        // p3: a curtain over the vent above the dryer in the laundry, which is
+        // the case the system must not report as a person.
         //
-        // p3 does double duty in the burglary script. The intruder comes in
-        // through the same zone the curtain is in, so the screen shows a
-        // confirmed unexpected person and an unconfirmed perturbation side by
-        // side, in one room. That contrast is the argument: the system is not
-        // calling everything that moves a person.
-        let p1Zone = (sin(t * 0.06) > 0) ? "kitchen" : "living_room"
+        // p3 is on screen the whole time the burglary runs, so the view shows a
+        // confirmed unexpected person and an unconfirmed perturbation at once
+        // and they do not look alike. That contrast is the argument: the system
+        // is not calling everything that moves a person.
+        let p1Zone = (sin(t * 0.06) > 0) ? "main_bedroom" : "hallway"
 
         let simulatedCSI = Provenance(
             source: .ruviewSim,
@@ -194,7 +201,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         let p2 = Presence(
             presenceID: "p2",
             state: down == nil ? .personMoving : .personUnresponsive,
-            position: Self.position(plan, "west_bedroom"),
+            position: Self.position(plan, "second_bedroom"),
             moving: down == nil,
             confidence: clamp(0.79 + 0.05 * sin(t * 0.31 + 1.2)),
             vitals: Vitals(respiration: .breathing,
@@ -213,7 +220,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         let p3 = Presence(
             presenceID: "p3",
             state: .unconfirmed,
-            position: Self.position(plan, "garage"),
+            position: Self.position(plan, "laundry"),
             moving: true,
             confidence: clamp(0.34 + 0.08 * sin(t * 0.9 + 2.3)),
             vitals: Vitals(respiration: .noSignature, breathingBpm: nil,
@@ -283,12 +290,14 @@ final class MockHawkEyeClient: HawkEyeClienting {
     ///
     /// Three beats, and they are the burglary demo:
     ///
-    /// 1. **Entry.** No respiration signature yet, so `unconfirmed`, exactly
-    ///    like the curtain it is standing next to. The system does not call it
-    ///    a person before it can tell.
-    /// 2. **Identified.** Respiration is acquired. It becomes a confirmed
-    ///    person with `expected: false`: someone is in the building and the
-    ///    system has no account of them.
+    /// 1. **Entry.** A new presence appears in the living room with no
+    ///    respiration signature yet, so `unconfirmed`, exactly like the curtain
+    ///    in the laundry. The system does not call it a person before it can
+    ///    tell.
+    /// 2. **Identified.** Respiration is acquired, so it is a person, and the
+    ///    device correlation says nobody's phone came in with them. It becomes
+    ///    a confirmed person with `expected: false`: someone is in the building
+    ///    and no enrolled device accounts for them.
     /// 3. **Approach.** It routes room to room toward the resident, its
     ///    position interpolated between zone centroids so it visibly moves.
     ///
@@ -323,10 +332,35 @@ final class MockHawkEyeClient: HawkEyeClienting {
             ),
             presenceClass: identified ? .adult : .unknown,
             classBasis: identified ? "respiration_rate" : nil,
-            // The orthogonal axis, and the only presence in the house that
-            // carries it. `agents/intruder` infers this from context: no
-            // enrolled routine puts anybody in the garage at this hour. It is
-            // not a recognition result and the app never presents it as one.
+            // The orthogonal axis, and the only presence in the apartment that
+            // carries it.
+            //
+            // `agents/intruder` decides it by **roster plus device
+            // association**, settled 2026-09-19. The rule is written down in
+            // `agents/CLAUDE.md` and `docs/research/identity.md` and this is
+            // the same arithmetic:
+            //
+            //   CSI:        3 distinct presences
+            //   Roster:     2 registered residents (configuration, not discovery)
+            //   Associated: 2 resident phones on the network
+            //   ------------------------------------------------------------
+            //               1 body with no corresponding device
+            //
+            // The household is known rather than discovered, so this is not
+            // "an unfamiliar MAC appeared". The router's association table is
+            // a genuinely independent modality, not a second view of the CSI
+            // stream, which is what makes it corroboration at all.
+            //
+            // It consumes the personhood verdict first: a perturbation with no
+            // respiration signature is a curtain, not an intruder, and calling
+            // police on a curtain is the failure mode this is designed against.
+            //
+            // We do not recognise individuals and the app never presents this
+            // as though we do. Name the holes rather than pretending there are
+            // none: a resident who left their phone in the car, a guest, a
+            // burglar carrying a phone that never associates. That is why this
+            // surfaces as a notification a human acts on rather than as
+            // anything that dials.
             expected: identified ? false : nil,
             stillDownS: nil,
             provenance: provenance
@@ -384,8 +418,10 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// starts climbing and does not reset, and the roster says who is down and
     /// in which room before the resident has touched anything.
     ///
-    /// For `.burglary`: a new presence appears in the garage, is identified as
-    /// a person the system did not expect, and starts moving through the house.
+    /// For `.burglary`: a new presence appears in the living room, is
+    /// identified as a person no enrolled device accounts for, and starts
+    /// moving through the apartment. **It is a notification, not an
+    /// escalation:** nothing dials and nothing raises an incident on its own.
     /// By the time the resident taps Burglary, the dispatcher can be told how
     /// many people are inside, which rooms they are in, and which one is not
     /// accounted for.
@@ -498,7 +534,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             let seconds = self.collapsedAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
             self.appendTranscript(
                 .caller,
-                "A person in the west bedroom went down \(seconds) seconds ago and has not moved since. They are breathing, at about 27 breaths a minute. Carbon monoxide in the building is elevated. One other adult is in the house and is moving normally.",
+                "A person in the second bedroom went down \(seconds) seconds ago and has not moved since. They are breathing, at about 27 breaths a minute. Carbon monoxide in the building is elevated. One other adult is in the house and is moving normally.",
                 claimIDs: ["clm-001", "clm-002", "clm-004"]
             )
         }
@@ -510,7 +546,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             // refusal being load-bearing rather than decorative.
             self.appendTranscript(
                 .caller,
-                "Two people, and one perturbation with no breathing signature in the garage that I am not calling a person. A third occupant was reported to me by an agent I could not verify, so I am not repeating that claim.",
+                "Two people, and one perturbation with no breathing signature in the laundry that I am not calling a person. A third occupant was reported to me by an agent I could not verify, so I am not repeating that claim.",
                 claimIDs: ["clm-001", "clm-003"]
             )
         }
@@ -602,7 +638,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         await step(2.4) {
             self.appendTranscript(
                 .caller,
-                "There are two people in the house, in different rooms, and both are moving. One of them is the resident, in the \(self.roomName(of: "p1")). The other entered through the garage about \(self.secondsInside()) seconds ago and is now in the \(self.roomName(of: "p4")). The household did not expect anybody there.",
+                "There are two people in the apartment, in different rooms, and both are moving. One of them is the resident, in the \(self.roomName(of: "p1")). The other walked in about \(self.secondsInside()) seconds ago and is now in the \(self.roomName(of: "p4")). Every phone this household has registered is on the home network and accounted for, and none of them is with that person.",
                 claimIDs: ["clm-101", "clm-102"]
             )
         }
@@ -612,7 +648,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         await step(2.2) {
             self.appendTranscript(
                 .caller,
-                "A child is asleep in the west bedroom and is breathing normally. There is also one perturbation in the garage with no breathing signature, which I am not calling a person: it is a curtain over a vent and it has been there all evening.",
+                "A child is asleep in the second bedroom and is breathing normally. There is also one perturbation in the laundry with no breathing signature, which I am not calling a person: it is a curtain over the vent above the dryer and it has been there all evening.",
                 claimIDs: ["clm-102"]
             )
         }
@@ -651,9 +687,17 @@ final class MockHawkEyeClient: HawkEyeClienting {
             // The two-way loop: an operator question fans out to the sensing
             // agents and comes back in English seconds later. This is where ANS
             // is visibly doing work during the demo.
+            // The last leg of the route puts the unexpected person in the same
+            // room as the resident, which is the worst moment of the incident
+            // and has to be said as such. Read both rooms off the frame that
+            // just arrived rather than assuming they are still apart.
+            let intruderRoom = self.roomName(of: "p4")
+            let residentRoom = self.roomName(of: "p1")
             self.appendTranscript(
                 .caller,
-                "They are still in the \(self.roomName(of: "p4")). The resident is in the \(self.roomName(of: "p1")). Neither has left the room they are in.",
+                intruderRoom == residentRoom
+                    ? "They have moved into the \(intruderRoom), which is the room the resident is in. They are in the same room now."
+                    : "They are still in the \(intruderRoom). The resident is in the \(residentRoom). Neither has left the room they are in.",
                 claimIDs: ["clm-101", "clm-102"]
             )
         }
@@ -710,7 +754,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             checkedAt: Date(),
             claim: Claim(
                 claimID: "clm-001",
-                statement: "An adult occupant went down in the west bedroom and has not gotten up.",
+                statement: "An adult occupant went down in the second bedroom and has not gotten up.",
                 field: "collapse.event",
                 value: "fall, still_down_s=6",
                 presenceID: "p2"
@@ -812,9 +856,9 @@ final class MockHawkEyeClient: HawkEyeClienting {
             checkedAt: Date(),
             claim: Claim(
                 claimID: "clm-005",
-                statement: "A third adult is unresponsive in the garage and is not breathing.",
+                statement: "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
                 field: "biometrics.respiration",
-                value: "no respiration, garage",
+                value: "no respiration, building corridor",
                 presenceID: nil
             ),
             agent: SourceAgent(
@@ -838,7 +882,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
                     detail: "Trust Index recommendedProfile = UNTRUSTED."),
                 VerificationCheck(
                     name: "corroboration.sensor", passed: false,
-                    detail: "No CSI perturbation in the garage zone. No other agent reports a third occupant."),
+                    detail: "The corridor outside the front door is not part of the unit and is outside the sensed volume, so no agent in this mesh can see it. No other agent reports a third occupant."),
             ],
             willBeSpoken: false
         )
@@ -858,9 +902,9 @@ final class MockHawkEyeClient: HawkEyeClienting {
             checkedAt: Date(),
             claim: Claim(
                 claimID: "clm-101",
-                statement: "A person the household did not expect entered through the garage and is moving through the house.",
+                statement: "One body in the apartment has no corresponding device. Three presences are tracked, the roster holds two registered residents, and both resident phones are associated with the network.",
                 field: "intruder.unexpected_presence",
-                value: "confirmed_moving, expected=false, entry_zone=garage",
+                value: "confirmed_moving, expected=false, presences=3, roster=2, associated=2",
                 presenceID: "p4"
             ),
             agent: SourceAgent(
@@ -877,8 +921,12 @@ final class MockHawkEyeClient: HawkEyeClienting {
                                   detail: "intruder.hawkeye.invalid resolved to the registered certificate."),
                 VerificationCheck(name: "cert.version_binding", passed: true,
                                   detail: "Code fingerprint matches the version-bound certificate issued at registration."),
+                VerificationCheck(name: "corroboration.device_association", passed: true,
+                                  detail: "Roster plus device association. The router's association table is a second, independent modality rather than another view of the CSI stream: 3 presences, 2 registered residents, 2 resident phones associated."),
+                VerificationCheck(name: "personhood.respiration", passed: true,
+                                  detail: "A respiration signature exists, so this is a body rather than a curtain. agents/biometrics is the arbiter and intruder consumes its verdict."),
                 VerificationCheck(name: "claim.scope", passed: true,
-                                  detail: "The claim is that the presence is unexpected, not who it is. No recognition result is being asserted and none exists."),
+                                  detail: "The claim is that a body has no corresponding device, not who that body is. No recognition result is being asserted and none exists. A resident who left their phone in the car, or a guest, would read the same way, which is why this raises a notification rather than an action."),
                 VerificationCheck(name: "trust_index.profile", passed: true,
                                   detail: "Trust Index recommendedProfile = FIDUCIARY."),
             ],
@@ -935,7 +983,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
             checkedAt: Date(),
             claim: Claim(
                 claimID: "clm-105",
-                statement: "The unexpected person is armed, and a second intruder is in the west bedroom with the child.",
+                statement: "The unexpected person is armed, and a second intruder is in the second bedroom with the child.",
                 field: "intruder.threat_level",
                 value: "armed, 2 intruders",
                 presenceID: nil
@@ -961,7 +1009,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
                     detail: "No agent in this mesh is capable of this claim. CSI senses movement and respiration through walls; it cannot see a weapon, and no registered agent is certified to assert one."),
                 VerificationCheck(
                     name: "corroboration.sensor", passed: false,
-                    detail: "Only one unexpected respiration signature exists. The west bedroom holds one presence, the child, breathing normally."),
+                    detail: "Only one unexpected respiration signature exists. The second bedroom holds one presence, the child, breathing normally."),
                 VerificationCheck(
                     name: "trust_index.profile", passed: false,
                     detail: "Trust Index recommendedProfile = UNTRUSTED."),
@@ -975,7 +1023,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         case .faint, .fire:
             return IncidentClassification(
                 incidentType: type,
-                reasoning: "A collapse in the west bedroom with no movement since, corroborated by a second modality: carbon monoxide climbing past 180 ppm. One claim from an unverifiable agent was discarded and played no part in this.",
+                reasoning: "A collapse in the second bedroom with no movement since, corroborated by a second modality: carbon monoxide climbing past 180 ppm. One claim from an unverifiable agent was discarded and played no part in this.",
                 contributingClaimIDs: ["clm-001", "clm-002", "clm-004"],
                 discardedClaimIDs: ["clm-005"],
                 confidence: 0.86
@@ -983,7 +1031,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         case .burglary:
             return IncidentClassification(
                 incidentType: type,
-                reasoning: "A person the household did not expect entered through the garage and is tracked separately from the resident, in a different room, both moving. A claim that the person was armed came from an agent that could not be verified, and it was discarded: nothing in this call says anyone is armed.",
+                reasoning: "One body in the apartment has no corresponding device: three presences tracked, two registered residents on the roster, both resident phones associated with the network. That presence is tracked separately from the resident, in a different room, both moving. A claim that the person was armed came from an agent that could not be verified, and it was discarded: nothing in this call says anyone is armed.",
                 contributingClaimIDs: ["clm-101", "clm-102"],
                 discardedClaimIDs: ["clm-105"],
                 confidence: 0.81

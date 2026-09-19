@@ -79,6 +79,28 @@ Presence IDs are stable within a session only; we do not do person re-identifica
 That is physically defensible where "mass perturbs the signal differently" was not, and an RF-literate judge will press on the difference.
 It does **not** cleanly separate a dog from a child. State the overlap rather than hiding it; the honest resolution is "adult versus small and fast-breathing."
 
+#### What counting can actually deliver on this hardware
+
+Settled 2026-09-19. **Presence: reliable. An exact count: not reliable.**
+
+The BCM43455c0 is **1x1**. One antenna means frequency diversity across subcarriers and no spatial diversity at all. Most CSI counting in the literature uses Intel 5300 or Atheros NICs with two or three antennas, because antenna diversity is where spatial resolution comes from.
+RuView says the same in its own terms: single-node deployments have limited spatial resolution and 2+ nodes are recommended. Its "3-5 people per AP" figure assumes the multi-node mesh, not one link.
+
+| Scenario | Realistic outcome |
+|---|---|
+| Two people apart, at least one moving | Detectable as "more than one", moderate confidence |
+| **Two people within ~1m** | **Reads as one.** Occlusion plus overlapping Fresnel geometry |
+| One moving, one still | The mover dominates; the still one is near-invisible to motion |
+
+That last row is our actual scenario, which is why `biometrics` rather than motion is what finds the person on the floor.
+
+**Respiration is a better route to a count than motion is.** Two people breathing at different rates give two spectral peaks in the 0.1-0.5 Hz band, and two resolvable peaks is real evidence of two bodies. Two people breathing at similar rates, say both near 15 BPM, produce overlapping peaks a single link cannot separate, and it only works while they are still.
+
+A small room cuts both ways: a 3m router-to-Pi span is in the sweet spot and SNR is strong, but two people in 100 square feet are necessarily close together, which is the case that merges, and nearby walls produce dense multipath that makes the channel harder to read rather than easier.
+
+**Therefore: take the count from the roster, not the radio.** Device association tells us two residents are home with certainty, because it comes from the network. See `docs/research/identity.md`. The radio then only has to answer *which room* and *is this one breathing*, which it can.
+Where a sensed count is reported at all, it carries a confidence and is phrased as "at least", never as an exact figure.
+
 **This is the agent that genuinely needs a baseline**, and the only tier 1 one that does. Counting and localization are the capabilities that require knowing what empty looks like.
 See the calibration section in `sensor/CLAUDE.md`: build a rolling percentile baseline with slow adaptation, not a calibration step. The adaptation constant decides whether a motionless person stays visible.
 
@@ -129,7 +151,7 @@ Breathing moves the chest wall roughly 5-12mm; a heartbeat moves it a few tenths
 RuView lists heart rate at 40-120 BPM. Treat it as a stretch goal and as a good number to say on the 911 call. Respiration at 0.1-0.5 Hz carries the verdict.
 
 It also separates three states an occupancy counter cannot tell apart: moving, still but breathing, and neither.
-"Unresponsive occupant in the west bedroom" is the most valuable sentence this system can say to a dispatcher, and it comes from here.
+"Unresponsive occupant in the main bedroom" is the most valuable sentence this system can say to a dispatcher, and it comes from here.
 
 **Do not treat absence of respiration as absence of a person.** Shallow breathing, breath-holding, and range limits all degrade toward invisible.
 Cross-check `collapse` before concluding anything, and escalate uncertainty rather than resolving it silently.
@@ -512,11 +534,12 @@ Worth knowing if a judge asks why you are not demoing the rest: a baseline captu
 
 Full sequence, as filmed:
 
-1. `collapse` fires. Someone went down in the west bedroom and has not moved. The app raises an alert; **no call is placed.**
-2. The other sensing agents corroborate: three presences, one adult and one child, the child's breathing is abnormal, CO is elevated.
+1. `collapse` fires. Someone went down in the main bedroom and has not moved. The app raises an alert; **no call is placed.**
+2. The other sensing agents corroborate. **Keep the sensed claim to one resolved presence**, and take the headcount from the roster rather than the radio: two residents registered, both phones associated, and an occupant in the west bedroom breathing at 6 a minute. An exact sensed count of two or three is beyond a 1x1 link; see the counting limits under `agents/occupancy`.
 3. **A human taps Faint.** This is the only thing that releases `caller` to dial, and saying so on stage is a feature, not an apology.
 4. `master` classifies, verifies every source, discards what it cannot verify, and routes.
 5. `caller` dials. ElevenLabs voice to a human operator, reporting only verified claims - including the forty seconds that elapsed before anyone tapped.
+   The line that wins the demo is about **one** person: "an occupant in the west bedroom, down four minutes, breathing at six a minute." That needs exactly one resolved presence, which is what the hardware can give.
 6. The resident watches a live transcript on their phone while `guidance` tells them what to do.
 7. **The operator asks a follow-up in plain English.** "Is the child still breathing?" The question fans out as ANS-verified queries, live, and comes back as a spoken answer. This is the beat that shows ANS working during the call rather than before it.
    Then **the resident taps TAKE OVER and the agent goes silent mid-sentence.** Five seconds of footage that answers the room's biggest doubt about this entire project: what if the AI says something wrong. A human starts the call, a human can take it, a human can end it. The agent only ever holds the microphone on loan.

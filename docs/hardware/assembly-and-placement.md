@@ -274,6 +274,18 @@ Twenty minutes. Do it once, write the numbers down.
 3. Same person lies still at 2 m, 3 m, 4 m. Note where respiration stops being clean.
 4. Repeat 2 and 3 with the wall between them.
 
+### The two-person test
+
+Counting is the weak capability on a 1x1 radio. Run this before any shot that implies two people.
+
+5. One person mid-room. Note the signal.
+6. Second person enters and stands in the **opposite corner**. Does the count move?
+7. Second person walks to within **1m** of the first. Does it collapse back to one? Expect that it does.
+8. Both lie still. Can two respiration peaks be resolved in the 0.1-0.5 Hz band, or do they overlap?
+
+**Step 8 decides whether "two people" appears anywhere in the video.** If the peaks overlap, do not claim a sensed count.
+Take the headcount from device association against the roster instead and let the radio answer which room and whether that presence is breathing. See `agents/CLAUDE.md` under `agents/occupancy`.
+
 **Step 3 decides where the fall is staged.** Respiration is the shortest-range capability the demo depends on, so it sets the geometry.
 Motion will work almost anywhere and is not the constraint.
 

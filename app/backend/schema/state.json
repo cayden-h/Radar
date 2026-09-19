@@ -15,9 +15,9 @@
         "presence_id": "p1",
         "state": "confirmed_still",
         "position": {
-          "zone": "west_bedroom",
-          "x": 2.5,
-          "y": 7.75,
+          "zone": "main_bedroom",
+          "x": 1.85,
+          "y": 4.35,
           "zone_confidence": 0.89
         },
         "moving": false,
@@ -45,9 +45,9 @@
         "presence_id": "p2",
         "state": "confirmed_moving",
         "position": {
-          "zone": "east_bedroom",
-          "x": 7.1,
-          "y": 7.6,
+          "zone": "second_bedroom",
+          "x": 5.3,
+          "y": 4.9,
           "zone_confidence": 0.78
         },
         "moving": true,
@@ -75,9 +75,9 @@
         "presence_id": "p3",
         "state": "unconfirmed",
         "position": {
-          "zone": "living_room",
-          "x": 3.2,
-          "y": 2.1,
+          "zone": "laundry",
+          "x": 8.85,
+          "y": 6.1,
           "zone_confidence": 0.44
         },
         "moving": true,
@@ -117,53 +117,163 @@
     },
     "floorplan": {
       "site_id": "site-demo-01",
-      "name": "Ridgeview Lane",
+      "name": "Chestnut",
       "units": "m",
-      "width_m": 12.0,
-      "depth_m": 9.0,
+      "width_m": 14.8,
+      "depth_m": 6.8,
       "wall_height_m": 2.5,
       "rooms": [
+        {
+          "zone": "main_closet",
+          "name": "Closet",
+          "polygon": [
+            [
+              0.0,
+              0.0
+            ],
+            [
+              1.9,
+              0.0
+            ],
+            [
+              1.9,
+              1.9
+            ],
+            [
+              0.0,
+              1.9
+            ]
+          ]
+        },
+        {
+          "zone": "main_bath",
+          "name": "Main bath",
+          "polygon": [
+            [
+              1.9,
+              0.0
+            ],
+            [
+              3.7,
+              0.0
+            ],
+            [
+              3.7,
+              1.9
+            ],
+            [
+              1.9,
+              1.9
+            ]
+          ]
+        },
+        {
+          "zone": "second_bath",
+          "name": "Second bath",
+          "polygon": [
+            [
+              3.7,
+              0.0
+            ],
+            [
+              5.8,
+              0.0
+            ],
+            [
+              5.8,
+              1.9
+            ],
+            [
+              3.7,
+              1.9
+            ]
+          ]
+        },
+        {
+          "zone": "linen_closet",
+          "name": "Linen closet",
+          "polygon": [
+            [
+              5.8,
+              0.0
+            ],
+            [
+              6.9,
+              0.0
+            ],
+            [
+              6.9,
+              1.9
+            ],
+            [
+              5.8,
+              1.9
+            ]
+          ]
+        },
+        {
+          "zone": "dining_room",
+          "name": "Dining room",
+          "polygon": [
+            [
+              6.9,
+              0.0
+            ],
+            [
+              10.8,
+              0.0
+            ],
+            [
+              10.8,
+              3.1
+            ],
+            [
+              6.9,
+              3.1
+            ]
+          ]
+        },
         {
           "zone": "living_room",
           "name": "Living room",
           "polygon": [
             [
-              0.0,
+              10.8,
               0.0
             ],
             [
-              6.0,
+              14.8,
               0.0
             ],
             [
-              6.0,
-              5.0
+              14.8,
+              6.8
             ],
             [
-              0.0,
-              5.0
+              10.8,
+              6.8
             ]
           ]
         },
         {
-          "zone": "kitchen",
-          "name": "Kitchen",
+          "zone": "main_bedroom",
+          "name": "Main bedroom",
           "polygon": [
             [
-              6.0,
-              0.0
+              0.0,
+              1.9
             ],
             [
-              12.0,
-              0.0
+              3.7,
+              1.9
             ],
             [
-              12.0,
-              4.0
+              3.7,
+              6.8
             ],
             [
-              6.0,
-              4.0
+              0.0,
+              6.8
             ]
           ]
         },
@@ -172,86 +282,86 @@
           "name": "Hallway",
           "polygon": [
             [
-              0.0,
-              5.0
+              3.7,
+              1.9
             ],
             [
-              12.0,
-              5.0
+              6.9,
+              1.9
             ],
             [
-              12.0,
-              6.5
+              6.9,
+              3.0
             ],
             [
-              0.0,
-              6.5
+              3.7,
+              3.0
             ]
           ]
         },
         {
-          "zone": "west_bedroom",
-          "name": "West bedroom",
+          "zone": "second_bedroom",
+          "name": "Second bedroom",
           "polygon": [
             [
-              0.0,
-              6.5
+              3.7,
+              3.0
             ],
             [
-              5.0,
-              6.5
+              6.9,
+              3.0
             ],
             [
-              5.0,
-              9.0
+              6.9,
+              6.8
             ],
             [
-              0.0,
-              9.0
+              3.7,
+              6.8
             ]
           ]
         },
         {
-          "zone": "east_bedroom",
-          "name": "East bedroom",
+          "zone": "kitchen",
+          "name": "Kitchen",
           "polygon": [
             [
-              5.0,
-              6.5
+              6.9,
+              3.1
             ],
             [
-              9.0,
-              6.5
+              10.8,
+              3.1
             ],
             [
-              9.0,
-              9.0
+              10.8,
+              5.4
             ],
             [
-              5.0,
-              9.0
+              6.9,
+              5.4
             ]
           ]
         },
         {
-          "zone": "garage",
-          "name": "Garage",
+          "zone": "laundry",
+          "name": "Laundry",
           "polygon": [
             [
-              9.0,
-              6.5
+              6.9,
+              5.4
             ],
             [
-              12.0,
-              6.5
+              10.8,
+              5.4
             ],
             [
-              12.0,
-              9.0
+              10.8,
+              6.8
             ],
             [
-              9.0,
-              9.0
+              6.9,
+              6.8
             ]
           ]
         }

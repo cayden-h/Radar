@@ -20,7 +20,7 @@ struct HomeView: View {
             VStack(spacing: Space.xs) {
                 InteriorView(state: client.interior)
                     .frame(maxWidth: .infinity)
-                    .aspectRatio(1.12, contentMode: .fit)
+                    .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
 
                 // The honesty rule applied to the drawing. The plan is
                 // authored, not discovered: walls are the static baseline the

@@ -8,7 +8,7 @@ permitting an irreversible act. Field-by-field mapping, also in `docs/fraud-13.m
 |---------------|----------------------|------------------------------------------------|
 | `max_amount`  | `severity_ceiling`   | The most this claim may ever trigger           |
 | audience      | `audience`           | *This* master, not any coordinator that listens |
-| scope         | `zone_scope`         | A patio claim cannot justify a bedroom dispatch |
+| scope         | `zone_scope`         | A kitchen claim cannot justify a bedroom dispatch |
 | `quote_id`    | `incident_id`        | Bound to this incident, not replayable into another |
 | `jkt`         | `proof_key_thumbprint` | Only the holder of that key may present it   |
 | nonce         | `claim_id` / `jti`   | Counted once, never twice                      |

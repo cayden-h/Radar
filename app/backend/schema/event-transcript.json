@@ -11,7 +11,7 @@
         "line_id": "line-004",
         "incident_id": "inc-0001",
         "speaker": "caller",
-        "text": "This is an automated call from a monitoring system at 1872 Ridgeview Lane, Blacksburg VA 24060. An adult occupant collapsed in the west bedroom about ninety seconds ago and has not gotten up. They are breathing, shallowly, at nine breaths a minute. Carbon monoxide in the building is elevated at 186 parts per million and rising.",
+        "text": "This is an automated call from a monitoring system at 1872 Ridgeview Lane, Blacksburg VA 24060. An adult occupant collapsed in the main bedroom about ninety seconds ago and has not gotten up. They are breathing, shallowly, at nine breaths a minute. Carbon monoxide in the building is elevated at 186 parts per million and rising.",
         "at": "2026-09-20T04:13:01Z",
         "final": true,
         "claim_ids": [

@@ -137,16 +137,16 @@ def presence(
 
 # The three states the app must render, one example each.
 P_MOVING = presence(
-    "p2", "east_bedroom", 7.1, 7.6, PresenceState.CONFIRMED_MOVING, True,
+    "p2", "second_bedroom", 5.3, 4.9, PresenceState.CONFIRMED_MOVING, True,
     RespirationStatus.BREATHING, 24.0, 98.0, PresenceClass.CHILD, 0.78, 0.81,
 )
 P_STILL = presence(
-    "p1", "west_bedroom", 2.5, 7.75, PresenceState.CONFIRMED_STILL, False,
+    "p1", "main_bedroom", 1.85, 4.35, PresenceState.CONFIRMED_STILL, False,
     RespirationStatus.BREATHING, 9.0, 112.0, PresenceClass.ADULT, 0.89, 0.92,
     still_down_s=96.0,
 )
 P_UNCONFIRMED = presence(
-    "p3", "living_room", 3.2, 2.1, PresenceState.UNCONFIRMED, True,
+    "p3", "laundry", 8.85, 6.1, PresenceState.UNCONFIRMED, True,
     RespirationStatus.NO_SIGNATURE, None, None, PresenceClass.UNKNOWN, 0.44, 0.12,
 )
 
@@ -227,7 +227,7 @@ VERIFIED = VerificationResult(
     checked_at=at(6.0),
     claim=Claim(
         claim_id="clm-001",
-        statement="An adult occupant went down in the west bedroom and has not gotten up.",
+        statement="An adult occupant went down in the main bedroom and has not gotten up.",
         field="collapse.event",
         value="fall, still_down_s=6",
         presence_id="p1",
@@ -257,9 +257,9 @@ DISCARDED = VerificationResult(
     checked_at=at(12.0),
     claim=Claim(
         claim_id="clm-005",
-        statement="A third adult is unresponsive in the garage and is not breathing.",
+        statement="A third adult is unresponsive in the corridor outside the front door and is not breathing.",
         field="biometrics.respiration",
-        value="no respiration, garage",
+        value="no respiration, building corridor",
         presence_id=None,
     ),
     agent=SourceAgent(
@@ -303,7 +303,11 @@ DISCARDED = VerificationResult(
         VerificationCheck(
             name="corroboration.sensor",
             passed=False,
-            detail="No CSI perturbation in the garage zone. No other agent reports a third occupant.",
+            detail=(
+                "The corridor outside the front door is not part of the unit and is outside "
+                "the sensed volume, so no agent in this mesh can see it, and no other agent "
+                "reports a third occupant."
+            ),
         ),
     ],
     will_be_spoken=False,
@@ -315,7 +319,7 @@ TRANSCRIPT = TranscriptLine(
     speaker=TranscriptSpeaker.CALLER,
     text=(
         "This is an automated call from a monitoring system at 1872 Ridgeview Lane, Blacksburg "
-        "VA 24060. An adult occupant collapsed in the west bedroom about ninety seconds ago and "
+        "VA 24060. An adult occupant collapsed in the main bedroom about ninety seconds ago and "
         "has not gotten up. They are breathing, shallowly, at nine breaths a minute. Carbon "
         "monoxide in the building is elevated at 186 parts per million and rising."
     ),
@@ -402,7 +406,7 @@ REPLAY = ReplayRecord(
             seq=2,
             at=at(6.0),
             kind="verification",
-            summary="ASSERTED: An adult occupant went down in the west bedroom (collapse.hawkeye.invalid)",
+            summary="ASSERTED: An adult occupant went down in the main bedroom (collapse.hawkeye.invalid)",
             detail={"verification_id": "ver-001", "decision": "ASSERTED"},
             entry_hash="6192e3c8d12e7d7a90181d14c0b7e2d9a4f81c6b0e3d5a7f9c1b3d5f7a9c1e3d",
             prev_hash="9a1e26430b4002eb059215c2a1e0a0f0f6d8f3bbd4c6a5f0b2e9a7c1d3f5e7a9",

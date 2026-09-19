@@ -236,7 +236,7 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
     {
       "presence_id": "p1",
       "state": "confirmed_still",
-      "position": { "zone": "west_bedroom", "x": 2.5, "y": 7.75, "zone_confidence": 0.89 },
+      "position": { "zone": "main_bedroom", "x": 1.85, "y": 4.35, "zone_confidence": 0.89 },
       "moving": false,
       "confidence": 0.89,
       "vitals": { "respiration": "breathing", "breathing_bpm": 9.0, "heart_bpm": 112.0, "person_confidence": 0.92 },
@@ -260,7 +260,7 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
     "confidence": 0.88,
     "provenance": { "source": "demo-trigger", "producer": "agents/environment", "source_class": "simulated", "simulated": true }
   },
-  "floorplan": { "site_id": "site-demo-01", "name": "Ridgeview Lane", "units": "m", "width_m": 12.0, "depth_m": 9.0, "wall_height_m": 2.5, "rooms": [] },
+  "floorplan": { "site_id": "site-demo-01", "name": "Chestnut", "units": "m", "width_m": 14.8, "depth_m": 6.8, "wall_height_m": 2.5, "rooms": [] },
   "active_incident_id": "inc-0001"
 }
 ```
@@ -333,9 +333,9 @@ This is the part the project is judged on, so it is a first-class API concept ra
     "checked_at": "2026-09-20T04:12:45Z",
     "claim": {
       "claim_id": "clm-005",
-      "statement": "A third adult is unresponsive in the garage and is not breathing.",
+      "statement": "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
       "field": "biometrics.respiration",
-      "value": "no respiration, garage",
+      "value": "no respiration, building corridor",
       "presence_id": null
     },
     "agent": {
@@ -358,7 +358,7 @@ This is the part the project is judged on, so it is a first-class API concept ra
       { "name": "ans.resolve", "passed": false, "detail": "occupancy.hawkeye-secure.invalid is not the ANSName registered for agents/occupancy." },
       { "name": "cert.version_binding", "passed": false, "detail": "Code fingerprint differs from the version-bound certificate issued at registration." },
       { "name": "trust_index.profile", "passed": false, "detail": "Trust Index recommendedProfile = UNTRUSTED." },
-      { "name": "corroboration.sensor", "passed": false, "detail": "No CSI perturbation in the garage zone." }
+      { "name": "corroboration.sensor", "passed": false, "detail": "The corridor outside the front door is outside the sensed volume, so no agent in this mesh can see it." }
     ],
     "will_be_spoken": false
   }

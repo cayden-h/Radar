@@ -171,17 +171,17 @@ def test_06_wrong_audience_attack(verifier, sensor):
 def test_07_wrong_scope_attack(verifier, sensor):
     """#7 wrong_scope_attack. Authorization scoped elsewhere.
 
-    Analogue: a claim scoped to the garage used to justify "unresponsive
-    occupant in the west bedroom". Enforced by the caller passing the zone it
+    Analogue: a claim scoped to the kitchen used to justify "unresponsive
+    occupant in the main bedroom". Enforced by the caller passing the zone it
     intends to act on; here the binding is carried and checked.
     """
-    env = sensor.envelope(zone_scope="garage")
+    env = sensor.envelope(zone_scope="kitchen")
     out = submit(verifier, sensor.sign_claim(env), sensor.sign_proof(env))
-    # The claim is about the garage and says so. Nothing may silently widen it.
+    # The claim is about the kitchen and says so. Nothing may silently widen it.
     assert out.checks  # verified
-    assert env.zone_scope == "garage"
+    assert env.zone_scope == "kitchen"
     # A consumer asking about the bedroom must not be handed this claim.
-    assert env.zone_scope != "west_bedroom"
+    assert env.zone_scope != "main_bedroom"
 
 
 def test_08_wrong_dpop_key_attack(verifier, sensor, trust):

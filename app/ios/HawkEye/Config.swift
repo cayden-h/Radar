@@ -76,13 +76,14 @@ enum Config {
     /// else. There is no scenario branch anywhere in the views.
     enum MockScenario {
 
-        /// An unexpected person enters through the garage, is identified as a
-        /// person once respiration is acquired, and routes through the house
-        /// toward the resident. Two tracked presences, different rooms, both
-        /// moving. This is the demo.
+        /// A person walks into the living room. Once respiration is acquired
+        /// they are a person, and `agents/intruder` finds that no registered
+        /// device accounts for them, so they are unexpected. They then route
+        /// across the apartment toward the resident. Two tracked presences,
+        /// different rooms, both moving. This is the demo.
         case burglary
 
-        /// The child goes down in the west bedroom and does not get up, and
+        /// The child goes down in the second bedroom and does not get up, and
         /// `still_down_s` starts climbing. The long lie, which is the clinical
         /// outcome the product moves.
         case faint
@@ -107,20 +108,24 @@ enum Config {
     static let mockFaintDebounce: Duration = .seconds(6)
 
     /// `.burglary` only. How long the new presence has no respiration signature,
-    /// and so is `unconfirmed`, exactly like the curtain over the garage vent.
+    /// and so is `unconfirmed`, exactly like the curtain over the laundry vent.
     /// After this, respiration is acquired and it becomes a confirmed person the
     /// system did not expect.
     static let mockIntruderIdentifiedAfter: Double = 5
 
-    /// `.burglary` only. The intruder's route through the house, as
-    /// `(zone, seconds dwelled there)`, walked in order from the entry zone.
-    /// Positions are interpolated between zone centroids across
+    /// `.burglary` only. The intruder's route through the apartment, as
+    /// `(zone, seconds dwelled there)`, walked in order from the zone they are
+    /// first seen in. Positions are interpolated between zone centroids across
     /// `mockIntruderTravelSeconds`, so the presence visibly moves rather than
     /// teleporting from room to room.
+    ///
+    /// The resident is on the left of the apartment, so the intruder crosses the
+    /// whole plan to reach them and the two are in different rooms the entire
+    /// time until the last leg. That is the frame the project is built around.
     static let mockIntruderRoute: [(zone: String, dwellS: Double)] = [
-        ("garage", 13),
-        ("hallway", 10),
-        ("kitchen", .infinity),
+        ("living_room", 11),
+        ("kitchen", 9),
+        ("hallway", .infinity),
     ]
 
     /// Seconds spent in transit between two zones on that route.
