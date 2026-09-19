@@ -187,7 +187,7 @@ private struct PresenceRow: View {
         if presence.isUnexpected { return Palette.personUnexpected }
         switch presence.state {
         case .personMoving: return Palette.personMoving
-        case .personUnresponsive: return Palette.personUnresponsive
+        case .personUnresponsive: return Palette.collapse
         case .unconfirmed, .unresolved: return Palette.unconfirmed
         }
     }
@@ -261,7 +261,7 @@ private struct PresenceRow: View {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(Self.duration(down))
                         .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Palette.personUnresponsive)
+                        .foregroundStyle(Palette.collapse)
                     Text("down")
                         .eyebrowStyle(Palette.inkFaint)
                 }

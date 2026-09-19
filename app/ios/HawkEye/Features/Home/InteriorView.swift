@@ -211,7 +211,7 @@ struct InteriorView: View {
                 // unresponsive keeps the alarm ring and turns violet.
                 let tint: Color = presence.isUnexpected
                     ? Palette.personUnexpected
-                    : (unresponsive ? Palette.personUnresponsive : Palette.personMoving)
+                    : (unresponsive ? Palette.collapse : Palette.personMoving)
                 drawPerson(&context, at: center, presence: presence, t: t,
                            tint: tint, alarm: unresponsive)
                 if presence.isUnexpected {
