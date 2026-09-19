@@ -175,27 +175,49 @@ Upstream: https://github.com/seemoo-lab/nexmon_csi
 Verified facts:
 
 - BCM43455c0 firmware `7_45_189` covers Raspberry Pi 3B+/4B/5. Our Pi is in scope.
-- Supported OS kernels are **4.19, 5.4, and 5.10**. Upstream notes recent kernels no longer require the modified `brcmfmac` driver, with separate guidance for newer setups.
+- Upstream's kernel-pinned patch supports **4.19, 5.4, and 5.10**, but **this is not the path we used.** See "Kernel reality, corrected 2026-09-19" below.
 - Extracts CSI from OFDM-modulated 802.11a/g/n/ac frames, per frame, **up to 80 MHz bandwidth**.
+
+### Kernel reality, corrected 2026-09-19
+
+**Settled during live bring-up. This supersedes the kernel-pinning plan below; do not chase a 5.10 image.**
+
+Raspberry Pi Imager's "Legacy, 32-bit" catalog entry no longer serves Bullseye/5.10. It now serves Bookworm with kernel `6.12.109+rpt-rpi-v8` (64-bit kernel, 32-bit/`armhf` userspace when you pick the 32-bit variant). Bullseye 32-bit was EOL'd May 2023 and isn't worth chasing down from an archive.
+
+`nexmon_csi` has a second, actively-maintained build path for exactly this: `Makefile.rpi`, which uses `update-alternatives` for firmware switching instead of a kernel-version-bound driver patch, and works across recent kernels including 6.12. Verified working end-to-end on our exact chip/firmware (`bcm43455c0`, `7_45_189`) on a Pi 4B. Use `make -f Makefile.rpi install-firmware` (not `make install-firmware`), and see `docs/hardware/raspberry-pi-4b.md` for the full corrected step list, including two gaps the upstream discussion doesn't mention:
+
+- The bundled ARM cross-compiler still needs `libisl.so.10`/`libmpfr.so.4`, which Bookworm no longer ships (same problem as the old path). Symlink the newer installed versions (`libisl.so.23`, `libmpfr.so.6`) to the old SONAMEs; this is a compiler ABI shim, not a runtime downgrade, and it works.
+- The `bcm43-tools`' Python 2.7 dependency needs Debian's archived Stretch repo, and that repo's Release file is unsigned (8 years EOL). `apt-get update` will hard-fail on it unless the source line is marked `[trusted=yes]` — `--allow-unauthenticated` at install time is not sufficient by itself, because apt refuses to even index an unsigned repo's package list without it.
+
+One practical consequence: because this path isn't kernel-version-bound, `apt-get full-upgrade` is safe here, unlike the old plan. No need to `apt-mark hold` the kernel packages.
 
 ### The risk, stated plainly
 
-This is the single most likely thing to consume a night and produce nothing.
-The failure mode is not a clean error.
-It is a firmware patch that builds, installs, and then yields all-zero or garbage CSI, with the cause buried in a kernel/firmware version mismatch.
+This was the single most likely thing to consume a night and produce nothing. **Resolved 2026-09-19: real, varying, non-zero CSI confirmed flowing** (see the recorded values below). The failure mode to still watch for, if this is ever redone: a firmware patch that builds, installs, and then yields all-zero or garbage CSI, with the cause buried in a kernel/firmware/MAC-filter mismatch.
 
 Mitigations, in order:
 
-1. **Flash a known-good OS image pinned to a supported kernel before doing anything else.** Do not `apt full-upgrade` afterward. A kernel bump silently breaks the firmware patch.
-2. **Image the working microSD the moment CSI flows.** `dd` it to a file on someone's laptop. If the card corrupts at 4am, that image is the difference between a demo and no demo.
+1. **Flash a known-good OS image before doing anything else**, and use the `Makefile.rpi` path above rather than assuming a specific kernel. Verify with `uname -r` regardless — knowing what's actually on the card is still the point, even though this path tolerates more kernel variance.
+2. **Image the working microSD the moment CSI flows.** `dd` it to a file on someone's laptop, and copy that file off the laptop too. If the card corrupts at 4am, that image is the difference between a demo and no demo. **Done 2026-09-19**, see recorded values below.
 3. **Timebox it.** If CSI is not flowing by the deadline the team sets, drop to the fallback ladder below and do not look back.
+
+### Recorded values, from the 2026-09-19 bring-up session
+
+- OS: Raspberry Pi OS Bookworm, 32-bit (`armhf`) userspace, kernel `6.12.109+rpt-rpi-v8`.
+- Hostname / user: `radar-pi` / `radar`. SSH key-based (`~/.ssh/id_ed25519_radar_pi` on the bring-up Mac, alias `radar-pi`).
+- Router SSIDs: `Radar` (2.4GHz), `Radar-5g` (5GHz). Channel 40, 80MHz.
+- **The router's over-the-air radio MAC is not the MAC printed on its label.** The AX1450 uses a different MAC per band/radio; the label MAC was off by one in the last octet from the actual `Radar-5g` BSSID. Get the real one from a scan (`iw dev wlan0 scan`) with monitor mode off, not from the label, or `makecsiparams -m` silently filters on a device that's never transmitting and yields zero packets with no error.
+- `makecsiparams` path: `~/nexmon/patches/bcm43455c0/7_45_189/nexmon_csi/utils/makecsiparams/makecsiparams` (built from source in that dir, not on `PATH` by default).
+- Filtering `-m` on the traffic-generator device's own MAC (rather than the router's) gave a more reliable capture rate in practice — the router didn't reliably reply to ICMP directed at its own gateway address, but the generator's outgoing request frames are transmitted regardless of whether anything replies.
+- Achieved rate: roughly 30-70 packets/sec with a laptop pinging at `-i 0.01` on the same 5GHz band, well above the 10Hz beacon-only floor. Short of the 100+/sec target; not yet root-caused, plausibly 802.11 frame aggregation reducing distinct-frame count below the raw ping rate.
+- Disk image and a CSI replay pcap exist, stored off the bring-up laptop's primary disk per the checklist's own warning about this being the step people skip.
 
 ### Fallback ladder
 
 Descend only when the level above is timeboxed out.
 
-1. `nexmon_csi` on the Pi, live CSI from the router. The real thing.
-2. **Recorded CSI replay.** Capture a real session early, while the patch is working, and replay it through the same pipeline. The downstream agents cannot tell the difference. **Do this even if level 1 is healthy.**
+1. `nexmon_csi` on the Pi, live CSI from the router. The real thing. **Achieved 2026-09-19.**
+2. **Recorded CSI replay.** Capture a real session early, while the patch is working, and replay it through the same pipeline. The downstream agents cannot tell the difference. **Do this even if level 1 is healthy.** A first session was captured 2026-09-19; capture a longer, more representative one (including a staged fall) during the actual house shoot.
 
    Note that the demo is a recorded video shot at the house, so level 1 only has to work once, on camera, rather than on demand in front of judges. That materially lowers the risk this path carries.
 3. **RuView's simulated data.** `docker pull ruvnet/wifi-densepose:latest` runs the pipeline on synthetic CSI. Honest fallback, but say so on stage rather than implying live hardware.
