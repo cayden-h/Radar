@@ -138,12 +138,28 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_SIM_AUTOSTART` | `false` | Simulated mode only. Run the **detection** on boot, so a demo rig comes up already showing the fall. It cannot start a call. |
 | `HAWKEYE_STORE_BACKEND` | `memory` | `memory` or `mongodb`. See the storage seam below. |
 | `HAWKEYE_MONGODB_URI` | empty | MongoDB Atlas connection string, when that lands. |
+| `HAWKEYE_NOTICE_HOLD_S` | `5` | Seconds an unexpected presence must hold before it becomes a notice. |
+| `HAWKEYE_NOTICE_FORGET_AFTER_S` | `900` | Seconds of absence after which a fired notice mark lapses, so a real re-entry notifies again. |
+| `HAWKEYE_TWILIO_ACCOUNT_SID` | empty | Twilio console. All four Twilio values are required together or none are used. |
+| `HAWKEYE_TWILIO_AUTH_TOKEN` | empty | Twilio console. Held as a `SecretStr`, so it cannot reach a log or a repr. |
+| `HAWKEYE_TWILIO_FROM_NUMBER` | empty | The Twilio number itself, E.164. |
+| `HAWKEYE_TWILIO_TO_NUMBER` | empty | The resident's phone, E.164. On a trial account it must be verified in the console first. |
+| `HAWKEYE_TWILIO_MIN_INTERVAL_S` | `60` | Floor between sends, so a rehearsal loop cannot burn trial credit. |
+| `HAWKEYE_TWILIO_MAX_PER_INSTANCE` | `5` | Hard cap for the life of the sink. |
+| `HAWKEYE_SITE_TIMEZONE` | `America/New_York` | Renders the local time in an SMS. |
 
 ## Notices
 
 An unexpected presence that holds for `HAWKEYE_NOTICE_HOLD_S` seconds raises a notice: a banner in the app, and an SMS if Twilio is configured.
 A notice is information the resident acts on.
 It never creates an incident and never dials.
+
+`app/backend/.env.example` lists every variable this service reads, with placeholders.
+Copy it to `app/backend/.env` and fill it in; `.env` is gitignored and the example must never carry a real value.
+
+**Every name is prefixed `HAWKEYE_`**, because `Settings` sets `env_prefix="HAWKEYE_"`.
+A variable without that prefix is read by nothing, and nothing warns you: `TWILIO_ACCOUNT_SID` does nothing, `HAWKEYE_TWILIO_ACCOUNT_SID` works.
+That is the most likely reason a correctly-credentialled Twilio account still sends no text.
 
 Twilio is optional and the service runs normally without it.
 All four values are required together:
