@@ -48,9 +48,14 @@ class HubRuntime:
         self.bus = bus
         self.client = client
         self.started_at = time.monotonic()
+        # Presences the resident has vouched for, this session only. Deliberately
+        # not persisted: a new session reuses presence ids, so a stored approval
+        # would silently vouch for a stranger.
+        self.approved_presences: set[str] = set()
         self.detector = detector or NoticeDetector(
             hold_s=settings.notice_hold_s,
             forget_after_s=settings.notice_forget_after_s,
+            is_suppressed=self.approved_presences.__contains__,
         )
         # The stream sink is always present, so the in-app banner never depends
         # on Twilio being configured or on Twilio being up.

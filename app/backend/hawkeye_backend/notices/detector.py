@@ -11,6 +11,7 @@ this project is. A notice is unrecallable once it is an SMS on someone's phone.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 
 from hawkeye_backend.models.common import Provenance, Source
@@ -95,7 +96,12 @@ class NoticeDetector:
     event.
     """
 
-    def __init__(self, hold_s: float = 5.0, forget_after_s: float = 900.0) -> None:
+    def __init__(
+        self,
+        hold_s: float = 5.0,
+        forget_after_s: float = 900.0,
+        is_suppressed: Callable[[str], bool] | None = None,
+    ) -> None:
         if hold_s < 0 or forget_after_s < 0:
             raise ValueError("hold_s and forget_after_s must not be negative")
         self.hold_s = hold_s
@@ -105,6 +111,11 @@ class NoticeDetector:
         # fired, so a mark can lapse. Refreshed on every tick the id still
         # qualifies, whether or not it has already fired.
         self._fired: dict[str, datetime] = {}
+        # A resident saying "this person is fine" is a human override of a
+        # machine inference, and it only ever lowers an alarm. Consulted here
+        # rather than filtered downstream so an approved presence never starts a
+        # hold at all, and approving mid-hold stops the notice.
+        self._is_suppressed = is_suppressed
 
     def observe(self, state: InteriorState) -> list[Notice]:
         """Feed one interior state tick. Returns the notices it raised, if any."""
@@ -129,6 +140,11 @@ class NoticeDetector:
         # `presence_id` is assumed unique within a single frame; if two shared
         # one, only the last would survive this comprehension.
         qualifying = {p.presence_id: p for p in state.presences if _is_unexpected(p)}
+
+        if self._is_suppressed is not None:
+            qualifying = {
+                pid: p for pid, p in qualifying.items() if not self._is_suppressed(pid)
+            }
 
         # A presence that stopped qualifying, or left the frame entirely,
         # restarts from zero if it comes back. It does not lose its fired mark
