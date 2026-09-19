@@ -57,6 +57,21 @@ enum Config {
     /// `POST /v1/incident`. The resident raises an incident.
     static let incidentPath = "/v1/incident"
 
+    /// `GET /v1/household`. The roster.
+    static let householdPath = "/v1/household"
+
+    /// `GET /v1/household/unclaimed-devices`. Binding candidates.
+    static let unclaimedDevicesPath = "/v1/household/unclaimed-devices"
+
+    /// `POST /v1/household/remember`. Name a visitor, optionally bind a device.
+    static let rememberPath = "/v1/household/remember"
+
+    /// `DELETE /v1/household/members/{id}`. Base path; the member id is appended.
+    static let householdMembersPath = "/v1/household/members"
+
+    /// `POST /v1/presences/{id}/approve`. Base path; the presence id is appended.
+    static let presencesPath = "/v1/presences"
+
     // MARK: Behaviour
 
     /// How long the Connect screen shows the verifying state before entering
