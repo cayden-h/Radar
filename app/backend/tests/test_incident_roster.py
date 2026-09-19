@@ -38,3 +38,11 @@ def test_every_incident_type_has_resident_guidance():
     for incident_type in IncidentType:
         assert PROTOCOL.get(incident_type), incident_type
 
+
+
+def test_presence_carries_a_respiration_clock_not_a_fall_clock():
+    from hawkeye_backend.models.state import Presence
+
+    fields = Presence.model_fields
+    assert "respiration_lost_s" in fields
+    assert "still_down_s" not in fields
