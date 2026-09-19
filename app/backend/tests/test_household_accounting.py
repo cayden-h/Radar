@@ -7,6 +7,8 @@ of the rule that decides whether someone is an intruder will drift.
 
 from __future__ import annotations
 
+import pytest
+
 from hawkeye_backend.household.accounting import unaccounted_count
 
 
@@ -37,3 +39,14 @@ def test_a_person_with_no_devices_reported_is_a_surplus():
     """Devices absent from a frame means not reported, and the rule is
     conservative: it does not assume everyone is accounted for."""
     assert unaccounted_count(people=1, known_devices_present=0) == 1
+
+
+def test_a_negative_headcount_is_a_bug_and_says_so():
+    """Flooring it would report an all-clear on the strength of a counting bug."""
+    with pytest.raises(ValueError):
+        unaccounted_count(people=-1, known_devices_present=0)
+
+
+def test_a_negative_device_count_is_a_bug_and_says_so():
+    with pytest.raises(ValueError):
+        unaccounted_count(people=1, known_devices_present=-1)

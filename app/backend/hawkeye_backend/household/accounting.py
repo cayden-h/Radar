@@ -20,5 +20,15 @@ def unaccounted_count(*, people: int, known_devices_present: int) -> int:
 
     Floors at zero. Phones routinely outnumber people, and a negative surplus
     would be a credit that silently cancelled a real intruder in a later sum.
+
+    Raises on a negative input rather than flooring it. You cannot observe minus
+    one person, so a negative is a bug in whatever counted, and flooring it would
+    report "nobody unaccounted for", which is the least safe wrong answer
+    available. This is the last point where the mistake is still visible.
     """
+    if people < 0 or known_devices_present < 0:
+        raise ValueError(
+            f"counts cannot be negative: people={people}, "
+            f"known_devices_present={known_devices_present}"
+        )
     return max(0, people - known_devices_present)
