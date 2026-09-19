@@ -444,11 +444,12 @@ final class MockHawkEyeClient: HawkEyeClienting {
         guard elapsed >= due else { return }
         guard let intruder = interior.presences.first(where: \.isUnexpected) else { return }
 
-        // `roomName(of:)` lowercases for mid-sentence transcript use ("in the
-        // living room"); the notice's `room` field mirrors the floorplan's
-        // own display casing ("Living room"), per `event-notice.json`.
-        let lowered = roomName(of: intruder.presenceID)
-        let room = lowered.prefix(1).uppercased() + lowered.dropFirst()
+        // The floorplan's authored name, read directly. `roomName(of:)`
+        // lowercases for spoken transcript lines, and reconstructing the
+        // original casing from that is lossy: it only works for names whose
+        // capitals happen to be leading. One place decides what a room is
+        // called, and it is the plan.
+        let room = interior.floorplan.room(named: intruder.zone)?.name ?? intruder.zone
 
         hasRaisedNotice = true
         notices.insert(
