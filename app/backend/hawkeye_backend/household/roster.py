@@ -29,11 +29,17 @@ class UnknownDevice(LookupError):
 
 
 class Roster:
-    """Household membership, and matching observed devices against it."""
+    """Household membership, and matching observed devices against it.
 
-    def __init__(self, store: Store, *, salt: str) -> None:
+    Takes no salt. Devices arrive with `identifier_hash` already computed by
+    their producer, so this class only ever compares hash to hash and never
+    sees a raw address. If something upstream ever hands it one, the salt comes
+    back then rather than sitting here implying a responsibility it does not
+    have.
+    """
+
+    def __init__(self, store: Store) -> None:
         self._store = store
-        self._salt = salt
 
     async def members(self) -> list[HouseholdMember]:
         return await self._store.list_members()
@@ -64,6 +70,11 @@ class Roster:
         meaningless apart, and a partial failure would leave a named member with
         no device, which is the state that looks like a working roster and
         silently recognises nobody.
+
+        Atomic because the store write is the single terminal step: everything
+        before it is object construction in locals, so a failure leaves nothing
+        partial for a reader to find. A future store must preserve that, which
+        means a member document appears whole or not at all.
         """
         device: KnownDevice | None = None
         if request.device_id is not None:
@@ -83,7 +94,7 @@ class Roster:
             )
 
         member = HouseholdMember(
-            member_id=f"mem-{uuid.uuid4().hex[:8]}",
+            member_id=f"mem-{uuid.uuid4().hex}",
             name=request.name,
             kind=request.kind,
             devices=[device] if device is not None else [],

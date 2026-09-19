@@ -12,7 +12,6 @@ from hawkeye_backend.models.household import MemberKind, ObservedDevice, Remembe
 from hawkeye_backend.store import InMemoryStore
 
 AT = datetime(2026, 9, 19, 21, 4, tzinfo=UTC)
-SALT = "site-demo-01-salt"
 PROV = Provenance(source=Source.RUVIEW_SIM, producer="master/simulated")
 
 
@@ -27,7 +26,7 @@ def observed(device_id: str, identifier_hash: str) -> ObservedDevice:
 
 
 async def a_roster() -> Roster:
-    return Roster(InMemoryStore(), salt=SALT)
+    return Roster(InMemoryStore())
 
 
 async def test_remembering_with_a_device_binds_it():
