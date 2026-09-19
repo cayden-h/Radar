@@ -141,7 +141,7 @@ def test_master_speaks_only_once_the_wire_verifies(people_app, people_key):
     assert master.admitted, "claims reached the gate"
     assert any(c.spoken for c in master.admitted), "and at least one may be spoken"
 
-    lines = CallerAgent(source, master).opening_report(IncidentType.FAINT, "1 Fictional Way")
+    lines = CallerAgent(source, master).opening_report(IncidentType.FIRE, "1 Fictional Way")
     assert not any("will not repeat anything I cannot verify" in line.text for line in lines)
 
 
@@ -209,7 +209,7 @@ def test_nothing_is_spoken_when_the_source_cannot_be_verified(people_app):
     master.run_once()
 
     assert all(not c.spoken for c in master.admitted)
-    lines = CallerAgent(source, master).opening_report(IncidentType.FAINT, "1 Fictional Way")
+    lines = CallerAgent(source, master).opening_report(IncidentType.FIRE, "1 Fictional Way")
     assert any("will not repeat anything I cannot verify" in line.text for line in lines)
 
 

@@ -52,6 +52,7 @@ from agents.caller.guidance import Instruction, ResidentChannel
 from agents.core.base import Agent
 from agents.core.identity import identity
 from agents.core.observations import AgentObservation, Assertion
+from agents.core.phrasing import elapsed_phrase
 from agents.core.ports import ObservationSource
 
 #: Question intent to the interior-state field that answers it.
@@ -64,27 +65,61 @@ from agents.core.ports import ObservationSource
 #: authority figure is applying pressure. A router that cannot be persuaded is
 #: the right trade here, and anything it does not recognise becomes "I don't
 #: know" rather than a guess.
+#:
+#: **Order is behaviour, and so is keyword breadth.** The first entry whose
+#: keywords appear wins, so a broad keyword high in the table silently eats
+#: every question below it. That is not a wasted "I don't know": the operator
+#: asked about carbon monoxide and gets a sentence about a breathing signature,
+#: delivered confidently, as the answer to their question.
+#:
+#: The subject-bearing routes therefore come first. "Carbon monoxide",
+#: "intruder" and "how many" say what the question is *about*, and a question
+#: that names its subject should reach that subject's field whatever shape the
+#: rest of the sentence takes. The responsiveness route, which is about a person
+#: rather than a thing, sits below them and is matched on phrases that can only
+#: be about a person: "is she responsive", "will she answer you", "how long
+#: since you had breathing". It used to carry bare "since", "answer", "how long"
+#: and "when did", which are the words every other question is built out of.
+#:
+#: There is deliberately no route for how long a fire has been burning. Nothing
+#: in this system measures it, and "I don't know" is the honest answer.
 QUESTION_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # "air" on its own matched chair, stairs and repair. It is first in the
+    # table now, so a substring that broad would have reached further than any
+    # other mistake here.
+    (
+        "master.co_ppm",
+        ("carbon monoxide", "co level", "co reading", "gas", "the air", "air quality", "smoke"),
+    ),
+    ("intruder.unexpected_presence", ("intruder", "someone else", "stranger", "break in")),
+    ("people.headcount", ("how many", "anyone else", "who else", "occupants", "people")),
     (
         "people.respiration_lost",
         (
             "responsive",
             "respond",
-            "answer",
-            "how long",
-            "when did",
-            "since",
+            # "answer the door" and not "answer", so that "has anyone answered
+            # the door?" - which is about the door - does not land here.
+            "answer the door",
+            "answer you",
+            "answer me",
+            "answer us",
+            # "since" on its own belonged to every other question on the call.
+            "since breathing",
+            "since the breathing",
+            "since you had breathing",
+            "since you had a breathing",
+            "been down",
+            "went down",
+            "on the floor",
             "unconscious",
             "passed out",
         ),
     ),
     ("people.respiration", ("breathing", "breath", "respiration", "still alive", "conscious")),
     ("people.breathing_bpm", ("how fast", "breathing rate", "breaths")),
-    ("people.headcount", ("how many", "anyone else", "who else", "occupants", "people")),
     ("people.zone", ("where", "which room", "what room", "located")),
-    ("intruder.unexpected_presence", ("intruder", "someone else", "stranger", "break in")),
     ("intruder.resident_zones", ("where is the resident", "where are they", "homeowner")),
-    ("master.co_ppm", ("carbon monoxide", "co level", "gas", "air", "smoke")),
 )
 
 #: What a dispatcher saying this means for the resident. `guidance` renders it.
@@ -433,14 +468,11 @@ def _speak_value(field: str, value: str, *, zone: str | None = None) -> str:
     where = f" in the {zone.replace('_', ' ')}" if zone and zone != "site" else ""
     match field:
         case "people.respiration_lost":
-            minutes = float(value) / 60.0
-            ago = (
-                f"{minutes:.0f} minutes ago" if minutes >= 1 else f"{float(value):.0f} seconds ago"
-            )
             return (
-                f"I had a breathing signature{where} {ago} and I do not have one now. "
-                "That is not the same as them having stopped breathing - I cannot resolve "
-                "shallow breathing. Do not expect them to answer."
+                f"I had a breathing signature{where} {elapsed_phrase(value)} ago and I do not "
+                "have one now. That is not the same as them having stopped breathing, and it "
+                "does not tell me they are still in that room - they may have walked out of it. "
+                "If they are in there, do not expect them to answer."
             )
         case "people.respiration":
             return (

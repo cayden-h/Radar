@@ -32,6 +32,7 @@ from dataclasses import dataclass
 
 from hawkeye_backend.models.incident import IncidentType
 
+from agents.core.phrasing import elapsed_phrase
 from agents.master.gate import AdmittedClaim
 
 
@@ -69,24 +70,6 @@ def _claim(claims: list[AdmittedClaim], field: str) -> AdmittedClaim | None:
         if claim.assertion.field == field:
             return claim
     return None
-
-
-def _elapsed(seconds: str) -> str:
-    """Seconds as a phrase a dispatcher hears, pluralised correctly.
-
-    This goes straight into a spoken sentence, so "1 minutes" is not a
-    cosmetic defect: it is the system sounding like a machine reading a
-    template at the moment it most needs to sound like it knows what it is
-    saying.
-    """
-    value = float(seconds)
-    if value < 60.0:
-        count = round(value)
-        unit = "second"
-    else:
-        count = round(value / 60.0)
-        unit = "minute"
-    return f"{count} {unit}" if count == 1 else f"{count} {unit}s"
 
 
 def _zones_with(claims: list[AdmittedClaim], field: str, value: str) -> set[str]:
@@ -173,11 +156,13 @@ def classify(
             incident_type=IncidentType.FIRE,
             reasoning=(
                 f"Carbon monoxide at {co} ppm, and a breathing signature that was present in "
-                f"{lost.assertion.zone_scope} {_elapsed(lost.assertion.value)} ago is no longer "
-                "resolvable. Two independent modalities: CSI resolved the breathing, a separate "
-                "gas sensor read the air. Treat that room as holding someone who may not be "
-                "able to respond. This is not a finding that they have stopped breathing - "
-                "shallow breathing and range limits look the same to this radio."
+                f"{lost.assertion.zone_scope} {elapsed_phrase(lost.assertion.value)} ago is no "
+                "longer resolvable. Two independent modalities: CSI resolved the breathing, a "
+                "separate gas sensor read the air. Search that room first: if somebody is still in "
+                "there, they may not be able to respond. This is not a finding that they have "
+                "stopped breathing, and not a finding that they are still in the room - "
+                "shallow breathing, range limits and somebody walking out of the zone all look "
+                "the same to this radio."
             ),
             confidence=0.8,
             contributing_fields=(
@@ -234,6 +219,12 @@ def classify(
                 confidence=0.6,
                 contributing_fields=(
                     "people.personhood",
+                    # The sentence says "breathing and moving", so the field that
+                    # carried the breathing half belongs in the list. A
+                    # contributing-fields list that omits a field the reasoning
+                    # asserts is worse than no list: it is what an auditor reads
+                    # to find out what this verdict actually rests on.
+                    "people.respiration",
                     "people.moving",
                     "master.co_elevated",
                     "master.co_ppm",

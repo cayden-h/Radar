@@ -37,6 +37,47 @@ def test_questions_match_on_meaning_not_exact_strings():
     assert route_question("which room is he in") == "people.zone"
 
 
+def test_a_question_reaches_the_field_about_its_own_subject():
+    """The routing table's real failure mode, pinned in a dispatcher's words.
+
+    `QUESTION_ROUTES` returns the first entry whose keywords appear, so a broad
+    keyword high in the table does not merely waste a route - it answers a
+    question that was never asked. Every phrasing below once routed to
+    `people.respiration_lost`, which meant an operator asking about carbon
+    monoxide was told "I had a breathing signature in the main bedroom four
+    minutes ago and I do not have one now", confidently, as the answer.
+
+    Cross-field leakage is the thing to test here, not the happy path: each of
+    these is a question whose subject is written on its face, and each one used
+    to be swallowed by a route about something else.
+    """
+    assert route_question("how long has the carbon monoxide been elevated?") == "master.co_ppm"
+    assert (
+        route_question("what has the gas reading been since the alarm went off?")
+        == "master.co_ppm"
+    )
+    assert (
+        route_question("is the carbon monoxide still rising since you called?") == "master.co_ppm"
+    )
+    assert (
+        route_question("how long has the intruder been inside?") == "intruder.unexpected_presence"
+    )
+    assert route_question("when did the intruder get in?") == "intruder.unexpected_presence"
+    assert route_question("can you answer how many people are inside?") == "people.headcount"
+
+    # Neither of these is about a person we are tracking, and neither has a
+    # field behind it. Nothing measures how long a fire has burned, and the
+    # door is not something this system senses at all. "I don't know" is the
+    # honest answer and it is what the operator gets.
+    assert route_question("how long since the fire started?") is None
+    assert route_question("has anyone answered the door?") is None
+
+    # And the responsiveness route still answers the questions it is for.
+    assert route_question("is she responsive?") == "people.respiration_lost"
+    assert route_question("will she answer you?") == "people.respiration_lost"
+    assert route_question("how long since you had breathing?") == "people.respiration_lost"
+
+
 def test_nothing_is_spoken_when_the_transport_verifies_nothing(mesh, feed, roster):
     """The refusal, said out loud on the call, rather than silence or a guess."""
     people = PeopleAgent(feed, roster)
@@ -72,13 +113,18 @@ def test_a_verified_claim_is_spoken_and_attributed(verified_mesh, feed, roster):
 
 
 def test_a_negative_claim_is_never_read_to_a_dispatcher(mesh, verified_mesh, feed, roster):
-    """Caught live on 2026-09-19: a verified `collapse_detected: false` was
-    being spoken as "Someone went down and has not gotten up."
+    """A verified negative is still not something to read to a dispatcher.
 
-    Two separate defects, and both are worth a test. The speech mapping assumed
-    the positive case for a boolean field, and the report spoke every verified
-    claim rather than every claim worth saying. A dispatcher has seconds; a list
-    of things that are not happening is how the one thing that is gets buried.
+    Found on 2026-09-19 on a boolean field that has since been removed with
+    fall detection, and the two defects behind it both outlived the field. The
+    speech mapping rendered a boolean by assuming its positive case, and the
+    opening report spoke every verified claim rather than every claim worth
+    saying. A dispatcher has seconds; a list of things that are not happening
+    is how the one thing that is gets buried.
+
+    "went down" is asserted against because no surviving field may bring that
+    sentence back: with fall detection gone there is nothing this system can
+    verify that supports it.
     """
     people = PeopleAgent(feed, roster)
     for _ in range(130):
