@@ -9,6 +9,12 @@ Six capabilities, per app/CLAUDE.md:
   POST /v1/incident/{id}/context    the "what is happening" box
   GET  /v1/incident/{id}/replay     the sealed post-incident record
 
+Plus the replay console's three reads, which the iOS app does not use:
+
+  GET  /v1/replay                        index of recorded incidents
+  GET  /v1/incident/{id}/replay/verify   recompute the hash chain
+  GET  /v1/incident/{id}/replay/export   the bundle a detective is handed
+
 Plus POST /v1/demo/run, which drives the scripted detection in simulated mode and
 404s in live mode. It exists so scripts/demo.sh has something to hit. It stops at
 the detection: Hawk Eye never calls 911 on its own (settled 2026-09-19), so the
@@ -20,13 +26,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from hawkeye_backend import __version__
 from hawkeye_backend.master.base import MasterUnavailable
 from hawkeye_backend.master.simulated import SimulatedMasterClient
+from hawkeye_backend.models.common import utc_now
 from hawkeye_backend.models.events import Envelope, HelloEvent
 from hawkeye_backend.models.hub import HubStatus
 from hawkeye_backend.models.incident import (
@@ -40,6 +49,7 @@ from hawkeye_backend.models.incident import (
     ReplayRecord,
 )
 from hawkeye_backend.models.state import InteriorState
+from hawkeye_backend.replay import build_export
 from hawkeye_backend.runtime import HubRuntime
 
 logger = logging.getLogger(__name__)
@@ -56,6 +66,61 @@ class DemoRunAck(BaseModel):
     started: bool
     detail: str
     raised_incident_id: str | None = None
+
+
+class ReplaySummary(BaseModel):
+    """One row on the replay console's index. Deliberately cheap to build.
+
+    A record can hold a few hundred frames, and the index must not serialize all
+    of them just to draw a list.
+    """
+
+    incident_id: str
+    incident_type: str
+    address: str
+    opened_at: datetime
+    sealed: bool
+    sealed_at: datetime | None
+    seal_reason: str | None
+    duration_s: float
+    entries: int
+    frames_dropped: int
+    verifications: int
+    discarded: int
+    root_hash: str | None
+
+
+class ReplayIndex(BaseModel):
+    """GET /v1/replay response."""
+
+    hub_name: str
+    mode: str
+    site_address: str
+    caller_ansname: str
+    records: list[ReplaySummary]
+
+
+class ChainVerdict(BaseModel):
+    """GET /v1/incident/{id}/replay/verify response.
+
+    The website recomputes the same thing in the browser rather than trusting
+    this. Both answers are offered because they prove different things: this one
+    is convenient, the browser's does not require the server to be honest about
+    itself.
+    """
+
+    incident_id: str
+    intact: bool
+    detail: str
+    failed_seq: int | None
+    entries: int
+    root_hash: str | None
+    sealed: bool
+    scitt_receipt: str | None = None
+    receipt_note: str = (
+        "Null, and it must stay null until a real transparency-log submission exists. "
+        "Without one this record is tamper-evident to whoever holds it and to nobody else."
+    )
 
 
 @router.get("/hub", response_model=HubStatus, summary="Hub identity and health")
