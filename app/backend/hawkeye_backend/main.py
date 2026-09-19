@@ -85,7 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=__version__,
         summary="The app-facing edge of the Hawk Eye agent mesh.",
         description=(
-            "The iOS app never talks to the five agents directly. It talks to this service, "
+            "The iOS app never talks to the nine agents directly. It talks to this service, "
             "which talks to agents/master. That keeps the ANS-verified agent-to-agent mesh "
             "separate from the human-facing surface."
         ),

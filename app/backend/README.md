@@ -6,7 +6,7 @@ Read the root `CLAUDE.md` and `app/CLAUDE.md` first.
 
 ## What this is
 
-The iOS app never talks to the five agents directly.
+The iOS app never talks to the nine agents directly.
 It talks to this service, and this service talks to `agents/master`.
 
 That split is the architecture the root `CLAUDE.md` describes, made concrete.
@@ -221,7 +221,7 @@ Full example: [`schema/hub.json`](schema/hub.json). Abridged:
   },
   "agents": [
     {
-      "name": "agents/people",
+      "name": "agents/collapse",
       "ansname": "collapse.hawkeye.invalid",
       "tier": 1,
       "reachability": "reachable",
@@ -278,7 +278,7 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
     "co_ppm": 186.0,
     "smoke_detected": false,
     "confidence": 0.88,
-    "provenance": { "source": "demo-trigger", "producer": "agents/master", "source_class": "simulated", "simulated": true }
+    "provenance": { "source": "demo-trigger", "producer": "agents/environment", "source_class": "simulated", "simulated": true }
   },
   "floorplan": { "site_id": "site-demo-01", "name": "Chestnut", "units": "m", "width_m": 14.8, "depth_m": 6.8, "wall_height_m": 2.5, "rooms": [] },
   "active_incident_id": "inc-0001"
@@ -332,7 +332,7 @@ Event kinds, with a complete example file for each:
 | `state` | `state` | [`event-state.json`](schema/event-state.json) | An interior state tick. Roughly 2 Hz. |
 | `incident` | `phase`, `incident` | [`event-incident.json`](schema/event-incident.json) | Raised, classified, updated, resolved, or refused. |
 | `transcript` | `line` | [`event-transcript.json`](schema/event-transcript.json) | One line of the caller to 911 conversation, with a speaker field. |
-| `instruction` | `instruction` | [`event-instruction.json`](schema/event-instruction.json) | One instruction from `agents/caller`. |
+| `instruction` | `instruction` | [`event-instruction.json`](schema/event-instruction.json) | One instruction from `agents/guidance`. |
 | `verification` | `result` | [`event-verification-asserted.json`](schema/event-verification-asserted.json), [`event-verification-discarded.json`](schema/event-verification-discarded.json) | An ANS verification result. |
 | `context` | `note` | [`event-context.json`](schema/event-context.json) | The resident's note, echoed back to confirm delivery. |
 | `error` | `code`, `message` | [`event-error.json`](schema/event-error.json) | Something went wrong. Never a silently dropped frame. |
@@ -359,7 +359,7 @@ This is the part the project is judged on, so it is a first-class API concept ra
       "presence_id": null
     },
     "agent": {
-      "name": "agents/people",
+      "name": "agents/occupancy",
       "ansname": "occupancy.hawkeye-secure.invalid",
       "certificate_version": "v1.4.2+sha256:4d77...0e91",
       "trust_index": {
@@ -375,7 +375,7 @@ This is the part the project is judged on, so it is a first-class API concept ra
     "decision": "DISCARDED",
     "reason": "DISCARDED. The claim would have sent an armed response into a room where no sensor sees anybody. It was not relayed to the operator and it was not used in classification.",
     "checks": [
-      { "name": "ans.resolve", "passed": false, "detail": "people.hawkeye-secure.invalid is not the ANSName registered for agents/people." },
+      { "name": "ans.resolve", "passed": false, "detail": "occupancy.hawkeye-secure.invalid is not the ANSName registered for agents/occupancy." },
       { "name": "cert.version_binding", "passed": false, "detail": "Code fingerprint differs from the version-bound certificate issued at registration." },
       { "name": "trust_index.profile", "passed": false, "detail": "Trust Index recommendedProfile = UNTRUSTED." },
       { "name": "corroboration.sensor", "passed": false, "detail": "The corridor outside the front door is outside the sensed volume, so no agent in this mesh can see it." }
@@ -601,7 +601,7 @@ Every one of these is a `TODO(ans)` or `TODO(master)` comment at the exact place
 None of them is a fabricated API detail; where the real surface is unknown, the code says so and asks the specific question.
 
 1. **`config.py`, hub ANSName.** Is the hub itself an ANS-registered agent, or does it inherit `master`'s identity and merely quote it? The app-to-hub hop is a human-facing hop, so the working assumption is that it quotes. Confirm against `ans-registry` before printing it on stage.
-2. **`master/scenario.py`, ANSName format.** All five names are placeholders on `.invalid` (reserved by RFC 2606 precisely so it can never resolve, which keeps them from being mistaken for real registrations). `agents/core/identity.py` is now the source of truth for the roster and this copy should be deleted once the hub imports from it. Replace the domain once the GoDaddy one is registered, and settle the convention: `people.hawkeye.example`, or `hawkeye.example/agents/people`? Check `agent.webmesh.ai/.well-known/agents-index.json`.
+2. **`master/scenario.py`, ANSName format.** All nine names are placeholders on `.invalid` (reserved by RFC 2606 precisely so it can never resolve, which keeps them from being mistaken for real registrations). Replace once the GoDaddy domain is registered, and settle the convention: `collapse.hawkeye.example`, or `hawkeye.example/agents/collapse`? Check `agent.webmesh.ai/.well-known/agents-index.json`.
 3. **`models/verification.py`, Trust Index response shape.** Are dimension scores 0-1 or 0-100? What is the JSON key for `recommendedProfile`? Is there a composite score? Does the response distinguish "unimplemented" from "scored 0"? The 0-1 range and the nullable dimensions here are this service's choice, not a verified fact, and must be reconciled against `agentnameservice/agent-trust-discovery`.
 4. **`models/incident.py`, SCITT receipt.** What is the submit endpoint and receipt structure for an ANS SCITT transparency log entry (ANS-4), and is a receipt a COSE object or a JSON document? Until that is answered `scitt_receipt` stays `null`. Do not fabricate one; an unverifiable receipt is worse than none.
 5. **`master/live.py`, master's HTTP surface.** Three open questions, all marked: (a) does `master` expose one merged state document or does the hub fan out to the sensing agents itself, (b) is the push channel a websocket, SSE, or an outbound webhook, (c) does `master` accept an incident from the hub directly, or must the hub present an ANS identity over mTLS (ANS-2)? Nothing here implements mTLS yet.
