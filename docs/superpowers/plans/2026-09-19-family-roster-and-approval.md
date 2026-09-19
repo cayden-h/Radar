@@ -1774,13 +1774,19 @@ struct HouseholdMember: Codable, Sendable, Hashable, Identifiable {
     /// False means present but invisible to the roster. The list renders this
     /// rather than leaving it blank, because the difference matters and is
     /// otherwise unknowable.
-    var isRecognisable: Bool { !devices.isEmpty }
+    ///
+    /// Read off the wire rather than computed from `devices`. The hub computes
+    /// it, for the same reason it computes `Provenance.sourceClass`: a derived
+    /// fact that decides what the UI may imply about identifying someone gets
+    /// one source of truth, not one per client.
+    var isRecognisable: Bool
 
     enum CodingKeys: String, CodingKey {
         case name, kind, devices
         case memberID = "member_id"
         case addedAt = "added_at"
         case addedBy = "added_by"
+        case isRecognisable = "recognisable"
     }
 }
 
