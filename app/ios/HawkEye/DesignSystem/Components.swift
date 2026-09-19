@@ -45,8 +45,14 @@ struct Wordmark: View {
 /// `Palette.ground` fill so idle screens read as atmospheric rather than a
 /// blank void.
 ///
-/// Placed as the first layer of a screen's `ZStack`. Fills and ignores the
-/// safe area itself, so callers never need a separate `.ignoresSafeArea()`.
+/// Attach via `.background(AmbientBackground())` on the screen's content,
+/// **not** as a `ZStack` sibling. It ignores the safe area itself, so a
+/// sibling placement inflates the whole `ZStack`'s reported size to the full
+/// device bounds and centers non-flexible content inside that oversized
+/// frame instead of pinning it under the status bar — a large dead band top
+/// and bottom. `.background()` sizes this to the content's already-resolved
+/// frame instead, so the content lays out normally and the glow just bleeds
+/// behind it to the true screen edges.
 struct AmbientBackground: View {
     var tint: Color = Palette.calm
 

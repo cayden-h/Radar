@@ -14,70 +14,76 @@ struct HomeView: View {
     private var client: any HawkEyeClienting { model.client }
 
     var body: some View {
-        ZStack {
-            AmbientBackground()
+        VStack(spacing: Space.lg) {
+            header
 
-            VStack(spacing: Space.lg) {
-                header
+            VStack(spacing: Space.xs) {
+                // The panel flexes to whatever height is going spare rather
+                // than locking to the plan's aspect ratio. This plan is wider
+                // than it is deep, so an aspect-locked panel is limited by the
+                // screen's width and strands a dead band above the incident
+                // buttons. `planRect` aspect-fits and centres the drawing, so a
+                // taller panel simply frames it with more margin, and the panel
+                // gives the height back when a fourth roster row arrives.
+                InteriorView(state: client.interior)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
+                    .frame(minHeight: 120)
+                    .layoutPriority(1)
 
-                VStack(spacing: Space.xs) {
-                    // The panel flexes to whatever height is going spare rather
-                    // than locking to the plan's aspect ratio. This plan is wider
-                    // than it is deep, so an aspect-locked panel is limited by the
-                    // screen's width and strands a dead band above the incident
-                    // buttons. `planRect` aspect-fits and centres the drawing, so a
-                    // taller panel simply frames it with more margin, and the panel
-                    // gives the height back when a fourth roster row arrives.
-                    InteriorView(state: client.interior)
-                        .frame(maxWidth: .infinity)
-                        .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
-                        .frame(minHeight: 120)
-                        .layoutPriority(1)
+                // The honesty rule applied to the drawing. The plan is
+                // authored, not discovered: walls are the static baseline the
+                // system subtracts to see people, and it never maps them.
+                Text("Floor plan set up once, by hand. Hawk Eye does not map walls.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(Palette.inkFaint)
+            }
 
-                    // The honesty rule applied to the drawing. The plan is
-                    // authored, not discovered: walls are the static baseline the
-                    // system subtracts to see people, and it never maps them.
-                    Text("Floor plan set up once, by hand. Hawk Eye does not map walls.")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Palette.inkFaint)
-                }
+            PresenceRoster(state: client.interior)
 
-                PresenceRoster(state: client.interior)
-
-                IncidentBar { type in
-                    pendingIncident = type
+            IncidentBar { type in
+                pendingIncident = type
+            }
+        }
+        .padding(.horizontal, Space.gutter)
+        .padding(.bottom, Space.lg)
+        // `.background` rather than a `ZStack` sibling: a background sizes
+        // itself to the content's already-resolved frame, so the ambient glow
+        // bleeds under the status bar and home indicator without inflating
+        // what this VStack itself is proposed. Wrapping AmbientBackground as
+        // a ZStack sibling instead made the *whole stack* report full-screen
+        // size (because AmbientBackground ignores the safe area), which
+        // centered this non-flexible VStack inside that full-screen frame
+        // instead of pinning it under the status bar — a large dead band
+        // top and bottom on every screen that used the sibling pattern.
+        .background(AmbientBackground())
+        .fullScreenCover(item: Binding(
+            get: { client.incident },
+            set: { _ in }
+        )) { incident in
+            IncidentView(incident: incident)
+                .environment(model)
+        }
+        .confirmationDialog(
+            pendingIncident.map { "Call 911 for \($0.title.lowercased())?" } ?? "",
+            isPresented: Binding(
+                get: { pendingIncident != nil },
+                set: { if !$0 { pendingIncident = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let type = pendingIncident {
+                Button("Raise \(type.title)", role: .destructive) {
+                    let raise = type
+                    pendingIncident = nil
+                    Task { try? await client.raiseIncident(raise) }
                 }
             }
-            .padding(.horizontal, Space.gutter)
-            .padding(.bottom, Space.lg)
-            .fullScreenCover(item: Binding(
-                get: { client.incident },
-                set: { _ in }
-            )) { incident in
-                IncidentView(incident: incident)
-                    .environment(model)
-            }
-            .confirmationDialog(
-                pendingIncident.map { "Call 911 for \($0.title.lowercased())?" } ?? "",
-                isPresented: Binding(
-                    get: { pendingIncident != nil },
-                    set: { if !$0 { pendingIncident = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                if let type = pendingIncident {
-                    Button("Raise \(type.title)", role: .destructive) {
-                        let raise = type
-                        pendingIncident = nil
-                        Task { try? await client.raiseIncident(raise) }
-                    }
-                }
-                Button("Cancel", role: .cancel) { pendingIncident = nil }
-            } message: {
-                // One confirmation, because a misfired 911 call is a real-world
-                // harm. One tap raises it; the confirmation is the tap.
-                Text("Hawk Eye will call 911 and tell them what it can verify.")
-            }
+            Button("Cancel", role: .cancel) { pendingIncident = nil }
+        } message: {
+            // One confirmation, because a misfired 911 call is a real-world
+            // harm. One tap raises it; the confirmation is the tap.
+            Text("Hawk Eye will call 911 and tell them what it can verify.")
         }
     }
 

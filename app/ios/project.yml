@@ -35,11 +35,6 @@ targets:
         PRODUCT_NAME: Hawk Eye
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
-        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
     info:
       path: HawkEye/Info.plist
       properties:
@@ -53,6 +48,18 @@ targets:
           - UIInterfaceOrientationPortrait
         UIBackgroundModes:
           - remote-notification
+        # This target uses an explicit Info.plist (via `info.path` above), so
+        # `INFOPLIST_KEY_*` build settings are never merged in — those only
+        # apply when Xcode generates the whole plist itself
+        # (GENERATE_INFOPLIST_FILE: YES), which this target does not set.
+        # An `INFOPLIST_KEY_UILaunchScreen_Generation: YES` build setting
+        # sat here silently doing nothing, which meant the compiled app had
+        # no UILaunchScreen key at all — and an app with no launch-screen
+        # declaration gets rendered by iOS in a fixed-size legacy
+        # compatibility box centered on the real screen, not the actual
+        # device bounds. `{}` is the documented way to opt into a plain,
+        # full-size, system-generated launch screen.
+        UILaunchScreen: {}
         # Required for NWBrowser / Bonjour discovery on iOS 14+.
         # Without BOTH of these, NWBrowser returns nothing and fails silently.
         NSLocalNetworkUsageDescription: >-

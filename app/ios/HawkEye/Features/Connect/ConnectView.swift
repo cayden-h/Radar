@@ -10,19 +10,16 @@ struct ConnectView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        ZStack {
-            AmbientBackground()
-
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: Space.xl)
-                content
-                Spacer(minLength: Space.xl)
-                footer
-            }
-            .padding(.horizontal, Space.gutter)
-            .padding(.bottom, Space.xl)
+        VStack(spacing: 0) {
+            header
+            Spacer(minLength: Space.xl)
+            content
+            Spacer(minLength: Space.xl)
+            footer
         }
+        .padding(.horizontal, Space.gutter)
+        .padding(.bottom, Space.xl)
+        .background(AmbientBackground())
         .task { model.startDiscovery() }
     }
 
