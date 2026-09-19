@@ -37,7 +37,16 @@ class Notice(BaseModel):
     notice_id: str
     severity: NoticeSeverity
     title: str = Field(description="Short, factual, e.g. 'Unexpected person'.")
-    body: str = Field(description="One line. Never contains the street address.")
+    body: str = Field(
+        description=(
+            "One line, composed by the producer from the zone and the floorplan's "
+            "room name. Never the street address: the dispatch address is bound at "
+            "registration and does not travel in a claim or in a notice. Enforced by "
+            "construction in hawkeye_backend/notices/detector.py (Task 2), and "
+            "asserted in the Twilio sink's tests (Task 3), rather than by a validator "
+            "here - a heuristic content scan would fail on real room names."
+        )
+    )
     zone: str | None = Field(default=None, description="Floorplan zone key, when there is one.")
     presence_id: str | None = Field(
         default=None,

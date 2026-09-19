@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
+
 from hawkeye_backend.models.common import Provenance, Source
 from hawkeye_backend.models.events import EnvelopeAdapter, EventKind, NoticeEvent, envelope
 from hawkeye_backend.models.notice import Notice, NoticeSeverity
@@ -50,3 +53,18 @@ def test_notice_payload_key_is_notice():
     """The wire key is `notice`, matching the per-kind naming the app mirrors."""
     env = envelope(seq=7, payload=NoticeEvent(notice=a_notice()))
     assert env.model_dump(mode="json")["payload"]["notice"]["notice_id"] == "ntc-p4"
+
+
+def test_a_notice_cannot_be_built_without_provenance():
+    """The honesty rule is structural, not conventional.
+
+    A notice with no stated origin is exactly the thing a compromised agent
+    would emit, so the model refuses to construct one at all.
+    """
+    with pytest.raises(ValidationError):
+        Notice(
+            notice_id="ntc-p4",
+            severity=NoticeSeverity.ATTENTION,
+            title="Unexpected person",
+            body="Not accounted for. Living room.",
+        )
