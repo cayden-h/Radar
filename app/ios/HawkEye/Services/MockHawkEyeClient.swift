@@ -47,6 +47,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
     private(set) var hello: HubHello?
     private(set) var link: LinkState = .offline
     private(set) var missedFrames = false
+    private(set) var household: [HouseholdMember] = []
+    private(set) var unclaimedDevices: [ObservedDevice] = [Self.seededVisitorDevice]
+
+    /// Presences vouched for this session only. Nothing here persists across
+    /// `disconnect()`/`resolve()`, which is the point: "this is expected" is a
+    /// session-scoped fact, unlike remembering a visitor.
+    @ObservationIgnored private var approvedPresences: Set<String> = []
 
     @ObservationIgnored private var sensorLoop: Task<Void, Never>?
     @ObservationIgnored private var scriptTask: Task<Void, Never>?
@@ -74,6 +81,24 @@ final class MockHawkEyeClient: HawkEyeClienting {
 
     private static let siteID = "site-demo-01"
     private static let address = "1872 Ridgeview Lane, Blacksburg VA 24060"
+
+    /// The one unclaimed device the mock seeds: the phone that walked in with
+    /// the intruder. Present from the start so "Remember this visitor" has a
+    /// binding candidate to offer without waiting on any network path that
+    /// does not exist here.
+    private static let seededVisitorDevice = ObservedDevice(
+        deviceID: "obs-visitor",
+        fingerprint: "a4:3c:91:0d:7e:22",
+        firstSeenAt: Date(),
+        provenance: Provenance(
+            source: .ruviewSim,
+            producer: "master/simulated",
+            ansName: nil,
+            detail: "association table, simulated; no router integration exists yet",
+            sourceClass: .simulated,
+            simulated: true
+        )
+    )
 
     // MARK: Connect
 
@@ -110,6 +135,75 @@ final class MockHawkEyeClient: HawkEyeClienting {
         notices = []
         hello = nil
         link = .offline
+        household = []
+        unclaimedDevices = [Self.seededVisitorDevice]
+        approvedPresences = []
+    }
+
+    // MARK: Household
+
+    /// Vouches for a presence for this session only. Nothing is written to
+    /// `household`: `approvePresence` and `rememberVisitor` are deliberately
+    /// different actions, and only the latter persists.
+    func approvePresence(_ presenceID: String) async throws {
+        approvedPresences.insert(presenceID)
+    }
+
+    func rememberVisitor(name: String, kind: HouseholdMember.Kind, deviceID: String?) async throws {
+        var devices: [KnownDevice] = []
+        if let deviceID, let observed = unclaimedDevices.first(where: { $0.id == deviceID }) {
+            devices.append(
+                KnownDevice(
+                    deviceID: observed.deviceID,
+                    fingerprint: observed.fingerprint,
+                    label: nil,
+                    addedAt: Date(),
+                    lastSeenAt: Date()
+                )
+            )
+        }
+        let member = HouseholdMember(
+            memberID: "mem-\(household.count + 1)",
+            name: name,
+            kind: kind,
+            devices: devices,
+            addedAt: Date(),
+            addedBy: .approval,
+            provenance: Provenance(
+                source: .userInput,
+                producer: "app/ios",
+                ansName: nil,
+                detail: nil,
+                sourceClass: .human,
+                simulated: false
+            ),
+            isRecognisable: !devices.isEmpty
+        )
+        household.append(member)
+        if let deviceID {
+            unclaimedDevices.removeAll { $0.id == deviceID }
+        }
+    }
+
+    func forgetMember(_ memberID: String) async throws {
+        guard let member = household.first(where: { $0.id == memberID }) else { return }
+        household.removeAll { $0.id == memberID }
+        // Their devices become unclaimed again, matching the live contract.
+        for device in member.devices {
+            unclaimedDevices.append(
+                ObservedDevice(
+                    deviceID: device.deviceID,
+                    fingerprint: device.fingerprint,
+                    firstSeenAt: device.addedAt,
+                    provenance: Self.seededVisitorDevice.provenance
+                )
+            )
+        }
+    }
+
+    func refreshHousehold() async {
+        // Nothing to fetch: the mock's household is already the ground truth
+        // in process, and there is no round trip that could be behind it.
     }
 
     // MARK: Commands
@@ -443,6 +537,10 @@ final class MockHawkEyeClient: HawkEyeClienting {
         let due = Config.mockIntruderIdentifiedAfter + Config.mockNoticeHoldSeconds
         guard elapsed >= due else { return }
         guard let intruder = interior.presences.first(where: \.isUnexpected) else { return }
+        // Approved this session: the resident already vouched for them, so the
+        // notice this branch exists to raise would just be re-litigating a
+        // question that is settled for the rest of this connection.
+        guard !approvedPresences.contains(intruder.presenceID) else { return }
 
         // The floorplan's authored name, read directly. `roomName(of:)`
         // lowercases for spoken transcript lines, and reconstructing the
@@ -1140,6 +1238,9 @@ final class MockHawkEyeClient: HawkEyeClienting {
         collapsedAt = nil
         enteredAt = nil
         hasRaisedNotice = false
+        household = []
+        unclaimedDevices = [Self.seededVisitorDevice]
+        approvedPresences = []
         // The house keeps being watched. Resolving an incident does not stop
         // the sensing layer, because nothing spawns on incident.
         startDetectionTimer()

@@ -62,6 +62,24 @@ protocol HawkEyeClienting: AnyObject {
     /// Sends free-text context to `master`, which makes it available to
     /// `caller` for the rest of the call.
     func sendContext(_ text: String) async throws
+
+    /// The roster. Empty until loaded.
+    var household: [HouseholdMember] { get }
+
+    /// Devices seen on the network that nobody claims. Binding candidates.
+    var unclaimedDevices: [ObservedDevice] { get }
+
+    /// Vouch for a presence, this session only. Suppresses its notices.
+    func approvePresence(_ presenceID: String) async throws
+
+    /// Name a visitor and optionally bind a device. Permanent.
+    func rememberVisitor(name: String, kind: HouseholdMember.Kind, deviceID: String?) async throws
+
+    /// Remove a member. Their devices become unclaimed again.
+    func forgetMember(_ memberID: String) async throws
+
+    /// Refresh the roster and the unclaimed device list.
+    func refreshHousehold() async
 }
 
 enum LinkState: Sendable, Hashable {
