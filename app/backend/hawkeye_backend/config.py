@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Mode = Literal["simulated", "live"]
@@ -78,7 +79,9 @@ class Settings(BaseSettings):
     # Trial accounts only send to numbers verified in the Twilio console, and
     # prefix every message with "Sent from your Twilio trial account".
     twilio_account_sid: str = ""
-    twilio_auth_token: str = ""
+    # SecretStr so the token cannot reach a log, a traceback, or a repr by
+    # accident. Read it with .get_secret_value() at the one point of use.
+    twilio_auth_token: SecretStr = SecretStr("")
     twilio_from_number: str = ""
     twilio_to_number: str = ""
 
@@ -99,7 +102,7 @@ class Settings(BaseSettings):
         return all(
             (
                 self.twilio_account_sid,
-                self.twilio_auth_token,
+                self.twilio_auth_token.get_secret_value(),
                 self.twilio_from_number,
                 self.twilio_to_number,
             )
