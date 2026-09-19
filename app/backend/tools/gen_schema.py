@@ -115,7 +115,7 @@ def presence(
     klass: PresenceClass,
     confidence: float,
     person_confidence: float,
-    still_down_s: float | None = None,
+    respiration_lost_s: float | None = None,
 ) -> Presence:
     return Presence(
         presence_id=pid,
@@ -132,7 +132,7 @@ def presence(
         presence_class=klass,
         class_basis="respiration_rate" if bpm is not None else None,
         expected=True,
-        still_down_s=still_down_s,
+        respiration_lost_s=respiration_lost_s,
         provenance=CSI,
     )
 
@@ -144,8 +144,8 @@ P_MOVING = presence(
 )
 P_STILL = presence(
     "p1", "main_bedroom", 1.85, 4.35, PresenceState.CONFIRMED_STILL, False,
-    RespirationStatus.BREATHING, 9.0, 112.0, PresenceClass.ADULT, 0.89, 0.92,
-    still_down_s=96.0,
+    RespirationStatus.NO_SIGNATURE, None, None, PresenceClass.ADULT, 0.71, 0.92,
+    respiration_lost_s=96.0,
 )
 P_UNCONFIRMED = presence(
     "p3", "laundry", 8.85, 6.1, PresenceState.UNCONFIRMED, True,
@@ -172,10 +172,8 @@ STATE = InteriorState(
 CLASSIFICATION = IncidentClassification(
     incident_type=IncidentType.FIRE,
     reasoning=(
-        "Reclassified from Faint to Fire. A collapse on its own is a faint. A collapse with "
-        "carbon monoxide climbing past 180 ppm is a fire incident with a casualty, and the "
-        "responders who need to be sent are different. Two independent modalities agree: CSI "
-        "saw the collapse, a separate gas reading saw the CO."
+        "Carbon monoxide at 180 ppm with a breathing signature in the main bedroom that "
+        "was resolvable four minutes ago and is not now. Two independent modalities."
     ),
     contributing_claim_ids=["clm-001", "clm-002", "clm-003", "clm-004"],
     discarded_claim_ids=["clm-005"],
@@ -229,9 +227,12 @@ VERIFIED = VerificationResult(
     checked_at=at(6.0),
     claim=Claim(
         claim_id="clm-001",
-        statement="An adult occupant went down in the main bedroom and has not gotten up.",
-        field="people.event",
-        value="fall, still_down_s=6",
+        statement=(
+            "A breathing signature on the adult in the main bedroom was resolvable and is "
+            "not resolvable now. Not a finding that they have stopped breathing."
+        ),
+        field="people.respiration_lost",
+        value="96 (seconds since last resolvable, zone=main_bedroom)",
         presence_id="p1",
     ),
     agent=SourceAgent(
@@ -399,8 +400,8 @@ REPLAY = ReplayRecord(
             seq=1,
             at=at(0.0),
             kind="incident",
-            summary="faint raised by user",
-            detail={"incident_id": "inc-0001", "incident_type": "faint", "raised_by": "user"},
+            summary="fire raised by user",
+            detail={"incident_id": "inc-0001", "incident_type": "fire", "raised_by": "user"},
             entry_hash="9a1e26430b4002eb059215c2a1e0a0f0f6d8f3bbd4c6a5f0b2e9a7c1d3f5e7a9",
             prev_hash=None,
         ),

@@ -13,9 +13,9 @@
         "checked_at": "2026-09-20T04:12:39Z",
         "claim": {
           "claim_id": "clm-001",
-          "statement": "An adult occupant went down in the main bedroom and has not gotten up.",
-          "field": "people.event",
-          "value": "fall, still_down_s=6",
+          "statement": "A breathing signature on the adult in the main bedroom was resolvable and is not resolvable now. Not a finding that they have stopped breathing.",
+          "field": "people.respiration_lost",
+          "value": "96 (seconds since last resolvable, zone=main_bedroom)",
           "presence_id": "p1"
         },
         "agent": {

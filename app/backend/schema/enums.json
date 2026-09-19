@@ -37,8 +37,7 @@
   ],
   "incident_type": [
     "burglary",
-    "fire",
-    "faint"
+    "fire"
   ],
   "incident_status": [
     "raised",

@@ -409,7 +409,7 @@
         "type": "object"
       },
       "IncidentClassification": {
-        "description": "Why master called it what it called it.\n\nClassification is the interesting part and should be visible. A fall plus\nelevated CO is a fire incident with a casualty, not a faint.",
+        "description": "Why master called it what it called it.\n\nClassification is the interesting part and should be visible. Elevated CO\nplus a breathing signature that has gone missing is a fire with an occupant\nwho may not be able to respond, and that is two independent modalities\nrather than one signal crossing a threshold.",
         "properties": {
           "incident_type": {
             "$ref": "#/$defs/IncidentType"
@@ -497,11 +497,10 @@
         "type": "string"
       },
       "IncidentType": {
-        "description": "The three incident types. Nothing else classifies.",
+        "description": "The two incident types. Nothing else classifies.\n\nFaint was the third until 2026-09-19. Fall detection was the weakest link\nin the chain - a debounce problem dressed as a clinical variable - and what\na dispatcher actually needs is narrower and defensible: whether the people\ninside can respond. That is carried by respiration, per presence.",
         "enum": [
           "burglary",
-          "fire",
-          "faint"
+          "fire"
         ],
         "title": "IncidentType",
         "type": "string"
@@ -859,7 +858,7 @@
             "description": "agents/intruder's inference from context (entry point, time of day, count vs reported residents). Never a recognition result. null when not yet decided.",
             "title": "Expected"
           },
-          "still_down_s": {
+          "respiration_lost_s": {
             "anyOf": [
               {
                 "type": "number"
@@ -869,8 +868,8 @@
               }
             ],
             "default": null,
-            "description": "Seconds down and not moving, from agents/people. The clinical variable: a long lie is over an hour, and half of those die within six months absent any injury.",
-            "title": "Still Down S"
+            "description": "Seconds since a breathing signature was last resolvable on this presence, from agents/people. Only ever set on a presence that HAD a signature: the transition is the signal, and a presence that never resolved one carries no information. Never a finding that breathing has stopped.",
+            "title": "Respiration Lost S"
           },
           "provenance": {
             "$ref": "#/$defs/Provenance",
@@ -901,7 +900,7 @@
         "type": "string"
       },
       "PresenceState": {
-        "description": "The three states app/CLAUDE.md requires the 3D view to distinguish.\n\nCONFIRMED_MOVING: moving and breathing. A person, confirmed.\nCONFIRMED_STILL:  still but breathing. A person who is not responding.\n                  The loudest thing on screen. This is what the system exists for.\nUNCONFIRMED:      a perturbation with no respiration signature. Render it as\n                  such, not as a person. A curtain is not an intruder.\nUNKNOWN:          not enough data yet. Absence of respiration is NOT proof of\n                  absence of a person, so a presence that has not been\n                  resolved sits here rather than being called UNCONFIRMED.",
+        "description": "The three states app/CLAUDE.md requires the 3D view to distinguish.\n\nCONFIRMED_MOVING: moving and breathing. A person, confirmed.\nCONFIRMED_STILL:  a person who is not moving. Either still breathing, or\n                  carrying a breathing signature that was resolvable and is\n                  not now - see Presence.respiration_lost_s, which is what\n                  separates those two. A lost signature is never a finding\n                  that breathing stopped.\n                  The loudest thing on screen. This is what the system exists for.\nUNCONFIRMED:      a perturbation with no respiration signature. Render it as\n                  such, not as a person. A curtain is not an intruder.\nUNKNOWN:          not enough data yet. Absence of respiration is NOT proof of\n                  absence of a person, so a presence that has not been\n                  resolved sits here rather than being called UNCONFIRMED.",
         "enum": [
           "confirmed_moving",
           "confirmed_still",
