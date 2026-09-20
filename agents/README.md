@@ -1,6 +1,7 @@
 # agents/
 
 **Pivot note, 2026-09-19.** Seven agents now, not five. `people` is `presence`; `shutter` and `vision` are new.
+`shutter` is written and tested; `vision` is not yet.
 Run commands below gain `python -m agents shutter --port 8106` and `python -m agents vision --port 8107`, and `HAWKEYE_PEERS` must list them.
 See `docs/PIVOT.md` and `agents/CLAUDE.md`.
 
@@ -21,6 +22,7 @@ in the prose is `agents.people` in the code.
 | `agents/people/` | Presence, personhood, respiration, location, responsiveness. The only CSI consumer |
 | `agents/intruder/` | Roster plus device association over the personhood verdict |
 | `agents/master/` | The trust gate, the classifier, the incident, the local gas sensor |
+| `agents/shutter/` | The grant, the eight refusals, and the one GPIO pin behind a `VerifiedGrant` |
 | `agents/caller/` | The 911 phone call, the conference bridge, and the resident's guidance |
 | `agents/replay/` | The hash-chained incident record |
 | `scripts/build_cards.py` | Builds both cards per agent as byte-stable artifacts |
@@ -43,6 +45,7 @@ pip install -e .
 ```sh
 python -m agents --list
 python -m agents people --port 8001
+python -m agents shutter --port 8106
 ```
 
 Each agent serves the same five surfaces:

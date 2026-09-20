@@ -1,7 +1,8 @@
 # TowerPro SG92R micro servo, and the camera shield
 
 The thing that physically uncovers the camera.
-Driven by `shutter/`, which will not move it without a verified grant from `master`.
+Driven by `agents/agents/shutter/`, which will not move it without a verified grant from `master`.
+(`shutter/` at the repo root is the contract; the code lives in the agents package with its siblings.)
 
 Read `shutter/CLAUDE.md` for why this exists and what a grant is.
 This guide is the how.
@@ -71,7 +72,9 @@ pi.set_servo_pulsewidth(18, 0)      # stop sending. Do this after the move
 
 ## Calibrating the two positions
 
-Do this once, write the two pulse widths into the `shutter` config, and never touch it again.
+Do this once, write the two pulse widths into `agents/agents/shutter/pigpio_backend.py`
+(`MIN_PULSE_US` and `MAX_PULSE_US`), and never touch it again.
+There is a test asserting both the closed and open angles land inside that range.
 
 1. Mount the camera in its final position first. The shield's geometry depends on it
 2. `pi.set_servo_pulsewidth(18, 1500)` and note where the horn sits
@@ -88,16 +91,33 @@ Do this once, write the two pulse widths into the `shutter` config, and never to
 # Is the daemon up
 pgrep pigpiod
 
-# Does the shutter agent refuse an unsigned command
-curl -s -X POST localhost:8106/a2a -d '{"method":"shutter.open","grant":"{}"}' | jq
+# Does the shutter agent refuse a grant nobody signed. Expect a *result*
+# carrying refusal: "unregistered_issuer" - never an error, and never a movement.
+curl -s -X POST localhost:8106/a2a -H 'content-type: application/json' -d '{
+  "jsonrpc":"2.0","id":1,"method":"shutter.open","params":{"grant":"{}"}}' | jq
 # expect a refusal, and the flag does not move
 
-# Does it honour a valid one
-python -m shutter.selftest
-# expect: challenge issued, grant verified, flag moves, attestation returned
+# Does the servo physically move, and does the shield clear the lens
+python -m agents.shutter.selftest --backend pigpio
+# expect: closed, open, closed - with a dwell at each end, ending covered
 ```
 
-The self-test must be run at least once **with the real servo attached** before the demo, and recorded.
+**The self-test bypasses the gate on purpose and proves nothing about it.** It answers one question during
+bring-up - does this servo move and does this shield clear this lens - at a moment when "is the grant valid"
+is noise. It is a separate entry point for exactly that reason: the running agent has no such path, and
+someone who can run it already has a shell on the Pi, which is a strictly larger capability than opening a
+shutter.
+
+The gate is proved on a laptop, by `cd agents && python -m pytest tests/test_shutter.py -q`, and end to end
+by T50. What this bench check adds is the physical half.
+
+Run it at least once **with the real servo attached** before the demo, and record it.
+
+**Then do the half that actually matters**: with the sweep finished and the shield closed, take a camera frame
+and confirm its mean luminance is near zero (`docs/hardware/logitech-camera.md`). The SG92R is open-loop, so a
+jammed, slipped or mis-glued shield attests `open` exactly as a working one does. The frame is the only thing
+that catches it, and a shield leaving a crescent of lens visible turns the project's central privacy claim
+into a prop that nobody would notice. Re-run it after the mount is touched for the last time.
 
 ## The way this fails quietly
 

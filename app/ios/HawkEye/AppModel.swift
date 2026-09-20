@@ -23,7 +23,13 @@ final class AppModel {
     let browser: any HubBrowsing
     let client: any HawkEyeClienting
 
+    /// The phone's half of the watch link. Started at launch rather than on
+    /// connect, so a watch that wakes first is told the phone is here and the
+    /// hub is not, instead of being left with nothing to draw.
+    let watchRelay: PhoneWatchRelay
+
     init() {
+        let client: any HawkEyeClienting
         if Config.useMocks {
             browser = MockHubBrowser()
             client = MockHawkEyeClient()
@@ -31,6 +37,9 @@ final class AppModel {
             browser = BonjourHubBrowser()
             client = LiveHawkEyeClient()
         }
+        self.client = client
+        watchRelay = PhoneWatchRelay(client: client)
+        watchRelay.start()
     }
 
     func startDiscovery() {

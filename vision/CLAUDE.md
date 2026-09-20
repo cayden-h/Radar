@@ -19,6 +19,27 @@ Not a config flag. Not a boolean it sets itself. A signed attestation from a sep
 
 Without it, `vision` returns an `Unknown` with reason `shield_closed`, which is a fact a dispatcher would want and which the existing `Agent.blind()` helper already models.
 
+### What the attestation actually is
+
+`shutter` is built, so this is settled rather than pending. `shutter.open` returns it as an opaque JSON string
+alongside the position:
+
+```json
+{"position": "open", "commanded_angle": 90, "position_basis": "commanded",
+ "nonce": "shut-...", "at": "2026-09-19T03:00:00.000000+00:00"}
+```
+
+Three things to build T16 against:
+
+- **`position_basis` is always `"commanded"`.** The SG92R is open-loop and there is no position feedback, so
+  this says what the servo was *told*, never where the shield is. A jammed shield attests `open`. **`vision`
+  is the thing that catches that**, via the luminance guard - a shield still covering the lens produces a dark
+  frame, and `frame_too_dark` is the correct claim, not a description of a dimly lit room
+- **`nonce` identifies the grant that caused the movement.** It is how a claim gets tied back to the specific
+  authorization that uncovered the camera, all the way into the sealed record
+- **`at` is what "current" is measured against.** A stale attestation is `shield_closed`, and the staleness
+  test is one of the three T16 owes
+
 ## The two paths
 
 ```

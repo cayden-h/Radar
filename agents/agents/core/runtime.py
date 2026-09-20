@@ -137,7 +137,7 @@ def build_app(
     if signer is not None:
         from agents.core.transport import a2a_router
 
-        app.include_router(a2a_router(agent, signer))
+        app.include_router(a2a_router(agent, signer, extra=agent.a2a_methods(signer)))
     else:
         logger.warning(
             "%s has no signer, so it serves no /a2a endpoint. Its card advertises one; "

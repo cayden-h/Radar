@@ -89,9 +89,60 @@ The backend does not register a `_hawkeye._tcp` service, so with `useMocks = fal
 Until Bonjour advertisement exists, point `Config.fallbackBaseURL` at the hub directly.
 
 **Push notifications on this side: not implemented, and not the plan.**
-`remote-notification` is declared in the Info.plist but nothing registers with `UNUserNotificationCenter`, and nothing will.
-A backgrounded or closed app is still reached, by SMS rather than by push. See "The unexpected-presence notice" below for the seam and its half-flipped states.
+`remote-notification` is declared in the Info.plist but **the iOS app** registers nothing with `UNUserNotificationCenter`, and it will not.
+A backgrounded or closed phone app is still reached, by SMS rather than by push. See "The unexpected-presence notice" below for the seam and its half-flipped states.
 The Info.plist declaration is now misleading on its own and should be removed when someone is next in that file; it costs nothing but it reads as a capability that exists.
+
+**The watch is a different answer and it is not a push either.** `UNUserNotificationCenter` *is* used there, in `app/ios/HawkEyeWatch/Services/NoticeNotifier.swift`, to raise a **local** notification from a notice the phone relayed.
+Nothing in this project talks to Apple's push service, and no paid developer account is involved. See "watchOS app" immediately below.
+
+## watchOS app
+
+**Seam:** `app/ios/HawkEyeWatch/WatchConfig.swift`, the constant `useMockLink`.
+
+The mirror of the phone's `useMocks`, and read in exactly one decision site, `WatchModel.init`, which picks an implementation behind the `WatchFeed` protocol.
+No view knows which it got.
+
+**With `useMockLink = true`** the watch scripts its own snapshots with no phone and no hub at all: shield closed, a grant at six seconds, the servo clearing the lens, and the camera's first sentence about two seconds later.
+
+It exists because pairing a watch simulator to a phone simulator is fiddly and sometimes simply refuses, and **the demo must never depend on that working** - the same rule the phone's flag exists for.
+
+**With `useMockLink = false`** the identical UI runs on snapshots relayed from the phone over WatchConnectivity. The watch never speaks to the hub in either mode; that is architecture, not a seam.
+
+**To flip:**
+
+1. Set `useMockLink = false`.
+2. Pair a watch simulator to a phone simulator, or use a real pair. `xcrun simctl list pairs` must say `active, connected`, with **both devices booted**.
+3. Run the phone app and connect it to a hub. Until it does, the watch is correct to say Reconnecting.
+
+**Verify it flipped:** the watch sits on "Connecting to your phone" at launch instead of counting down to a notice on its own. Logs are the certain answer:
+
+```sh
+xcrun simctl spawn <udid> log show --last 2m --info --predicate 'subsystem == "ai.hawkeye"'
+```
+
+The phone logs `published N bytes` and the watch logs `received N bytes`. A notice carrying its still frame is roughly 8KB; a snapshot without one is a few hundred.
+
+**Half-flipped states to watch for:**
+
+- **The watch says Reconnecting forever while both apps are plainly running.** The phone is up but not connected to a hub, which is the watch being honest rather than broken. Connect the phone first.
+- **A paired-but-disconnected simulator pair.** `simctl list pairs` reports `active, disconnected` until both devices are booted, and WatchConnectivity delivers nothing in that state with no error anywhere.
+- **`isWatchAppInstalled` reads false** for a watch app side-loaded with `simctl install` rather than installed through the phone's companion. The relay deliberately does not gate on it; gating on it means the phone silently never publishes.
+
+### The still frame in mock mode
+
+**Seam:** `app/ios/HawkEye/Shared/SimulatedCameraFrame.swift`.
+
+Mock mode has to put something where the notice's photograph goes, because a notice with an empty image well does not demonstrate the thing the camera pivot bought.
+This draws that something: a dark frame with a camera's burn-in, the room name, and a timestamp.
+
+**It is never passed off as a photograph.** Everything it produces travels with `WatchNotice.simulated` set, and the views draw a `SIMULATED` marker off that flag rather than off a comment.
+
+**It deliberately does not draw a person.** A recognisable synthetic human would be a fabricated record of someone being somewhere, which is the one thing a system that emails police must never manufacture.
+
+**To flip:** nothing to flip here. It is reached only from the two mock feeds, and `agents/vision` supplies the real frame on the live path.
+
+**Verify:** the `SIMULATED` marker is absent from the notice, and the frame's burn-in timestamp advances with real capture time rather than with app launch.
 
 ## Hub backend
 
@@ -228,6 +279,12 @@ The SG92R is open-loop, so a jammed, slipped or mis-glued shield attests `open` 
 being dark**, which is the black-frame check in the camera guide and is T23 on the board. Re-run it after the
 mount is touched for the last time. A shield leaving a crescent of lens visible turns the project's central
 privacy claim into a prop, and nobody would notice.
+
+**The refusal, in the app:** `Config.mockShutterRefuses` makes `master`'s grant fail verification, so the shield stays closed and the apps show the fourth state.
+It is a mock-only switch and has no effect when `useMocks = false`, where `shutter` decides for itself.
+**The refusal path matters more than the happy path**, so this switch is worth exercising before every rehearsal rather than on the night.
+
+**Verify it flipped:** the watch's Idle screen reads "Shield held closed" with the refusal in plain English under it, and **the notice arrives with no picture at all**, saying so. A notice that still carries a frame while this is on means the frame was cached from an earlier run.
 
 **`vision`** is developed against a fixture video file played at real time.
 The claim shape, the shutter gate, the luminance guard and the segment writer are all exercised without a camera.

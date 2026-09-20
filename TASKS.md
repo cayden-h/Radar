@@ -90,11 +90,16 @@ blocking T15 and T16.
 ### T03 - Scaffold the watchOS target
 **Lane** C · **Skill** swift · **Blocks** T30, T31 · **Who** ___
 
-Add a watchOS app target to `app/ios/project.yml` (XcodeGen), sharing the Models folder with the iOS target.
-Four empty screens per `app/CLAUDE.md`: Idle, Notice, Incident live, Transcribe.
-WatchConnectivity session set up both directions, sending a heartbeat and logging it.
+**DONE**, and it went past the scaffold. Branch `t03-watch-app`.
+
+A watchOS target in `app/ios/project.yml`, sharing `Models/`, `Shared/` and `DesignSystem/` by source path.
+**Three screens, not four**: Idle, Notice, Saved. The live-incident and transcribe screens were cut and the reasoning is in `app/CLAUDE.md`.
+WatchConnectivity both directions, carrying a `WatchSnapshot` out and a `WatchCommand` back rather than a bare heartbeat.
 
 **Done when** `xcodegen generate && xcodebuild ... build` succeeds for both targets, and the watch simulator shows the Idle screen with a heartbeat arriving from the phone simulator.
+
+**Verified:** both targets build; 12 unit tests on the wire codec and the router pass; the four existing UI tours still pass.
+On a paired iPhone 18 Pro Max and Apple Watch Series 12, the phone logged seven `published` snapshots and the watch logged every one `received`.
 
 **Watch for**: XcodeGen watchOS targets need a matching `WKCompanionAppBundleIdentifier` and the bundle IDs must nest exactly. Getting this wrong produces a build that succeeds and a watch app that never pairs.
 
@@ -255,18 +260,30 @@ A person entering an empty room, several times, from the entry point the demo us
 ### T30 - The notice on the watch, carrying the camera's first sentence
 **Lane** C · **Skill** swift · **Needs** T03, T20 · **Blocks** T31 · **Who** ___
 
-Still frame, narration line, three controls: Start Incident, This is expected, Remember this visitor.
+**DONE.** Branch `t03-watch-app`.
+
+Still frame and narration line. **Two controls, not three**: Start Incident and This is expected.
+Remember this visitor stayed on the phone because naming needs a keyboard, and the Saved screen says so rather than leaving the control unexplained.
+
+It also ships as a real wrist notification, with a custom long look carrying the frame and the sentence.
+It is a **local** notification the watch raises from the relayed notice, not a push: no APNs, no push server, no paid account.
 
 **Done when** a notice fired from the mock reaches the watch simulator within three seconds of the trigger, carrying a real sentence rather than a generic string.
+
+**Verified:** the notice crosses the live relay carrying its JPEG, and `PhoneWatchRelay` refuses to build a `WatchNotice` without a narration line, so a generic string cannot reach the wrist by accident.
 
 **This is the demo's emotional beat.** A generic "motion detected" here throws away the whole pivot.
 
 ### T31 - Start Incident from the watch
 **Lane** C · **Skill** swift · **Needs** T30 · **Blocks** T40 · **Who** ___
 
-Hold 1.5s. Relayed through the phone to the hub. Announced on both devices.
+**DONE against the mock hub. Not yet verified against a live backend.** Branch `t03-watch-app`.
+
+Hold 1.5s, relayed through the phone, which calls `raiseIncident`. The watch shows the hub's answer rather than its own optimism: `recorded` is set from the acknowledgement, never on send.
 
 **Done when** holding the control on the watch simulator opens an incident in the backend, and a tap shorter than 1.5s does nothing at all.
+
+**Still open:** the hold and the relay are exercised end to end, but only against `MockHawkEyeClient`. Point the phone at a running hub and confirm the incident actually lands before calling this closed.
 
 ### T32 - The shield states in the iOS interior view
 **Lane** C · **Skill** swift · **Needs** T20 · **Blocks** T50 · **Who** ___

@@ -31,6 +31,17 @@ struct Provenance: Codable, Sendable, Hashable {
         case operatorAudio = "operator-audio"
         /// An agent derived it rather than sensing it.
         case agentInference = "agent-inference"
+        /// A real SG92R on the Pi's GPIO, driven through pigpio. Derived rather
+        /// than measured, and that is not a technicality: the SG92R is
+        /// open-loop and has no position feedback, so a shutter position is the
+        /// angle we *commanded* and never the angle the shield reached. **A
+        /// jammed shield reports open.**
+        case servoGPIO = "servo-gpio"
+        /// The shutter's stub backend: a servo that exists only as a number.
+        /// Named separately from `servoGPIO` so that running the demo with no
+        /// hardware attached cannot present as running it with hardware
+        /// attached.
+        case servoStub = "servo-stub"
     }
 
     /// How much weight the reading's origin can bear. Derived server-side.
