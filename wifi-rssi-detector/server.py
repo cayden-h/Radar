@@ -5,6 +5,7 @@ import asyncio
 import functools
 import http.server
 import json
+import logging
 import threading
 import time
 
@@ -13,6 +14,8 @@ import websockets
 from classifier import BaselineClassifier
 from collector import MacWifiCollector
 from features import extract_features
+
+logger = logging.getLogger(__name__)
 
 
 def build_tick_payload(snapshot, classifier, window_seconds, clock=time.time):
@@ -58,7 +61,11 @@ async def serve(host="localhost", port=8765, static_dir="static", poll_hz=3.0, w
             for ws in list(connections):
                 try:
                     await ws.send(message)
-                except websockets.exceptions.ConnectionClosed:
+                except Exception:
+                    # One misbehaving client (closed connection, protocol error,
+                    # anything) must not take the broadcast loop, and with it the
+                    # whole server, down for every other client.
+                    logger.warning("Dropping WebSocket client after send failure", exc_info=True)
                     connections.discard(ws)
             await asyncio.sleep(poll_interval)
 
