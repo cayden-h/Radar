@@ -82,7 +82,7 @@ extension View {
             // `Palette.ink`) rather than leaning on an opaque backing.
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial.opacity(0.18))
+                    .fill(.ultraThinMaterial.opacity(0.12))
             )
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
