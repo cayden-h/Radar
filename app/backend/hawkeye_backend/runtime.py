@@ -14,6 +14,7 @@ import logging
 import time
 
 from hawkeye_backend.bus import EventBus
+from hawkeye_backend.edge.camera import LiveCamera
 from hawkeye_backend.config import Settings
 from hawkeye_backend.household import Roster, unaccounted_count
 from hawkeye_backend.master.base import MasterClient
@@ -40,6 +41,15 @@ logger = logging.getLogger(__name__)
 #: How often the cached SensorLiveness is refreshed for the recorder. Slow on
 #: purpose: it annotates frames, it does not gate anything.
 SENSOR_POLL_INTERVAL_S = 2.0
+
+
+class EdgeUnavailable(RuntimeError):
+    """There is no edge box connected.
+
+    Raised rather than queued. A grant has a ten second TTL, and one delivered
+    after the situation that produced it has passed is a replay waiting to
+    happen rather than a late success.
+    """
 
 
 class HubRuntime:
@@ -88,6 +98,20 @@ class HubRuntime:
         # Where a sealed record goes so it outlives this process. Defaults to
         # NullArchive, which persists nothing and says so; see replay/archive.py.
         self.archive: ReplayArchive = archive or NullArchive()
+
+        # The newest camera frame and everyone who wants a copy. Owned by the
+        # runtime rather than by the endpoint, because it outlives any one
+        # websocket: the edge reconnecting must not reset what the phone sees.
+        self.camera = LiveCamera(stale_after_s=settings.camera_stale_after_s)
+
+        # The connected edge websocket, when there is one. Held so a shutter
+        # grant has somewhere to go. `None` is the honest answer when the Pi is
+        # not there, and the shutter endpoint says so rather than timing out.
+        self.edge: object | None = None
+
+        #: request_id -> the future waiting on that attestation.
+        self._pending_attestations: dict[str, asyncio.Future[object]] = {}
+        self._thumbnail_task: asyncio.Task[None] | None = None
         self._sensor_task: asyncio.Task[None] | None = None
 
     @property
@@ -165,6 +189,54 @@ class HubRuntime:
     async def emit_notice(self, event: NoticeEvent) -> None:
         """The stream sink's callback. Separate so the recursion is visible."""
         await self.emit(event)
+
+    # --------------------------------------------------------------- the edge
+
+    def resolve_attestation(self, attestation: object) -> None:
+        """Hand an attestation back to whoever asked for the move.
+
+        Called from the edge link's receive loop. Unknown request ids are logged
+        and dropped rather than raising: an attestation arriving after its
+        caller gave up is stale, not dangerous.
+        """
+        request_id = getattr(attestation, "request_id", "")
+        future = self._pending_attestations.pop(request_id, None)
+        if future is None:
+            logger.warning(
+                "attestation for unknown request %r, dropped. Its caller has "
+                "already given up.",
+                request_id,
+            )
+            return
+        if not future.done():
+            future.set_result(attestation)
+
+    def await_attestation(self, request_id: str) -> asyncio.Future[object]:
+        """Register interest in an attestation before the grant is sent.
+
+        Registered first so an attestation that comes back faster than the
+        caller resumes still has somewhere to land.
+        """
+        future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
+        self._pending_attestations[request_id] = future
+        return future
+
+    async def send_grant(self, grant_json: str, request_id: str) -> None:
+        """Push a signed grant down the edge link.
+
+        `grant_json` crosses as the opaque string it arrived as. Nothing on this
+        path parses or re-serializes it, because `shutter` verifies the
+        signature over exactly those bytes and any reformatting would look
+        exactly like tampering.
+        """
+        from hawkeye_backend.edge.wire import EdgeGrant
+
+        edge = self.edge
+        if edge is None:
+            raise EdgeUnavailable("no edge box is connected, so there is no servo to move")
+        await edge.send_text(
+            EdgeGrant(request_id=request_id, grant_json=grant_json).model_dump_json()
+        )
 
     async def _archive_sealed(self) -> None:
         """Write out every record sealed since the last event.

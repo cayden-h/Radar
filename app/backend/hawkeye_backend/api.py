@@ -30,10 +30,11 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from hawkeye_backend import __version__
+from hawkeye_backend.edge.link import run_edge_link
 from hawkeye_backend.household import DeviceAlreadyClaimed, UnknownDevice
 from hawkeye_backend.master.base import MasterUnavailable
 from hawkeye_backend.master.simulated import SimulatedMasterClient
@@ -59,6 +60,11 @@ from hawkeye_backend.runtime import HubRuntime
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["hawkeye"])
+
+#: MJPEG part separator. Any token works as long as it does not occur in the
+#: payload; spelled out rather than generated so the web console and the tests
+#: can both name it.
+MJPEG_BOUNDARY = "hawkeyeframe"
 
 
 def _runtime(request: Request) -> HubRuntime:
@@ -186,6 +192,7 @@ async def get_hub(request: Request) -> HubStatus:
         sensor=sensor,
         agents=agents,
         active_incident_id=active.incident_id if active else None,
+        camera=runtime.camera.status(),
     )
 
 
@@ -667,3 +674,115 @@ async def stream(websocket: WebSocket) -> None:
         logger.exception("stream client failed")
     finally:
         await runtime.bus.unsubscribe(sub)
+
+
+@router.get("/camera/still", summary="The newest camera frame", response_class=Response)
+async def get_camera_still(request: Request) -> Response:
+    """One JPEG, or a 503 naming why there isn't one.
+
+    503 rather than a placeholder image, deliberately. A caller that gets bytes
+    back must be able to treat them as a real frame; handing back a grey
+    rectangle on failure would make every consumer responsible for telling the
+    two apart, and one of them would get it wrong.
+
+    A stale frame is still served, because it is a true statement about the last
+    thing the camera saw. `X-HawkEye-Frame-Age` and `X-HawkEye-Live` say what it
+    is, and every consumer reads them before drawing it as the room now.
+    """
+    runtime = _runtime(request)
+    frame = runtime.camera.latest
+    status = runtime.camera.status()
+    if frame is None:
+        raise HTTPException(status_code=503, detail=status.detail)
+    return Response(
+        content=frame.jpeg,
+        media_type="image/jpeg",
+        headers={
+            "X-HawkEye-Frame-Age": f"{status.last_frame_age_s or 0.0:.3f}",
+            "X-HawkEye-Live": "true" if status.live else "false",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+def _mjpeg_part(jpeg: bytes) -> bytes:
+    """One part of the multipart stream.
+
+    `Content-Length` is included because without it some clients buffer until
+    the connection closes, and for a stream that never closes that means they
+    draw nothing at all.
+    """
+    return (
+        f"--{MJPEG_BOUNDARY}\r\n"
+        f"Content-Type: image/jpeg\r\n"
+        f"Content-Length: {len(jpeg)}\r\n\r\n"
+    ).encode() + jpeg + b"\r\n"
+
+
+@router.get("/camera/live", summary="The live camera, as MJPEG")
+async def get_camera_live(request: Request) -> StreamingResponse:
+    """`multipart/x-mixed-replace`, which every browser already reads.
+
+    MJPEG rather than WebRTC because it needs no signalling, no TURN fallback
+    and no peer plumbing, and it is one `<img src>` in a browser. The cost is
+    bandwidth, and this runs on a LAN.
+
+    A consumer that falls behind loses frames rather than stalling the camera.
+    See `LiveCamera.accept`: the per-subscriber queue is small on purpose,
+    because a viewer three frames behind wants the newest frame, not the backlog.
+    """
+    runtime = _runtime(request)
+    if runtime.camera.latest is None:
+        # 503 before the stream opens, so a caller gets a status code rather
+        # than an empty 200 that never produces a part.
+        raise HTTPException(status_code=503, detail=runtime.camera.status().detail)
+
+    idle_timeout_s = max(1.0, runtime.settings.camera_stale_after_s * 2)
+
+    async def parts():
+        sub = await runtime.camera.subscribe()
+        try:
+            # The newest frame first, so a viewer joining mid-stream sees
+            # something immediately instead of waiting for the next capture.
+            first = runtime.camera.latest
+            if first is not None:
+                yield _mjpeg_part(first.jpeg)
+            while True:
+                try:
+                    frame = await asyncio.wait_for(sub.queue.get(), timeout=idle_timeout_s)
+                except asyncio.TimeoutError:
+                    # **The stream ends rather than holding a frozen frame open.**
+                    #
+                    # A browser whose <img> stops receiving parts keeps painting
+                    # the last one it got, forever, with no way for the page to
+                    # know. Ending the response is what lets the page fall back
+                    # to the unreachable state, which is the whole rule: a
+                    # frozen picture of an empty room is the most dangerous
+                    # thing this system can display.
+                    logger.info(
+                        "camera stream: no frame for %.1fs, ending the response so "
+                        "the client stops painting a stale one",
+                        idle_timeout_s,
+                    )
+                    return
+                yield _mjpeg_part(frame.jpeg)
+        finally:
+            await runtime.camera.unsubscribe(sub)
+
+    return StreamingResponse(
+        parts(),
+        media_type=f"multipart/x-mixed-replace; boundary={MJPEG_BOUNDARY}",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.websocket("/edge/link")
+async def edge_link(websocket: WebSocket, token: str | None = Query(default=None)) -> None:
+    """The websocket the Pi dials. Frames up, shutter grants down.
+
+    The Pi dials out rather than serving so that nothing in this system ever has
+    to discover the Pi's address. It is headless and its DHCP lease moves every
+    time the network changes; the only address anything needs is this hub's own.
+    """
+    runtime: HubRuntime = websocket.app.state.runtime
+    await run_edge_link(websocket, runtime, token)

@@ -76,6 +76,37 @@ class Settings(BaseSettings):
     # half-finished.
     replay_archive: Literal["off", "mongodb"] = "off"
 
+    # The edge link. The Pi holds the camera and the servo and dials this
+    # process; nothing here ever dials the Pi. It is headless and its lease
+    # moves, so the only address in this system is this hub's own.
+    #
+    # The token is not optional theatre. Without it any host on the same WiFi
+    # could inject frames into the camera feed, and the camera feed is the one
+    # surface a human is asked to believe.
+    edge_token: SecretStr = SecretStr("")
+
+    # Frames older than this are not presentable as current. See
+    # hawkeye_backend/edge/camera.py.
+    camera_stale_after_s: float = 3.0
+
+    # How often a thumbnail is pushed onto the event stream for the watch.
+    # Deliberately slow: it is a wrist, not a monitor.
+    camera_thumbnail_interval_s: float = 1.0
+
+    # Long edge of that thumbnail, in pixels.
+    camera_thumbnail_long_edge: int = 320
+
+    # The room this one fixed camera covers. One camera sees one room, and every
+    # vision claim carries that scope rather than implying it has none. Authored,
+    # not sensed: the system does not map walls and cannot, because walls are the
+    # static baseline the radio subtracts to see motion.
+    camera_room: str = "Living room"
+
+    # How long to wait for a shutter to answer a grant before reporting the
+    # position unknown. A grant's own TTL is ten seconds, so waiting longer than
+    # that is waiting for something that has already expired.
+    shutter_timeout_s: float = 8.0
+
     # Notices. A notice is information the resident acts on, never a dispatch.
     # The hold before an unexpected presence becomes one; see
     # hawkeye_backend/notices/detector.py for why it is not zero.
@@ -150,6 +181,16 @@ class Settings(BaseSettings):
         config is a way to print the wrong identity on a sealed record.
         """
         return self.master_ansname.replace("master.", "caller.", 1)
+
+    @property
+    def edge_configured(self) -> bool:
+        """True when the edge link can actually authenticate anyone.
+
+        An empty token means the link refuses every connection rather than
+        accepting every connection. A camera feed that anyone on the WiFi can
+        write to is worse than no camera feed.
+        """
+        return bool(self.edge_token.get_secret_value())
 
     @property
     def twilio_configured(self) -> bool:
