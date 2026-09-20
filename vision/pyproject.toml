@@ -7,6 +7,10 @@ dependencies = [
     "numpy>=2.0",
     "opencv-python>=4.10",
     "pydantic>=2.9",
+    # The Gemini Live client. A hard dependency rather than an extra: narration
+    # is half of what this package is for, and unlike torch it is a pure-python
+    # websocket client that costs the fast suite nothing to have installed.
+    "google-genai>=1.0",
 ]
 
 # The detector is optional on purpose. `hawkeye_vision.track` and everything
@@ -15,11 +19,12 @@ dependencies = [
 # Only `yolo_tracker.py` needs these, and it imports them lazily.
 [project.optional-dependencies]
 detect = ["ultralytics>=8.3.200", "torch>=2.6"]
-dev = ["pytest>=8.3"]
+dev = ["pytest>=8.3", "pytest-asyncio>=0.24"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+asyncio_mode = "strict"
 markers = [
     "integration: needs real model weights or real hardware. Deselect with -m 'not integration'.",
 ]
