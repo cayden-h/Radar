@@ -11,6 +11,7 @@ is where the hours disappear, and reachable-with-a-correct-card is the surface
 `agent.webmesh.ai verify_agent` actually inspects.
 
     python -m agents people --port 8001
+    python -m agents shutter --port 8106
     python -m agents --list
 
 Inputs default to the development fixtures in `agents.core.dev`, which are
@@ -25,6 +26,7 @@ import argparse
 import logging
 import os
 import sys
+from typing import TYPE_CHECKING
 
 from agents.core.base import Agent
 from agents.core.dev import SyntheticCsiFeed, StaticRoster
@@ -36,6 +38,11 @@ from agents.core.signing import ClaimSigner
 from agents.core.transport import CLAIM_TARGET_PATH, A2AObservationSource, Peer
 from agents.core.discovery import discover
 from hawkeye_backend.verification import ClaimVerifier, VerifierPolicy
+
+if TYPE_CHECKING:  # pragma: no cover
+    from hawkeye_backend.verification import TrustStore
+
+    from agents.shutter.backend import ShutterBackend
 
 logger = logging.getLogger(__name__)
 
@@ -112,8 +119,62 @@ def build_agent(slug: str) -> Agent:
             from agents.replay import ReplayAgent
 
             return ReplayAgent()
+        case "shutter":
+            from agents.shutter.agent import ShutterAgent
+
+            # The stub backend is the default, and that is not a placeholder
+            # standing in for the real one. The demo must never depend on
+            # hardware being alive, so the servo-less path is a first-class
+            # implementation and `HAWKEYE_SHUTTER_BACKEND=pigpio` is what opts
+            # into the pin. See `docs/swapping-in-real-parts.md`.
+            return ShutterAgent(trust=trust_store(slug), backend=shutter_backend())
         case _:
             raise SystemExit(f"no agent {slug!r}. Try --list.")
+
+
+def shutter_backend() -> "ShutterBackend":
+    """Stub unless `HAWKEYE_SHUTTER_BACKEND=pigpio` says otherwise.
+
+    Failing over to the stub when `pigpio` is unavailable would be the wrong
+    call and is deliberately not done: an operator who asked for the pin and
+    silently got a number has a shutter that reports open while the lens is
+    covered, which is the exact failure the attestation's `commanded` wording
+    exists to keep visible.
+    """
+    from agents.shutter.backend import StubShutter
+
+    choice = os.environ.get("HAWKEYE_SHUTTER_BACKEND", "stub").strip().lower()
+    if choice == "stub":
+        return StubShutter()
+    if choice == "pigpio":
+        from agents.shutter.pigpio_backend import PigpioShutter
+
+        return PigpioShutter()
+    raise SystemExit(f"HAWKEYE_SHUTTER_BACKEND={choice!r}; expected 'stub' or 'pigpio'")
+
+
+def trust_store(slug: str) -> "TrustStore":
+    """The keys this agent will verify against, from the peers' published cards.
+
+    `shutter` needs one of these and no mesh: it does not read anybody's
+    observations, it only checks who is giving it orders.
+    """
+    raw = os.environ.get("HAWKEYE_PEERS", "").strip()
+    if not raw:
+        from hawkeye_backend.verification import TrustStore
+
+        logger.warning(
+            "no HAWKEYE_PEERS, so %s holds an empty trust store and will refuse every "
+            "grant as unregistered_issuer. That is the correct behaviour for an agent "
+            "that cannot discover who master is, and it is not a working demo.",
+            slug,
+        )
+        return TrustStore()
+
+    base_urls = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
+    store, fingerprints = discover(peers_from(base_urls))
+    logger.info("trust store holds %d peers", len(fingerprints))
+    return store
 
 
 def build_mesh(slug: str) -> ObservationSource:
@@ -164,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--transport-port", type=int, default=8107, help="Transport server port (caller only)")
     parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - must be reachable
-    parser.add_argument("--list", action="store_true", help="List the five and exit.")
+    parser.add_argument("--list", action="store_true", help="List the roster and exit.")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")

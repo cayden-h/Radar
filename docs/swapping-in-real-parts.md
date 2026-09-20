@@ -25,11 +25,11 @@ Read the root `CLAUDE.md` first, especially the honesty rule.
 | watchOS app | Not built | `app/watch/` | n/a |
 | Hub backend | Simulated master | `HAWKEYE_MODE` env var | `HAWKEYE_MODE=live` |
 | Storage | In memory | `HAWKEYE_STORE_BACKEND` | `mongodb` (not implemented yet) |
-| Agent mesh | Five written and wired over A2A; `shutter` and `vision` not yet | `HAWKEYE_PEERS` env var | Set it to a `slug=url` list |
+| Agent mesh | Six written and wired over A2A; `vision` not yet | `HAWKEYE_PEERS` env var | Set it to a `slug=url` list |
 | Agent certificates | Raw public keys from published cards, no chain | `discovery._agent_from_card` | Validate `keys[].x5c` once ANS registration exists |
 | mTLS between agents | Declared on the cards, not enforced | Reverse proxy | Enable, and update `x-security-note` in the same commit |
 | CSI sensing | Brought up, demoted to motion | `sensor/` output contract | n/a |
-| **Servo / shield** | **Not built. Stub GPIO backend planned** | `shutter/gpio.py` | Swap the stub for `pigpio` |
+| **Servo / shield** | Gate built and tested; stub backend by default | `HAWKEYE_SHUTTER_BACKEND` env var | `pigpio` (needs `sudo pigpiod` on the Pi) |
 | **Camera** | **Not built. Fixture video file planned** | `vision/source.py` | Swap the file reader for V4L2 |
 | **Gemini Live narration** | **Not built** | `vision/narrator.py` | Real API key, real session |
 | **Police email** | **Not built** | `replay/courier.py` | Real Resend key |
@@ -207,15 +207,37 @@ Two failure modes from the hardware guides are worth repeating, because both rep
 - Without the traffic generator, CSI updates only on beacons at roughly 10 Hz, which never resolves a heart rate or a short motion transient.
 - With the router and the Pi on the same side of the room, the capture goes flat and looks exactly like a failed firmware patch.
 
-## The camera and the shield, which are unbuilt rather than simulated
+## The shield, which is built, and the camera, which is not
 
-Both follow the same pattern and it is the pattern this whole file is about.
+**`shutter` is built and its gate is tested.** The grant, the nonce, all seven refusals, the signed refusal
+observation and the attestation all run against a stub GPIO backend that records the angle it was told to
+move to. `cd agents && python -m pytest tests/test_shutter.py -q` proves the whole thing on a laptop with no
+hardware present, which is the point: the gate is what is being judged, and the servo is what makes it visible.
 
-**`shutter`** is developed against a stub GPIO backend that records the angle it was told to move to and returns it.
-Every refusal test, every nonce test, and the whole verification path run against that stub on a laptop with no hardware present.
-Flipping it is one class: `pigpio` instead of the stub, the two calibrated pulse widths from `docs/hardware/servo-sg92r.md`, and nothing above it changes.
+Flipping it is one environment variable: `HAWKEYE_SHUTTER_BACKEND=pigpio`, `sudo pigpiod` running, and the
+calibrated pulse widths from `docs/hardware/servo-sg92r.md`. Nothing above the backend changes.
 
-**How to tell the flip worked:** the attestation's `commanded_angle` matches what the servo actually did, and a camera frame taken with the shield closed is black. That second check is the one that matters and it is in the camera guide.
+**It does not fall back.** Asking for `pigpio` on a machine with no daemon raises rather than quietly
+returning the stub, because a shutter that silently became a number would report `open` with the lens covered,
+which is the one failure this agent exists to prevent.
+
+**How to tell the flip worked:** the position claim's `provenance.source` reads `servo-gpio` rather than
+`servo-stub`, and `provenance.simulated` goes false. That is computed from the backend rather than asserted by
+it, so a stub-backed shutter cannot present as a pin-backed one even by mistake.
+
+**The half-flipped state that looks like something else:** the servo moves and the shield does not.
+The SG92R is open-loop, so a jammed, slipped or mis-glued shield attests `open` exactly as a working one does -
+`commanded_angle` is the angle we *sent*, never the angle the shield reached, and the attestation says
+`position_basis: commanded` for precisely this reason. **The only thing that catches it is the frame itself
+being dark**, which is the black-frame check in the camera guide and is T23 on the board. Re-run it after the
+mount is touched for the last time. A shield leaving a crescent of lens visible turns the project's central
+privacy claim into a prop, and nobody would notice.
+
+**The refusal, in the app:** `Config.mockShutterRefuses` makes `master`'s grant fail verification, so the shield stays closed and the apps show the fourth state.
+It is a mock-only switch and has no effect when `useMocks = false`, where `shutter` decides for itself.
+**The refusal path matters more than the happy path**, so this switch is worth exercising before every rehearsal rather than on the night.
+
+**Verify it flipped:** the watch's Idle screen reads "Shield held closed" with the refusal in plain English under it, and **the notice arrives with no picture at all**, saying so. A notice that still carries a frame while this is on means the frame was cached from an earlier run.
 
 **The refusal, in the app:** `Config.mockShutterRefuses` makes `master`'s grant fail verification, so the shield stays closed and the apps show the fourth state.
 It is a mock-only switch and has no effect when `useMocks = false`, where `shutter` decides for itself.

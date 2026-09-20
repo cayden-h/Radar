@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WiFi RSSI Presence</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #111;
+    color: #eee;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem;
+  }
+  #badge {
+    font-size: 2.5rem;
+    font-weight: 700;
+    padding: 1.5rem 3rem;
+    border-radius: 1rem;
+    margin-bottom: 1.5rem;
+    transition: background-color 0.3s ease;
+  }
+  #badge.absent { background: #2d3748; color: #a0aec0; }
+  #badge.active { background: #9b2c2c; color: #fed7d7; }
+  #meta { font-size: 0.9rem; color: #999; margin-bottom: 1rem; }
+  canvas { background: #1a1a1a; border-radius: 0.5rem; }
+  #calibrateRow {
+    margin-top: 1.5rem;
+    display: flex;
+    gap: 0.75rem;
+  }
+  #calibrateBtn, #cancelBtn {
+    padding: 0.6rem 1.4rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #eee;
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+  }
+  #calibrateBtn { background: #2c5282; }
+  #calibrateBtn:disabled { background: #2d3748; color: #718096; cursor: default; }
+  #cancelBtn { background: #742a2a; }
+  #cancelBtn[hidden] { display: none; }
+  #calibrationPanel {
+    margin-top: 1.5rem;
+    text-align: center;
+    max-width: 560px;
+  }
+  #calibrationInstruction {
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: #eee;
+    margin-bottom: 0.5rem;
+  }
+  #calibrationCountdown {
+    font-size: 4rem;
+    font-weight: 800;
+    color: #63b3ed;
+    line-height: 1;
+  }
+  #calibrationResult {
+    font-size: 1rem;
+    color: #cbd5e0;
+    white-space: pre-line;
+  }
+</style>
+</head>
+<body>
+  <div id="badge" class="absent">CONNECTING…</div>
+  <div id="meta">rssi: -- dBm | variance: -- | motion: --</div>
+  <canvas id="sparkline" width="600" height="150"></canvas>
+  <div id="calibrateRow">
+    <button id="calibrateBtn" disabled>Calibrate</button>
+    <button id="cancelBtn" hidden>Stop</button>
+  </div>
+  <div id="calibrationPanel">
+    <div id="calibrationInstruction"></div>
+    <div id="calibrationCountdown"></div>
+    <div id="calibrationResult"></div>
+  </div>
+
+<script>
+  const badge = document.getElementById("badge");
+  const meta = document.getElementById("meta");
+  const canvas = document.getElementById("sparkline");
+  const ctx = canvas.getContext("2d");
+  const calibrateBtn = document.getElementById("calibrateBtn");
+  const cancelBtn = document.getElementById("cancelBtn");
+  const calibrationInstruction = document.getElementById("calibrationInstruction");
+  const calibrationCountdown = document.getElementById("calibrationCountdown");
+  const calibrationResult = document.getElementById("calibrationResult");
+  const MAX_POINTS = 60;
+  const rssiHistory = [];
+  let ws = null;
+
+  const STATE_LABEL = {
+    "absent": "NO MOTION",
+    "active": "MOTION",
+  };
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (rssiHistory.length < 2) return;
+
+    const min = Math.min(...rssiHistory);
+    const max = Math.max(...rssiHistory);
+    const range = Math.max(max - min, 1);
+
+    ctx.strokeStyle = "#63b3ed";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    rssiHistory.forEach((rssi, i) => {
+      const x = (i / (MAX_POINTS - 1)) * canvas.width;
+      const y = canvas.height - ((rssi - min) / range) * canvas.height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  function handleTick(data) {
+    const label = STATE_LABEL[data.state] || data.state;
+    badge.textContent = label;
+    badge.className = data.state;
+    meta.textContent = `rssi: ${data.rssi ?? "--"} dBm | variance: ${data.variance.toFixed(2)} | motion: ${data.motion_energy.toFixed(2)}`;
+
+    if (data.rssi !== null) {
+      rssiHistory.push(data.rssi);
+      if (rssiHistory.length > MAX_POINTS) rssiHistory.shift();
+      draw();
+    }
+  }
+
+  function setCalibrating(isRunning) {
+    calibrateBtn.disabled = isRunning;
+    cancelBtn.hidden = !isRunning;
+  }
+
+  function handleCalibration(data) {
+    if (data.phase === "error") {
+      setCalibrating(false);
+      calibrateBtn.textContent = "Calibrate";
+      calibrationInstruction.textContent = "";
+      calibrationCountdown.textContent = "";
+      calibrationResult.textContent = `Calibration failed: ${data.message}`;
+      return;
+    }
+
+    if (data.phase === "cancelled") {
+      setCalibrating(false);
+      calibrateBtn.textContent = "Calibrate";
+      calibrationInstruction.textContent = "";
+      calibrationCountdown.textContent = "";
+      calibrationResult.textContent = "Calibration stopped.";
+      return;
+    }
+
+    if (data.phase === "done") {
+      setCalibrating(false);
+      calibrateBtn.textContent = "Recalibrate";
+      calibrationInstruction.textContent = "";
+      calibrationCountdown.textContent = "";
+      const t = data.thresholds;
+      calibrationResult.textContent =
+        `Calibrated and applied live.\n` +
+        `active_motion_ratio: ${t.active_motion_ratio.toFixed(2)}\n` +
+        `(In-memory only -- paste this into classifier.py to keep it after a restart.)`;
+      return;
+    }
+
+    // phase is "prepare", "still", or "walk": an in-progress countdown
+    setCalibrating(true);
+    calibrateBtn.textContent = "Calibrating…";
+    calibrationResult.textContent = "";
+    calibrationInstruction.textContent = data.instruction;
+    calibrationCountdown.textContent = data.seconds_left;
+  }
+
+  function connect() {
+    ws = new WebSocket(`ws://${location.hostname}:8765`);
+
+    ws.onopen = () => {
+      badge.textContent = "NO MOTION";
+      badge.className = "absent";
+      calibrateBtn.disabled = false;
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === "calibration") {
+        handleCalibration(data);
+      } else {
+        handleTick(data);
+      }
+    };
+
+    ws.onclose = () => {
+      badge.textContent = "DISCONNECTED";
+      badge.className = "absent";
+      calibrateBtn.disabled = true;
+      cancelBtn.hidden = true;
+      setTimeout(connect, 2000);
+    };
+  }
+
+  calibrateBtn.addEventListener("click", () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ cmd: "calibrate" }));
+    }
+  });
+
+  cancelBtn.addEventListener("click", () => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ cmd: "cancel_calibration" }));
+    }
+  });
+
+  connect();
+</script>
+</body>
+</html>

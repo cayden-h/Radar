@@ -71,7 +71,7 @@ Remove, do not comment out:
 **Watch for**: this will delete roughly 40 tests. That is correct. A test suite that still passes while testing a cut capability is worse than no test.
 
 ### T02 - Scaffold the two new agent packages
-**Lane** A · **Skill** py · **Blocks** T14, T16 · **Who** ___
+**Lane** A · **Skill** py · **Blocks** T14, T16 · **Who** ___ · **`shutter` half DONE, `vision` half open**
 
 `agents/agents/shutter/` and `agents/agents/vision/`, each with:
 
@@ -82,6 +82,10 @@ Remove, do not comment out:
 **Done when** both agents start, serve `/a2a`, serve both cards, and `python scripts/build_cards.py --check` passes.
 
 **Why first**: every downstream task can then be written against a running process rather than an idea.
+
+**`shutter` is done** and went straight past the returns-Unknown stage into T14; `python -m agents shutter --port 8106`
+serves both cards and `/a2a`, and `--check` passes for six. **`vision` is still open** and is now the only thing
+blocking T15 and T16.
 
 ### T03 - Scaffold the watchOS target
 **Lane** C · **Skill** swift · **Blocks** T30, T31 · **Who** ___
@@ -138,7 +142,7 @@ Roster plus device association, unchanged in shape. Sticky verdict so the shutte
 **Done when** a fixture where motion appears with no associated device returns unaccounted, one where a roster device is associated returns accounted, and the verdict survives three clear ticks before dropping.
 
 ### T14 - The shutter grant, end to end, on a stub GPIO backend
-**Lane** A · **Skill** py · **Needs** T02, T13 · **Blocks** T16, T20, T50 · **Who** ___
+**Lane** A · **Skill** py · **Needs** T02, T13 · **Blocks** T16, T20, T50 · **Who** ___ · **DONE 2026-09-19**
 
 **The single highest-value task on this board.** Full spec in `shutter/CLAUDE.md`.
 
@@ -148,6 +152,20 @@ Roster plus device association, unchanged in shape. Sticky verdict so the shutte
 - A `VerifiedGrant` type that only the verifier can construct, and a GPIO write that takes nothing else
 
 **Done when** `pytest agents/tests/test_shutter.py` passes all seven refusal cases plus the happy path plus the bytes-survive-JSON guard, with no hardware attached.
+
+**Done.** 22 tests pass with no hardware. Beyond the spec, three things came out of building it and are worth knowing
+before you touch the neighbouring tasks:
+
+- **An eighth refusal, `malformed_grant`**, as the floor beneath the seven, so "we could not read it" never borrows
+  the wire representation of a check that actually ran
+- **Refusals come back signed**, bound to the nonce of the grant refused, and verify as ATTRIBUTED rather than
+  ASSERTED - which is `shutter`'s TRANSACTIONAL profile working correctly
+- **`Agent.a2a_methods(signer)` is new.** `shutter` is the one agent that takes an order rather than answering a
+  question, and its methods share the one `/a2a` with `hawkeye.observe`. Two routers on that path silently
+  resolved to whichever registered first, which would have surfaced as a baffling T20 bug
+
+**T13 turned out not to block it.** The verification path reads no `intruder` verdict; only *master issuing* grants
+does, which is T20.
 
 ### T15 - `vision` against a fixture video file
 **Lane** A · **Skill** py · **Needs** T02 · **Blocks** T16 · **Who** ___
@@ -197,11 +215,18 @@ The five-row table in `agents/CLAUDE.md`. The shutter grant on an unaccounted ve
 ## Lane B - The Pi
 
 ### T21 - Servo wired, powered and calibrated
-**Lane** B · **Skill** hw · **Needs** T14 · **Blocks** T22, T60 · **Who** ___
+**Lane** B · **Skill** hw · **Needs** T14 ✅ · **Blocks** T22, T60 · **Who** ___ · **unblocked**
 
 Follow `docs/hardware/servo-sg92r.md`. Separate supply, common ground, `pigpio`, hardware PWM.
 
-**Done when** `python -m shutter.selftest` moves a real servo, and a camera frame taken with the shield closed has a mean luminance near zero.
+The driver is written (`agents/agents/shutter/pigpio_backend.py`) and unrun. Flip with
+`HAWKEYE_SHUTTER_BACKEND=pigpio`; it **raises rather than falling back** to the stub if `pigpiod` is not up,
+because a shutter that silently became a number would report `open` with the lens covered.
+
+**Done when** `python -m agents.shutter.selftest --backend pigpio` moves a real servo, and a camera frame taken with the shield closed has a mean luminance near zero.
+
+**The self-test bypasses the gate deliberately** and proves nothing about it - the gate is proved by
+`tests/test_shutter.py` on a laptop. This task is the physical half only.
 
 **The power step is not optional and not a detail.** A servo on the Pi's 5V rail will brown the Pi out mid-demo and the failure will not mention the servo.
 

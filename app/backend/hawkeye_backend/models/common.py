@@ -47,6 +47,15 @@ class Source(StrEnum):
     OPERATOR_AUDIO = "operator-audio"
     # An agent derived it from other readings rather than sensing it.
     AGENT_INFERENCE = "agent-inference"
+    # A real SG92R on the Pi's GPIO, driven through pigpio. DERIVED rather than
+    # MEASURED, and that is not a technicality: the SG92R is open-loop and has
+    # no position feedback, so a shutter position is the angle we *commanded*
+    # and never the angle the shield reached. A jammed shield reports open.
+    SERVO_GPIO = "servo-gpio"
+    # The shutter's stub backend: a servo that exists only as a number. Named
+    # separately from SERVO_GPIO so that running the demo with no hardware
+    # attached cannot present as running it with hardware attached.
+    SERVO_STUB = "servo-stub"
 
 
 class SourceClass(StrEnum):
@@ -72,6 +81,8 @@ _SOURCE_CLASS: dict[Source, SourceClass] = {
     Source.USER_INPUT: SourceClass.HUMAN,
     Source.OPERATOR_AUDIO: SourceClass.HUMAN,
     Source.AGENT_INFERENCE: SourceClass.DERIVED,
+    Source.SERVO_GPIO: SourceClass.DERIVED,
+    Source.SERVO_STUB: SourceClass.SIMULATED,
 }
 
 MEASURED_SOURCES: frozenset[Source] = frozenset(

@@ -47,7 +47,7 @@ from __future__ import annotations
 import logging
 import secrets
 from dataclasses import dataclass
-from datetime import timedelta
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -126,7 +126,12 @@ class ObserveResult(BaseModel):
 # ------------------------------------------------------------- the server side
 
 
-def a2a_router(agent: Agent, signer: ClaimSigner) -> APIRouter:
+def a2a_router(
+    agent: Agent,
+    signer: ClaimSigner,
+    *,
+    extra: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] | None = None,
+) -> APIRouter:
     """The `/a2a` endpoint every agent serves.
 
     Signs the agent's *current* observation against the challenge in the
@@ -137,6 +142,7 @@ def a2a_router(agent: Agent, signer: ClaimSigner) -> APIRouter:
     continuous operation is for.
     """
     router = APIRouter()
+    extra = dict(extra or {})
 
     @router.post(CLAIM_TARGET_PATH)
     async def a2a(request: dict[str, Any]) -> dict[str, Any]:
@@ -145,8 +151,18 @@ def a2a_router(agent: Agent, signer: ClaimSigner) -> APIRouter:
         def error(code: int, message: str) -> dict[str, Any]:
             return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": code, "message": message}}
 
-        if request.get("method") != METHOD_OBSERVE:
-            return error(-32601, f"unknown method {request.get('method')!r}")
+        method = request.get("method")
+
+        # An agent's own methods, on the same endpoint as `hawkeye.observe`,
+        # because there is one `/a2a` per agent and it is the one the card
+        # publishes. Only `shutter` has any: it is the one agent that takes an
+        # order rather than answering a question.
+        handler = extra.get(method) if isinstance(method, str) else None
+        if handler is not None:
+            return {"jsonrpc": "2.0", "id": rpc_id, "result": handler(request.get("params") or {})}
+
+        if method != METHOD_OBSERVE:
+            return error(-32601, f"unknown method {method!r}")
         try:
             params = ObserveParams.model_validate(request.get("params") or {})
         except ValidationError as exc:
