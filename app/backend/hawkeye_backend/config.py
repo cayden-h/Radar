@@ -90,6 +90,16 @@ class Settings(BaseSettings):
     twilio_min_interval_s: float = 60.0
     twilio_max_per_instance: int = 5
 
+    # Twilio Voice + ElevenLabs, for the call bridge. All of these plus the SMS
+    # four above are required for a real call. Missing any one reads as unconfigured
+    # and the call bridge refuses to place a real call rather than half-placing one.
+    twilio_voice_number: str = ""
+    twilio_conference_app_sid: str = ""
+    mock_911_number: str = ""
+    elevenlabs_api_key: SecretStr = SecretStr("")
+    elevenlabs_voice_id: str = ""
+    public_base_url: str = ""
+
     # Replay recording. The record opens on a human tap and seals when the 911
     # call ends; these bound what goes into it in between.
     #
@@ -138,6 +148,20 @@ class Settings(BaseSettings):
                 self.twilio_to_number,
             )
         )
+
+    @property
+    def twilio_voice_configured(self) -> bool:
+        """True only when every value needed for a voice call is present."""
+        return all((
+            self.twilio_account_sid,
+            self.twilio_auth_token.get_secret_value(),
+            self.twilio_voice_number,
+            self.twilio_conference_app_sid,
+            self.mock_911_number,
+            self.elevenlabs_api_key.get_secret_value(),
+            self.elevenlabs_voice_id,
+            self.public_base_url,
+        ))
 
 
 _settings: Settings | None = None
