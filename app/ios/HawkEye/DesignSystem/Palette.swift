@@ -85,13 +85,17 @@ enum Palette {
 
     /// A confirmed person the system did not expect to be in the building.
     ///
-    /// Deliberately the same deep red as the Burglary button: the colour the
-    /// roster turns and the button the resident presses are the same fact, and
-    /// pairing them means the screen does not have to explain the link.
+    /// Used to share `burglary`'s deep red exactly, on the theory that the
+    /// colour the roster turns and the button the resident presses should be
+    /// the same fact. Split off by request: a notice is information, read at
+    /// arm's length, and reads better in the app's own rose-magenta than in
+    /// the red reserved for "you are about to dial 911" — a colour that
+    /// stays doing only that one job now, unconfused by anything else
+    /// borrowing it for emphasis.
     ///
     /// `expected` is an orthogonal axis to `PresenceState`, not a fourth state,
     /// so this tint replaces the state tint rather than adding a case to it.
-    static let personUnexpected = Color(hex: 0x9A1B1B)
+    static let personUnexpected = Color(hex: 0xE0508A)
 
     /// A confirmed person who is still and breathing, on the map/roster only.
     /// Kept separate from `Palette.personUnresponsive`, which is the

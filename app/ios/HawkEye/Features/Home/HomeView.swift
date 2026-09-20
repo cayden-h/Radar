@@ -164,10 +164,15 @@ struct HomeView: View {
                 }
             }
 
-            IncidentBar(client: client)
-                .padding(.top, Space.xl)
+            // Two flexible spacers rather than padding, so the button
+            // centers in whatever room is actually left between the camera
+            // panel and the tab bar instead of sitting wherever a fixed
+            // offset happens to land it.
+            Spacer(minLength: Space.xl)
 
-            Spacer(minLength: 0)
+            IncidentBar(client: client)
+
+            Spacer(minLength: Space.xl)
         }
         .padding(.horizontal, Space.gutter)
         .padding(.top, Space.sm)
@@ -289,7 +294,7 @@ private struct NoticesPanel: View {
                 Text("Notices")
                     .font(TypeScale.title)
                     .foregroundStyle(Palette.ink)
-                    .padding(.top, Space.lg)
+                    .padding(.top, Space.xxl)
 
                 if notices.isEmpty {
                     Text("Nothing waiting on you.")
@@ -311,7 +316,7 @@ private struct NoticesPanel: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, Space.gutter)
+            .padding(.horizontal, Space.xl)
             .padding(.bottom, Space.xl)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }

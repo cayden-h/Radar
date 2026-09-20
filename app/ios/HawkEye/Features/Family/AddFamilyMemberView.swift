@@ -226,7 +226,8 @@ struct AddFamilyMemberView: View {
     private var guestSection: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             Text("Guests")
-                .eyebrowStyle(Palette.inkFaint)
+                .font(TypeScale.title)
+                .foregroundStyle(Palette.ink)
 
             HStack(spacing: Space.sm) {
                 TextField("Name", text: $guestName)
@@ -238,11 +239,11 @@ struct AddFamilyMemberView: View {
 
                 Button("Add", action: confirmGuest)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(canSaveGuest ? Palette.ground : Palette.ink.opacity(0.6))
+                    .foregroundStyle(canSaveGuest ? Palette.calm : Palette.calm.opacity(0.45))
                     .padding(.horizontal, Space.lg)
                     .frame(height: Hit.min - 8)
-                    .background(canSaveGuest ? AnyShapeStyle(Palette.calm) : AnyShapeStyle(.ultraThinMaterial))
-                    .overlay(Capsule().strokeBorder(canSaveGuest ? Color.clear : Palette.glassBorder, lineWidth: 1))
+                    .background(.ultraThinMaterial)
+                    .overlay(Capsule().strokeBorder(Palette.glassBorder, lineWidth: 1))
                     .clipShape(Capsule())
                     .disabled(!canSaveGuest)
             }
