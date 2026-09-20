@@ -120,7 +120,12 @@ def test_the_mode_property_reports_the_state_in_effect():
 
 
 def test_a_value_sitting_on_the_boundary_does_not_flap(ramp_mp4):
-    """The test that matters. A naive classifier changes state on every jitter."""
+    """A smooth fall to black and back produces the transitions the signal
+    physically contains, and no more.
+
+    This fixture is monotonic, so it does NOT exercise hysteresis: it never
+    revisits a threshold from both sides. The hysteresis proof is
+    `test_noise_straddling_a_threshold_does_not_change_state`."""
     config = VisionConfig(dwell_frames=5)
     classifier = LightingClassifier(config)
 
@@ -132,6 +137,71 @@ def test_a_value_sitting_on_the_boundary_does_not_flap(ramp_mp4):
     transitions = sum(1 for a, b in zip(states, states[1:]) if a is not b)
 
     # The ramp falls from bright to black and climbs back, crossing both
-    # thresholds twice. Six transitions is the physical truth of that signal;
-    # anything substantially more is the classifier flapping on the boundary.
+    # thresholds twice, so four transitions is the truth of this signal.
     assert transitions <= 6
+
+
+def test_a_shield_jammed_over_the_lens_is_caught_even_from_broad_daylight():
+    """Regression. The servo is open-loop and attests the angle it was told to,
+    so a jammed shield reports open while still covering the lens. A dark frame
+    is the only evidence there is, and a two-band jump from DAY must not be
+    swallowed by hysteresis anchored on the wrong threshold."""
+    config = VisionConfig(dwell_frames=5)
+    classifier = LightingClassifier(config)
+    classifier.update(200.0)
+
+    for _ in range(20):
+        classifier.update(20.0)
+
+    assert classifier.mode is LightingMode.TOO_DARK
+
+
+def test_every_luminance_below_the_dark_threshold_is_eventually_caught():
+    """No value that classify() calls TOO_DARK may be permanently unreachable."""
+    config = VisionConfig(dwell_frames=5)
+
+    for luminance in range(0, 25):
+        classifier = LightingClassifier(config)
+        classifier.update(200.0)
+        for _ in range(20):
+            classifier.update(float(luminance))
+
+        assert classifier.mode is LightingMode.TOO_DARK, (
+            f"luminance {luminance} is classified TOO_DARK by classify() "
+            f"but the classifier stayed in {classifier.mode}"
+        )
+
+
+def test_a_lit_room_is_recognised_after_darkness_even_when_the_reading_is_noisy():
+    """Regression. Noise straddling a threshold must not stall the dwell forever."""
+    config = VisionConfig(dwell_frames=5)
+    classifier = LightingClassifier(config)
+    classifier.update(5.0)
+
+    for value in [89.0, 91.0] * 20:
+        classifier.update(value)
+
+    assert classifier.mode is not LightingMode.TOO_DARK
+
+
+def test_noise_straddling_a_threshold_does_not_change_state():
+    """The real hysteresis test, and one a classifier without hysteresis fails.
+
+    88 and 92 sit either side of day_threshold (90) by less than the margin (8).
+    classify() alternates LOW and DAY on this input every single frame. The
+    classifier must sit still."""
+    config = VisionConfig(dwell_frames=5)
+    classifier = LightingClassifier(config)
+    classifier.update(200.0)
+
+    states = [classifier.update(v) for v in [88.0, 92.0] * 50]
+
+    assert set(states) == {LightingMode.DAY}
+
+
+def test_the_stateless_classifier_really_does_flap_on_that_input():
+    """Proves the test above has teeth rather than passing vacuously."""
+    config = VisionConfig()
+    naive = [classify(v, config) for v in [88.0, 92.0] * 50]
+
+    assert len(set(naive)) == 2

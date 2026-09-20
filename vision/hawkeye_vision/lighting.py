@@ -77,7 +77,6 @@ class LightingClassifier:
     def __init__(self, config: VisionConfig) -> None:
         self._config = config
         self._current: LightingMode | None = None
-        self._candidate: LightingMode | None = None
         self._held = 0
 
     @property
@@ -91,59 +90,47 @@ class LightingClassifier:
             self._current = classify(luminance, self._config)
             return self._current
 
-        proposed = self._classify_with_hysteresis(luminance)
-
-        if proposed is self._current:
-            self._candidate = None
+        if not self._has_left_current_band(luminance):
             self._held = 0
             return self._current
 
-        if proposed is self._candidate:
-            self._held += 1
-        else:
-            self._candidate = proposed
-            self._held = 1
-
+        self._held += 1
         if self._held >= self._config.dwell_frames:
-            self._current = proposed
-            self._candidate = None
+            # Read the destination at the moment of commitment rather than
+            # tracking a candidate. Noise that keeps the reading outside the
+            # band still accumulates dwell, which is what stops a lit room
+            # sitting in TOO_DARK forever because its luminance jitters across
+            # a threshold.
+            self._current = classify(luminance, self._config)
             self._held = 0
 
         return self._current
 
-    def _classify_with_hysteresis(self, luminance: float) -> LightingMode:
-        """Classify, but require the reading to clear the threshold it is leaving.
+    def _has_left_current_band(self, luminance: float) -> bool:
+        """Has the reading cleared the edges of the state we are in?
 
-        Moving to a brighter state demands the luminance exceed the boundary by
-        the hysteresis margin. Moving darker demands it fall below by the same
-        margin. A reading inside the margin keeps the state it already has.
+        Hysteresis is applied to the band we are CURRENTLY in, not to the
+        destination's threshold. Anchoring it on the destination was a bug: a
+        jump from DAY straight to TOO_DARK was checked against the TOO_DARK
+        boundary plus margin, which a genuinely dark frame never cleared, so a
+        shield jammed over the lens was reported as a well-lit room forever.
         """
+        lower, upper = _band_edges(self._current, self._config)
         margin = self._config.hysteresis
-        naive = classify(luminance, self._config)
 
-        if naive is self._current:
-            return naive
-
-        brighter = _ORDER[naive] > _ORDER[self._current]
-        boundary = self._boundary_between(self._current, naive)
-
-        if brighter and luminance < boundary + margin:
-            return self._current
-        if not brighter and luminance > boundary - margin:
-            return self._current
-        return naive
-
-    def _boundary_between(self, a: LightingMode, b: LightingMode) -> float:
-        """The threshold separating two states. Equal to the darker one's ceiling."""
-        darker = a if _ORDER[a] < _ORDER[b] else b
-        if darker is LightingMode.TOO_DARK:
-            return self._config.dark_threshold
-        return self._config.day_threshold
+        if lower is not None and luminance < lower - margin:
+            return True
+        if upper is not None and luminance >= upper + margin:
+            return True
+        return False
 
 
-#: Brightness ordering, so the classifier can ask which direction a change is in.
-_ORDER: dict[LightingMode, int] = {
-    LightingMode.TOO_DARK: 0,
-    LightingMode.LOW: 1,
-    LightingMode.DAY: 2,
-}
+def _band_edges(
+    mode: LightingMode, config: VisionConfig
+) -> tuple[float | None, float | None]:
+    """The luminance edges of a state's band. None means unbounded that way."""
+    if mode is LightingMode.TOO_DARK:
+        return None, config.dark_threshold
+    if mode is LightingMode.LOW:
+        return config.dark_threshold, config.day_threshold
+    return config.day_threshold, None
