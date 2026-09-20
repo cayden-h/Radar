@@ -15,12 +15,14 @@ What exists right now:
 - **`app/ios/`** - the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. `cd app/ios && xcodegen generate`. Builds and runs on an iPhone 17 simulator against Xcode 27.0.
 - **`app/watch/`** - the watchOS app. **Written.** Three screens - Idle, Notice, Saved - on a phone-paired WatchConnectivity relay, plus the notification that carries the camera's first sentence to a wrist. A mock feed runs all three screens with no phone and no hub. It lives as a second XcodeGen target in `app/ios/` so it can share `Models/`, `Shared/` and `DesignSystem/` by source path; see `app/ios/HawkEyeWatch/README.md`. This is where a human starts an incident.
 - **`app/web/replay/`** - the replay console at `/replay`. Gains video playback with the pivot.
+- **`app/web/live/`** - the live console at `/live`. **New 2026-09-20.** The third surface: the camera as MJPEG, narration and shield state off the event stream, and the four cross-app controls. It exists so "any app, same backend" is something a judge can watch rather than a claim they take on trust.
 - **`sensor/`** - the Pi 4B CSI capture path. Real, varying, non-zero CSI confirmed flowing end to end via `nexmon_csi`. Its output contract shrinks with the pivot.
 - **`vision/`** - the camera capture path. **Written, and verified against real footage of real people.**
   A `FrameSource` seam with fixture, webcam and future-Pi implementations; three-state lighting detection with hysteresis and a dwell; measured person tracking on YOLO11m plus BoT-SORT with ReID; and rotating mp4 segments hashed as they close.
   `cd vision && python3 -m pytest -q`, and `python3 -m hawkeye_vision` runs the whole path live with boxes and a lighting readout.
   Narration lives beside it in `hawkeye_vision/narrate.py`. **The shutter attestation gate and claim emission to `master` are not written yet**, so it produces no claims: that is T16.
 - **`shutter/`** - the servo control path. The contract; the agent is `agents/agents/shutter/`. **Gate written and tested, 22 tests, no hardware needed. The servo itself is unrun.**
+  Reachable end to end from all three apps as of 2026-09-20: `POST /v1/shutter` asks the shutter for a nonce, has `master` sign a grant bound to it, and publishes the attestation or the refusal to every surface.
 - **`docs/hardware/`** - one guide per hardware item, plus a linear bring-up checklist.
 - **`TASKS.md`** - the work board. Dependency-ordered, claimable, not assigned by person. Start there.
 
@@ -222,6 +224,30 @@ A malicious agent can still place a 911 call in a convincing synthesized voice a
 Closing that needs the PSAP side to participate, and no dispatch center runs software we can ship to.
 
 It is also the right closing line: the moment a dispatch center can resolve an ANSName, live verification falls out of what is already built here.
+
+## The edge link
+
+Added 2026-09-20. The camera and the servo are on the Pi; everything that is only compute is on the Mac.
+
+```
+Pi 4B (WiFi)                            MacBook M2 Pro (WiFi)
+  Brio      ──┐                     ┌── app/backend :8787
+  SG92R     ──┤   hawkeye-edge  ════╡     vision/ (YOLO, Gemini, mp4)
+              │   (the Pi dials)    │
+              └─                    └── MJPEG · WS · REST
+                                             │
+                               phone · watch · browser
+```
+
+`python -m hawkeye_vision.edge` on the Pi captures, encodes and pushes, and holds no model and no Gemini session.
+A Pi 4B takes about a second per frame on YOLO11m and the budget is three seconds motion to wrist, so the tracker never goes there.
+
+**The Pi dials the Mac, never the reverse.** One websocket carries frames up and shutter grants down, so nothing has to discover the Pi's address - which matters because its lease moves every time the network changes.
+Relaying a signed grant over that link costs nothing in trust: `shutter` verifies the signature over exactly the bytes it receives, whatever carried them. The link is a pipe, not a participant.
+
+Frames reach the three surfaces at three rates: full-rate MJPEG at `/v1/camera/live` for the phone and the browser, a 1 Hz thumbnail on the existing event stream for the watch, and a single still on demand.
+
+**`scripts/check-hop.sh` proves the network before anything depends on it.** The failure it exists for is client isolation, where an access point refuses to carry traffic between two of its own clients: everything gets internet, nothing can reach anything else, and it looks exactly like broken code.
 
 ## Hardware
 
