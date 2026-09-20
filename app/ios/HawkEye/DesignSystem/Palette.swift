@@ -18,6 +18,47 @@ enum Palette {
     /// Hairlines. Always this, never an opacity guess.
     static let hairline = Color(hex: 0x282030)
 
+    // MARK: Ground, as a gradient
+
+    /// The dusk-toned three-stop gradient `AmbientBackground` paints instead
+    /// of a flat `ground` fill. Every ink/state colour above still reads at
+    /// the same contrast it was tuned against against the darkest stop —
+    /// the gradient only has to be visible, not loud.
+    static let duskTop = Color(hex: 0x3B2A68)
+    static let duskMid = Color(hex: 0x201638)
+    static let duskBase = Color(hex: 0x0B0813)
+
+    static var groundGradient: LinearGradient {
+        LinearGradient(
+            colors: [duskTop, duskMid, duskBase],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    /// Two soft, blurred fields of colour behind the dot grid — the thing
+    /// `AmbientBackground`'s own doc comment used to argue against, revised
+    /// because a gradient this dark against near-black cards was reading as
+    /// no change at all. Kept to two, kept low-opacity, and kept off the
+    /// state palette (`auraGlow` is decoration only, never a status).
+    static let auraGlow = Color(hex: 0x9B6BFF)
+    static let auraGlowSecondary = Color(hex: 0xFF8FC0)
+
+    // MARK: Glass
+
+    /// The border every frosted panel uses in place of `hairline` — see
+    /// `View.glassPanel` in `Components.swift`.
+    static let glassBorder = Color.white.opacity(0.20)
+    /// A light, neutral grey wash over every frosted panel — deliberately
+    /// *not* tinted purple, so glass reads as glass and the brand colour
+    /// stays reserved for accents, state and the mascot. Cut again to 0.04,
+    /// paired with `glassPanel`'s material at 0.12 — the wash was still
+    /// reading as a visible white fill rather than a hint of one. A panel
+    /// this transparent only reads as *glass* rather than *empty* because
+    /// its icons/text carry brightness instead of the fill (`Palette.ink`,
+    /// not `inkMuted`, wherever it sits on glass).
+    static let glassTint = Color.white.opacity(0.04)
+
     // MARK: Ink
 
     /// Primary text.
@@ -44,13 +85,17 @@ enum Palette {
 
     /// A confirmed person the system did not expect to be in the building.
     ///
-    /// Deliberately the same deep red as the Burglary button: the colour the
-    /// roster turns and the button the resident presses are the same fact, and
-    /// pairing them means the screen does not have to explain the link.
+    /// Used to share `burglary`'s deep red exactly, on the theory that the
+    /// colour the roster turns and the button the resident presses should be
+    /// the same fact. Split off by request: a notice is information, read at
+    /// arm's length, and reads better in the app's own rose-magenta than in
+    /// the red reserved for "you are about to dial 911" — a colour that
+    /// stays doing only that one job now, unconfused by anything else
+    /// borrowing it for emphasis.
     ///
     /// `expected` is an orthogonal axis to `PresenceState`, not a fourth state,
     /// so this tint replaces the state tint rather than adding a case to it.
-    static let personUnexpected = Color(hex: 0x9A1B1B)
+    static let personUnexpected = Color(hex: 0xE0508A)
 
     /// A confirmed person who is still and breathing, on the map/roster only.
     /// Kept separate from `Palette.personUnresponsive`, which is the

@@ -72,8 +72,6 @@ targets:
         NSBonjourServices:
           - _hawkeye._tcp
           - _hawkeye._udp
-        UIAppFonts:
-          - Oswald-Bold.ttf
 
   # The watch app. Shares Models, Shared and DesignSystem with the phone by
   # source path rather than by a copied file, so there is one definition of

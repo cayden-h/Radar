@@ -92,14 +92,6 @@ struct IncidentView: View {
                     .padding(.bottom, Space.md)
             }
 
-            // Content scrolls behind the status bar, so cover that strip in
-            // the ground colour rather than letting transcript text collide
-            // with the clock. The ground is flat, so this reads as seamless.
-            Palette.ground
-                .frame(height: proxy.safeAreaInsets.top)
-                .ignoresSafeArea(edges: .top)
-                .allowsHitTesting(false)
-
             backButton
                 .padding(.top, proxy.safeAreaInsets.top + Space.xs)
                 .padding(.leading, Space.md)
@@ -121,7 +113,7 @@ struct IncidentView: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Palette.ink)
                 .frame(width: Hit.min, height: Hit.min)
-                .background(Circle().fill(Palette.surface.opacity(0.9)))
+                .glassPanel(cornerRadius: Radius.pill)
         }
         .buttonStyle(.pressable)
         .accessibilityLabel("Back, call continues")
@@ -169,14 +161,7 @@ struct IncidentView: View {
             }
         }
         .padding(Space.lg)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .fill(Palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .strokeBorder(incident.type.tint.opacity(0.3), lineWidth: 1)
-        )
+        .glassPanel(tint: incident.type.tint)
         .padding(.top, Space.sm)
     }
 
@@ -249,14 +234,7 @@ struct IncidentView: View {
                     .padding(.top, 3)
             }
             .padding(Space.lg)
-            .background(
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                    .fill(Palette.personUnresponsive.opacity(0.12))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                    .strokeBorder(Palette.personUnresponsive.opacity(0.5), lineWidth: 1)
-            )
+            .modifier(AlertOrGlassBackground(alert: true, tint: Palette.personUnresponsive))
         }
         .buttonStyle(.pressable)
         .accessibilityLabel("\(refusals.count) refused claims. Open the verification feed.")
@@ -265,7 +243,7 @@ struct IncidentView: View {
     // MARK: Feed
 
     private var feedSwitch: some View {
-        HStack(spacing: Space.sm) {
+        HStack(spacing: 3) {
             ForEach(Feed.allCases) { option in
                 Button {
                     feed = option
@@ -279,11 +257,11 @@ struct IncidentView: View {
                                 .frame(width: 5, height: 5)
                         }
                     }
-                    .foregroundStyle(feed == option ? Palette.ink : Palette.inkFaint)
+                    .foregroundStyle(feed == option ? Palette.ink : Palette.ink.opacity(0.55))
                     .padding(.horizontal, Space.md)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 8)
                     .background(
-                        Capsule().fill(feed == option ? Palette.surfaceRaised : .clear)
+                        Capsule().fill(feed == option ? Palette.calm.opacity(0.28) : .clear)
                     )
                 }
                 .buttonStyle(.pressable)
@@ -291,6 +269,8 @@ struct IncidentView: View {
 
             Spacer()
         }
+        .padding(4)
+        .glassPanel(cornerRadius: Radius.pill)
         .animation(Motion.snappy, value: feed)
     }
 
@@ -375,27 +355,17 @@ struct IncidentView: View {
                 .submitLabel(.send)
                 .padding(.horizontal, Space.md)
                 .padding(.vertical, 11)
-                .background(
-                    RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                        .fill(Palette.surfaceRaised)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                        .strokeBorder(
-                            fieldFocused ? Palette.calm.opacity(0.5) : Palette.hairline,
-                            lineWidth: 1
-                        )
-                )
+                .glassPanel(cornerRadius: Radius.md, tint: fieldFocused ? Palette.calm : .clear)
                 .animation(Motion.snappy, value: fieldFocused)
 
                 Button(action: send) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(canSend ? Palette.ground : Palette.inkFaint)
+                        .foregroundStyle(canSend ? Palette.ground : Palette.ink.opacity(0.4))
                         .frame(width: Hit.min - 8, height: Hit.min - 8)
-                        .background(
-                            Circle().fill(canSend ? Palette.calm : Palette.surfaceRaised)
-                        )
+                        .background(canSend ? AnyShapeStyle(Palette.calm) : AnyShapeStyle(.ultraThinMaterial))
+                        .overlay(Circle().strokeBorder(canSend ? Color.clear : Palette.glassBorder, lineWidth: 1))
+                        .clipShape(Circle())
                 }
                 .buttonStyle(.pressable)
                 .disabled(!canSend)
@@ -435,11 +405,38 @@ struct IncidentView: View {
                 accessibilityLabel: "Hold to end call",
                 action: onEndCall
             ) {
+                // Same gradient/rim-light/glow recipe as Home's Call 911
+                // button — the two ends of the same action get the same
+                // visual language, in the same way they already share a
+                // hold-to-confirm gesture.
                 Image(systemName: "phone.down.fill")
-                    .font(.system(size: 36, weight: .semibold))
+                    .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(Palette.ink)
-                    .frame(width: 108, height: 108)
-                    .background(Circle().fill(Palette.personUnresponsive))
+                    .frame(width: 96, height: 96)
+                    .background(
+                        Circle().fill(
+                            RadialGradient(
+                                colors: [
+                                    Palette.personUnresponsive.opacity(0.88),
+                                    Palette.personUnresponsive,
+                                ],
+                                center: UnitPoint(x: 0.32, y: 0.28),
+                                startRadius: 4,
+                                endRadius: 80
+                            )
+                        )
+                    )
+                    .overlay(
+                        Circle().strokeBorder(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.55), Color.white.opacity(0)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1.5
+                        )
+                    )
+                    .shadow(color: Palette.personUnresponsive.opacity(0.5), radius: 20, y: 10)
             }
 
             Text("End call")
@@ -489,77 +486,112 @@ private struct CallStateBadge: View {
 
 // MARK: - Transcript row
 
+/// A call transcript line, as a chat bubble — the operator on the left, the
+/// two voices on the resident's side of the line (`agents/caller` speaking
+/// for them, or the resident speaking directly) on the right, the mascot
+/// marking which bubbles are the agent talking rather than a human.
+///
+/// This reads as a conversation because it is one; the claim-verification
+/// badge is what keeps it from reading as *just* a conversation — every
+/// line the agent speaks that repeats a checked claim says so, in the same
+/// place a messaging app would put "Delivered."
 private struct TranscriptRow: View {
     var line: TranscriptLine
 
-    private var rail: Color {
+    private var isRightAligned: Bool {
+        line.speaker == .caller || line.speaker == .resident
+    }
+
+    private var bubbleFill: Color {
         switch line.speaker {
-        case .operatorVoice: Palette.fire
         case .caller: Palette.calm
         case .resident: Palette.personMoving
-        case .system: Palette.inkFaint
+        case .operatorVoice, .system: Palette.surfaceRaised
         }
     }
 
-    /// The operator's label is bold and highlighted red so the one voice the
-    /// resident did not choose to be on this call stands out from the other
-    /// three speakers, which keep the plain eyebrow treatment.
-    @ViewBuilder
-    private var speakerLabel: some View {
-        if line.speaker == .operatorVoice {
-            Text(line.speaker.label)
-                .font(.system(size: 11, weight: .bold))
-                .tracking(1.0)
-                .textCase(.uppercase)
-                .foregroundStyle(Palette.ink)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                        .fill(Palette.personUnresponsive)
-                )
-        } else {
-            Text(line.speaker.label)
-                .eyebrowStyle(rail.opacity(0.9))
+    private var bubbleText: Color {
+        isRightAligned ? Palette.ground : Palette.ink
+    }
+
+    private var labelText: String {
+        switch line.speaker {
+        case .operatorVoice: "OPERATOR"
+        case .caller: "CALLER (AGENT)"
+        case .resident: "YOU"
+        case .system: "CALL"
+        }
+    }
+
+    private var labelColor: Color {
+        switch line.speaker {
+        case .operatorVoice: Palette.ink.opacity(0.5)
+        case .caller: Palette.calm
+        case .resident: Palette.personMoving
+        case .system: Palette.ink.opacity(0.4)
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                speakerLabel
-                Text(line.at, style: .time)
-                    .font(.system(size: 10, weight: .regular, design: .monospaced))
-                    .foregroundStyle(Palette.inkFaint)
-                if !line.claimIDs.isEmpty {
-                    // This sentence repeats claims that were verified first.
-                    // The link between a spoken line and its proof is the whole
-                    // point of the caller being a client of the sensing agents.
-                    HStack(spacing: 3) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 9, weight: .semibold))
-                        Text("\(line.claimIDs.count) verified")
-                            .font(.system(size: 10, weight: .medium))
+        if line.speaker == .system {
+            // A non-speech annotation ("call connected"), centred and quiet
+            // rather than given a bubble on either side — it isn't anyone
+            // talking.
+            Text(line.text)
+                .font(TypeScale.caption)
+                .foregroundStyle(Palette.ink.opacity(0.4))
+                .frame(maxWidth: .infinity)
+        } else {
+            VStack(alignment: isRightAligned ? .trailing : .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(labelText)
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(1.1)
+                        .foregroundStyle(labelColor)
+                    Text(line.at, style: .time)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Palette.ink.opacity(0.3))
+                    if !line.claimIDs.isEmpty {
+                        // This repeats claims that were verified first. The
+                        // link between a spoken line and its proof is the
+                        // whole point of the caller being a client of the
+                        // sensing agents.
+                        HStack(spacing: 3) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 8, weight: .semibold))
+                            Text("\(line.claimIDs.count) verified")
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .foregroundStyle(Palette.calm.opacity(0.85))
                     }
-                    .foregroundStyle(Palette.calm.opacity(0.9))
+                }
+
+                HStack(alignment: .bottom, spacing: 8) {
+                    if isRightAligned { Spacer(minLength: 36) }
+
+                    Text(line.text)
+                        .font(TypeScale.body)
+                        .foregroundStyle(bubbleText)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .opacity(line.partial ? 0.6 : 1)
+                        .padding(.horizontal, Space.md)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                                .fill(bubbleFill)
+                        )
+
+                    if line.speaker == .caller {
+                        Image("Mascot")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 26, height: 26)
+                    }
+
+                    if !isRightAligned { Spacer(minLength: 36) }
                 }
             }
-
-            Text(line.text)
-                .font(TypeScale.body)
-                .foregroundStyle(line.speaker == .operatorVoice ? Palette.ink : Palette.ink.opacity(0.82))
-                .fixedSize(horizontal: false, vertical: true)
-                .opacity(line.partial ? 0.6 : 1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, Space.md)
-        .overlay(alignment: .leading) {
-            // A speaker rail rather than chat bubbles. Two voices, one of them
-            // a machine speaking for you; bubbles would make it look like a
-            // text conversation, which it is not.
-            Capsule()
-                .fill(rail.opacity(line.speaker == .operatorVoice ? 0.5 : 0.35))
-                .frame(width: 2)
+            .frame(maxWidth: .infinity, alignment: isRightAligned ? .trailing : .leading)
         }
     }
 }
@@ -584,21 +616,38 @@ private struct InstructionCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(Space.lg)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(latest
-                      ? (instruction.urgent ? Palette.fire.opacity(0.12) : Palette.surfaceRaised)
-                      : Palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .strokeBorder(
-                    latest && instruction.urgent ? Palette.fire.opacity(0.4) : Palette.hairline,
-                    lineWidth: 1
-                )
-        )
+        .modifier(AlertOrGlassBackground(alert: latest && instruction.urgent, tint: Palette.fire))
         .opacity(latest ? 1 : 0.7)
         .scaleEffect(latest ? 1 : 0.985, anchor: .top)
+    }
+}
+
+// MARK: - Alert-or-glass background
+
+/// The rule `NoticeBanner` established, reused: a card is glass by default
+/// and a solid-tinted alert only when it's actually flagging something
+/// (a refused claim, an urgent instruction) — so the one card on screen that
+/// needs to read louder than the rest still does, against a sea of glass
+/// that would otherwise flatten everything to the same weight.
+private struct AlertOrGlassBackground: ViewModifier {
+    var alert: Bool
+    var tint: Color
+    var cornerRadius: CGFloat = Radius.md
+
+    func body(content: Content) -> some View {
+        if alert {
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(tint.opacity(0.14))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(tint.opacity(0.55), lineWidth: 1.5)
+                )
+        } else {
+            content.glassPanel(cornerRadius: cornerRadius)
+        }
     }
 }
 
@@ -640,17 +689,7 @@ private struct VerificationRow: View {
         }
         .padding(Space.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(refused ? Palette.personUnresponsive.opacity(0.10) : Palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .strokeBorder(
-                    refused ? Palette.personUnresponsive.opacity(0.55) : Palette.hairline,
-                    lineWidth: refused ? 1.5 : 1
-                )
-        )
+        .modifier(AlertOrGlassBackground(alert: refused, tint: Palette.personUnresponsive))
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(Motion.snappy) { expanded.toggle() }

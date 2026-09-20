@@ -123,20 +123,39 @@ All seven are live on Vultr at `66.135.27.67`, one `hawkeye-agent@<slug>` proces
 
 The mesh is wired over the public hostnames rather than localhost: each agent builds its trust store from its peers' published trust cards, and `master` admits six verified claims per tick. **`docs/deploy.md` is the runbook**, including why the agents must be restarted one at a time.
 
-### T12 - Register the domain and the agents with ANS
-**Lane** A · **Skill** ops · **Needs** T11 · **Blocks** T50 · **Who** ___
+### ~~T12 - Register the domain and the agents with ANS~~ **Done 2026-09-20.**
+**Lane** A · **Skill** ops · **Needs** T11 · **Blocks** T50
 
-GoDaddy Registry. DNSSEC on. Register each agent, publish the `_ans` records, seal registration into the transparency log.
+**All seven are ANS ACTIVE**, certificates issued, transparency-log badges held in `agents/.ans/<slug>/`. DNSSEC is on.
 
-**Five of seven are ACTIVE** - `people`, `intruder`, `master`, `caller`, `replay`, registered 2026-09-19, certificates issued, transparency-log badges held in `agents/.ans/`.
+`scripts/register-agents.sh` still registers a new agent from the roster. `scripts/finish-registration.sh` is the other half - it takes one already registered and stuck at `PENDING_DNS` through to ACTIVE, and re-runs safely.
 
-**`presence`, `vision` and `shutter` are registered and have passed domain validation**, and are stuck at `PENDING_DNS` waiting on two TXT records each. `scripts/register-agents.sh` is now roster-driven and skips anything already registered. The remaining records are in each agent's `.ans/<slug>/status.json`.
+```sh
+cd agents && scripts/finish-registration.sh --check
+```
 
-**Blocked on Porkbun.** Its bulk DNS page freezes its own renderer on TXT records; the seven A records went in through the same form without complaint. A Porkbun API key would make this and every future record trivial.
+**Four records per agent, not two.** The blocker was never only the TXT records:
 
-`people` stays registered and unserved. It is the pre-pivot name for `presence`, and leaving it ACTIVE is harmless.
+| Record | Note |
+|---|---|
+| `_ans.<host>` TXT | |
+| `_ans-badge.<host>` TXT | |
+| `_443._tcp.<host>` TLSA | `3 0 1` over the certificate **the RA issued**, not the one we serve |
+| `<host>` HTTPS (TYPE65) | `1 . alpn=h2`. **Required**, and easy to miss |
 
-**Done when** `agent.webmesh.ai verify_agent` returns a passing `compatibility_verdict` for at least `master` and `shutter`.
+The HTTPS record is the trap. `master`, `intruder`, `caller` and `replay` are ACTIVE with no HTTPS record at all, which made it look optional; `verify-dns` rejected all three new agents until it was added. Do not reason from what the older four happen to have.
+
+Three more things that cost time, recorded so they do not again:
+
+- **The Porkbun freeze is real and avoidable.** Its bulk page does hang its own renderer, and so does the delete confirm in the per-domain drawer. The per-record **edit** and **add** forms in that drawer work fine. Everything here went in through those.
+- **`verify-acme` is not re-runnable.** All three had already passed at registration, and the RA answers `Validation status is VERIFIED and cannot be retried`. That is success, not failure.
+- **Check DNS against the zone's own nameserver.** A resolver asked for a name before it was published caches NXDOMAIN for the zone's 1800s negative TTL and keeps reporting a live record missing for half an hour. Both scripts query `$(dig +short NS batradar.club)` directly.
+
+**DANE is not achievable while staying registered**, and that is settled rather than outstanding. The RA requires TLSA to be its own `3 0 1` over a certificate we do not serve, and refuses any other record - including a correct `3 1 1` published alongside it, which was tested rather than assumed. We are Bronze and we say so. Full reasoning in `docs/deploy.md` and the header of `agents/scripts/tlsa.sh`.
+
+**Still open:** `agent.webmesh.ai verify_agent` has not been pointed at us yet. That was this task's original done-when and it is now the first half of T50. Also `transparencyReceipt` is still `null` in all seven trust cards, which is the remaining Gold blocker.
+
+`people` stays registered and unserved. It is the pre-pivot name for `presence`. Its `_ans` and TLSA records still resolve and point at a host that no longer answers; both should be deleted.
 
 **This also wins MLH Best Domain Name for free.** Pick a name worth saying on stage.
 
