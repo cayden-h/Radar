@@ -58,3 +58,30 @@ def test_operator_line_carries_human_provenance(client: TestClient):
     assert response.status_code == 202
     body = response.json()
     assert body["line"]["provenance"]["source"] == "operator-audio"
+
+
+def test_resident_line_is_not_mislabelled_as_operator_audio(client: TestClient):
+    """A resident speaking on the call (whisper or full voice) must never be
+    recorded as PSAP operator audio in the forensic record."""
+    response = client.post(
+        "/v1/incident/inc-1/transcript",
+        json={"speaker": "resident", "text": "He's in the kitchen, I'm upstairs."},
+    )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["line"]["provenance"]["source"] == "user-input"
+    assert body["line"]["provenance"]["source"] != "operator-audio"
+    assert body["line"]["provenance"]["producer"] == "resident"
+
+
+def test_system_line_is_not_mislabelled_as_operator_audio(client: TestClient):
+    """A non-speech system annotation, e.g. 'call connected', must never be
+    recorded as PSAP operator audio."""
+    response = client.post(
+        "/v1/incident/inc-1/transcript",
+        json={"speaker": "system", "text": "Call connected."},
+    )
+    assert response.status_code == 202
+    body = response.json()
+    assert body["line"]["provenance"]["source"] != "operator-audio"
+    assert body["line"]["provenance"]["producer"] == "hawkeye_backend"

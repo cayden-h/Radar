@@ -1069,8 +1069,18 @@ async def post_transcript(
             producer="agents/caller",
             ansname=runtime.settings.caller_ansname,
         )
-    else:
+    elif speaker is TranscriptSpeaker.OPERATOR:
         provenance = Provenance(source=Source.OPERATOR_AUDIO, producer="911 PSAP operator")
+    elif speaker is TranscriptSpeaker.RESIDENT:
+        # The resident speaking on the call directly (whisper or full voice).
+        # USER_INPUT is HUMAN-class and is the closest existing source for
+        # something a resident said themselves; it must never be attributed
+        # to the operator.
+        provenance = Provenance(source=Source.USER_INPUT, producer="resident")
+    else:
+        # SYSTEM: a non-speech annotation we generated ourselves, e.g. "call
+        # connected". Not sensed, not spoken by a human on the line.
+        provenance = Provenance(source=Source.AGENT_INFERENCE, producer="hawkeye_backend")
     line = TranscriptLine(
         line_id=str(uuid.uuid4()),
         incident_id=incident_id,
