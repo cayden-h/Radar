@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>WiFi RSSI Presence</title>
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #111;
+    color: #eee;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem;
+  }
+  #badge {
+    font-size: 2.5rem;
+    font-weight: 700;
+    padding: 1.5rem 3rem;
+    border-radius: 1rem;
+    margin-bottom: 1.5rem;
+    transition: background-color 0.3s ease;
+  }
+  #badge.absent { background: #2d3748; color: #a0aec0; }
+  #badge.present-still { background: #975a16; color: #fefcbf; }
+  #badge.active { background: #9b2c2c; color: #fed7d7; }
+  #meta { font-size: 0.9rem; color: #999; margin-bottom: 1rem; }
+  canvas { background: #1a1a1a; border-radius: 0.5rem; }
+</style>
+</head>
+<body>
+  <div id="badge" class="absent">CONNECTING…</div>
+  <div id="meta">rssi: -- dBm | variance: -- | motion: --</div>
+  <canvas id="sparkline" width="600" height="150"></canvas>
+
+<script>
+  const badge = document.getElementById("badge");
+  const meta = document.getElementById("meta");
+  const canvas = document.getElementById("sparkline");
+  const ctx = canvas.getContext("2d");
+  const MAX_POINTS = 60;
+  const rssiHistory = [];
+
+  const STATE_LABEL = {
+    "absent": "ABSENT",
+    "present-still": "PRESENT",
+    "active": "MOTION",
+  };
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (rssiHistory.length < 2) return;
+
+    const min = Math.min(...rssiHistory);
+    const max = Math.max(...rssiHistory);
+    const range = Math.max(max - min, 1);
+
+    ctx.strokeStyle = "#63b3ed";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    rssiHistory.forEach((rssi, i) => {
+      const x = (i / (MAX_POINTS - 1)) * canvas.width;
+      const y = canvas.height - ((rssi - min) / range) * canvas.height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  function connect() {
+    const ws = new WebSocket(`ws://${location.hostname}:8765`);
+
+    ws.onopen = () => {
+      badge.textContent = "ABSENT";
+      badge.className = "absent";
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      const label = STATE_LABEL[data.state] || data.state;
+      badge.textContent = label;
+      badge.className = data.state;
+      meta.textContent = `rssi: ${data.rssi ?? "--"} dBm | variance: ${data.variance.toFixed(2)} | motion: ${data.motion_energy.toFixed(2)}`;
+
+      if (data.rssi !== null) {
+        rssiHistory.push(data.rssi);
+        if (rssiHistory.length > MAX_POINTS) rssiHistory.shift();
+        draw();
+      }
+    };
+
+    ws.onclose = () => {
+      badge.textContent = "DISCONNECTED";
+      badge.className = "absent";
+      setTimeout(connect, 2000);
+    };
+  }
+
+  connect();
+</script>
+</body>
+</html>
