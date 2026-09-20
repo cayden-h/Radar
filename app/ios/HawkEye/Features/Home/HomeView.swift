@@ -34,6 +34,7 @@ struct HomeView: View {
     /// the save action know which presence to approve alongside naming it.
     @State private var rememberingNotice: Notice?
     @State private var showingHousehold = false
+    @State private var showingNotices = false
 
     private var client: any HawkEyeClienting { model.client }
 
@@ -97,6 +98,23 @@ struct HomeView: View {
                 Task { try? await client.forgetMember(memberID) }
             }
         }
+        .sheet(isPresented: $showingNotices) {
+            NoticesPanel(
+                notices: client.notices,
+                onDismiss: { notice in
+                    withAnimation(Motion.standard) { client.dismissNotice(notice.id) }
+                },
+                onApprove: { notice in
+                    guard let presenceID = notice.presenceID else { return }
+                    Task { try? await client.approvePresence(presenceID) }
+                    withAnimation(Motion.standard) { client.dismissNotice(notice.id) }
+                },
+                onRemember: { notice in
+                    guard notice.presenceID != nil else { return }
+                    rememberingNotice = notice
+                }
+            )
+        }
         .onChange(of: client.incident?.id) { _, newID in
             guard let newID else {
                 // The backend has caught up and actually cleared the incident,
@@ -137,29 +155,6 @@ struct HomeView: View {
         VStack(spacing: Space.lg) {
             header
 
-            ForEach(client.notices) { notice in
-                NoticeBanner(
-                    notice: notice,
-                    onDismiss: {
-                        withAnimation(Motion.standard) {
-                            client.dismissNotice(notice.id)
-                        }
-                    },
-                    onApprove: {
-                        guard let presenceID = notice.presenceID else { return }
-                        Task { try? await client.approvePresence(presenceID) }
-                        withAnimation(Motion.standard) {
-                            client.dismissNotice(notice.id)
-                        }
-                    },
-                    onRemember: {
-                        guard notice.presenceID != nil else { return }
-                        rememberingNotice = notice
-                    }
-                )
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
             VStack(spacing: Space.xs) {
                 CameraFeedView()
                     .frame(maxWidth: .infinity)
@@ -170,14 +165,6 @@ struct HomeView: View {
             }
 
             IncidentBar(client: client)
-
-            // Hidden once a call is live, even if the resident has stepped
-            // back to this tab via `LiveCallBanner` — shortcuts into People
-            // and Videos have no business competing with an active 911 call
-            // for attention.
-            if activeIncident == nil {
-                quickActions
-            }
 
             Spacer(minLength: 0)
         }
@@ -213,7 +200,7 @@ struct HomeView: View {
 
             Spacer(minLength: Space.sm)
 
-            notificationGlyph
+            notificationButton
         }
         .padding(.top, Space.sm)
         .overlay(alignment: .bottom) {
@@ -254,64 +241,84 @@ struct HomeView: View {
             .accessibilityHidden(true)
     }
 
-    /// A badge rather than a button: there is no notification inbox to open,
-    /// only the notices already rendered inline below. This says whether one
-    /// is waiting without pretending there is somewhere else to tap for it.
-    private var notificationGlyph: some View {
-        ZStack(alignment: .topTrailing) {
-            Image(systemName: "bell.fill")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Palette.ink.opacity(0.85))
-                .frame(width: 42, height: 42)
-                .glassPanel(cornerRadius: Radius.pill)
+    /// Opens `NoticesPanel`. The badge says whether anything's waiting;
+    /// tapping is now the only way to see notices at all — they no longer
+    /// render inline on Camera, so nothing sits between the header and the
+    /// feed uninvited.
+    private var notificationButton: some View {
+        Button {
+            showingNotices = true
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "bell.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Palette.ink.opacity(0.85))
+                    .frame(width: 42, height: 42)
+                    .glassPanel(cornerRadius: Radius.pill)
 
-            if !client.notices.isEmpty {
-                Circle()
-                    .fill(Palette.personUnexpected)
-                    .frame(width: 9, height: 9)
-                    .overlay(Circle().strokeBorder(Palette.duskBase, lineWidth: 1.5))
-                    .offset(x: 1, y: -1)
+                if !client.notices.isEmpty {
+                    Circle()
+                        .fill(Palette.personUnexpected)
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().strokeBorder(Palette.duskBase, lineWidth: 1.5))
+                        .offset(x: 1, y: -1)
+                }
             }
-        }
-        .accessibilityElement()
-        .accessibilityLabel(client.notices.isEmpty ? "No notices" : "\(client.notices.count) notices waiting")
-    }
-
-    // MARK: Quick actions
-
-    /// Two shortcuts into pages that already exist as tabs — this row is a
-    /// faster door into People and Videos, not a new feature. Placed above
-    /// the tab bar rather than the notices, since it's a hop-off point a
-    /// resident reaches for deliberately, not something raised at them.
-    private var quickActions: some View {
-        HStack(spacing: Space.sm) {
-            quickActionButton(title: "Log a\nvisitor") { selectedTab = .people }
-            quickActionButton(title: "Review\nlast clip") { selectedTab = .videos }
-        }
-    }
-
-    private func quickActionButton(title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: Space.sm) {
-                Text(title)
-                    .font(TypeScale.caption)
-                    .foregroundStyle(Palette.ink)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Spacer(minLength: Space.xs)
-
-                Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Palette.ink)
-                    .frame(width: 30, height: 30)
-                    .background(Circle().fill(Palette.surfaceRaised))
-            }
-            .padding(.horizontal, Space.md)
-            .frame(maxWidth: .infinity, minHeight: Hit.min + Space.md)
         }
         .buttonStyle(.pressable)
-        .glassPanel(cornerRadius: Radius.lg)
+        .accessibilityLabel(client.notices.isEmpty ? "No notices" : "\(client.notices.count) notices waiting")
+    }
+}
+
+// MARK: - Notices panel
+
+/// Every open notice, reached by tapping the bell rather than shown inline —
+/// see `HomeView.notificationButton`. Reuses `NoticeBanner` as-is; only where
+/// it renders changed; what each notice can do about it (approve, remember,
+/// dismiss) did not.
+private struct NoticesPanel: View {
+    var notices: [Notice]
+    var onDismiss: (Notice) -> Void
+    var onApprove: (Notice) -> Void
+    var onRemember: (Notice) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.md) {
+                Text("Notices")
+                    .font(TypeScale.title)
+                    .foregroundStyle(Palette.ink)
+                    .padding(.top, Space.lg)
+
+                if notices.isEmpty {
+                    Text("Nothing waiting on you.")
+                        .font(TypeScale.body)
+                        .foregroundStyle(Palette.inkMuted)
+                        .padding(.top, Space.xxl)
+                } else {
+                    VStack(spacing: Space.sm) {
+                        ForEach(notices) { notice in
+                            NoticeBanner(
+                                notice: notice,
+                                onDismiss: { onDismiss(notice) },
+                                onApprove: { onApprove(notice) },
+                                onRemember: { onRemember(notice) }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Space.gutter)
+            .padding(.bottom, Space.xl)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Palette.groundGradient.ignoresSafeArea())
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -375,6 +382,13 @@ private struct CoAlertRow: View {
 /// already found — see `HoldToConfirmButton`. Raising it presents the
 /// full-screen call automatically — see `HomeView.body`'s `onChange` and
 /// `.fullScreenCover`.
+///
+/// Drawn with the same recipe as the rest of the app's raised, glowing
+/// controls (the tab bar's mascot button, `glassPanel`'s rim highlight) —
+/// a gradient instead of a flat fill, a light catching the top edge, a glow
+/// under it — so it reads as *this app's* button and not a bare SF Symbol on
+/// a circle. It stays fully opaque on purpose, unlike a `glassPanel`: this is
+/// the one control that must never look transparent or ambiguous.
 private struct IncidentBar: View {
     var client: any HawkEyeClienting
 
@@ -395,7 +409,30 @@ private struct IncidentBar: View {
                         .font(.system(size: 36, weight: .semibold))
                         .foregroundStyle(Palette.ink)
                         .frame(width: 108, height: 108)
-                        .background(Circle().fill(IncidentType.burglary.tint))
+                        .background(
+                            Circle().fill(
+                                RadialGradient(
+                                    colors: [
+                                        IncidentType.burglary.tint.opacity(0.88),
+                                        IncidentType.burglary.tint,
+                                    ],
+                                    center: UnitPoint(x: 0.32, y: 0.28),
+                                    startRadius: 4,
+                                    endRadius: 90
+                                )
+                            )
+                        )
+                        .overlay(
+                            Circle().strokeBorder(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.55), Color.white.opacity(0)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                ),
+                                lineWidth: 1.5
+                            )
+                        )
+                        .shadow(color: IncidentType.burglary.tint.opacity(0.5), radius: 24, y: 12)
                 }
 
                 Text("Call 911")

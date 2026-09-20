@@ -3,8 +3,7 @@ import SwiftUI
 /// The live camera feed on Home, where the floor plan used to be.
 ///
 /// **Front-end only, for now.** No computer-vision pipeline is wired up —
-/// this is the honest placeholder for one, the same way `VideoDetailView`'s
-/// playback area is. `selectedCamera` is real, local UI state; only camera 1
+/// this is the honest placeholder for one. `selectedCamera` is real, local UI state; only camera 1
 /// has anything behind it in this project's scope, but the second slot is
 /// left toggleable because the hub is built to carry more than one feed
 /// eventually, and the switch itself costs nothing to ship now. It is a pop-out
