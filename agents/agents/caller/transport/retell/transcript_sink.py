@@ -5,8 +5,8 @@ it is spoken, so the resident's app can render the live operator <-> agent
 conversation via the hub's existing `TRANSCRIPT` stream events.
 
 Fail-soft by contract: a call in progress must never break because the hub is
-unreachable. `httpx.HTTPError` is swallowed and logged; nothing here raises
-into the call loop.
+unreachable. Any exception from the push is swallowed and logged; nothing
+here raises into the call loop.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class HttpTranscriptSink:
                 f"{self._base}/v1/incident/{incident_id}/transcript",
                 json={"speaker": speaker, "text": text},
             )
-        except httpx.HTTPError:
+        except Exception:
             logger.warning(
                 "transcript sink: failed to push line for %s", incident_id, exc_info=True
             )
