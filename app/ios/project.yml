@@ -1,5 +1,15 @@
 name: HawkEye
 
+# The one sanctioned third-party dependency in this app, per root CLAUDE.md's
+# "no third-party dependencies" rule and its one exception: the resident's own
+# WebRTC leg of the 911 call needs Twilio's actual client SDK rather than a
+# hand-rolled WebRTC stack. Pinned to 6.13.7, the version CallAudioSession.swift
+# was verified against (TVOCallDelegate.h, TVOCall.h, TVOConnectOptions.h).
+packages:
+  TwilioVoice:
+    url: https://github.com/twilio/twilio-voice-ios
+    exactVersion: 6.13.7
+
 options:
   bundleIdPrefix: ai.hawkeye
   deploymentTarget:
@@ -48,6 +58,8 @@ targets:
         copy:
           destination: productsDirectory
           subpath: "$(CONTENTS_FOLDER_PATH)/Watch"
+      - package: TwilioVoice
+        product: TwilioVoice
     info:
       path: HawkEye/Info.plist
       properties:
