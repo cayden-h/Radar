@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Callable
 import logging
 import os
 import sys
@@ -221,6 +222,28 @@ async def _receive(socket, shutter_url: str) -> None:  # noqa: ANN001
         await _forward_grant(socket, message, shutter_url)
 
 
+async def _push_all(socket, source: FrameSource, interval: float) -> int:  # noqa: ANN001
+    """Push every frame the source has, and return how many that was.
+
+    A header then the raw JPEG, in that order, as two websocket messages.
+    Websockets preserve ordering so the pairing holds, and the frame never pays
+    base64's overhead on the one path that has to stay smooth.
+    """
+    pushed = 0
+    for frame in source.frames():
+        jpeg = encode_jpeg(frame.image, long_edge=EDGE_LONG_EDGE, quality=EDGE_JPEG_QUALITY)
+        header = EdgeFrameHeader(
+            index=frame.index, captured_at=frame.captured_at, bytes=len(jpeg)
+        )
+        await socket.send(header.model_dump_json())
+        await socket.send(jpeg)
+        pushed += 1
+        # Yield to the receive task even at unlimited rate, so a shutter grant
+        # is never starved behind the frame pump.
+        await asyncio.sleep(interval if interval else 0)
+    return pushed
+
+
 async def pump(
     url: str,
     token: str,
@@ -228,14 +251,22 @@ async def pump(
     source: FrameSource,
     fps: float,
     shutter_url: str = DEFAULT_SHUTTER_URL,
+    reopen: "Callable[[], FrameSource] | None" = None,
 ) -> None:
-    """Dial the hub and push frames until cancelled. Reconnects forever."""
+    """Dial the hub and push frames until cancelled. Reconnects forever.
+
+    **A source that runs out is not a dropped link**, and treating it as one is
+    how this span-reconnected at full speed the first time it was run against a
+    finite video. A fixture that ends either reopens, when `reopen` is given, or
+    stops cleanly and says so.
+    """
     import websockets
 
     backoff = BACKOFF_START_S
     interval = 1.0 / fps if fps > 0 else 0.0
+    exhausted = False
 
-    while True:
+    while not exhausted:
         try:
             async with websockets.connect(f"{url}/v1/edge/link?token={token}") as socket:
                 logger.info("edge: connected to %s", url)
@@ -249,25 +280,20 @@ async def pump(
                 # downward is not stuck behind the next frame going up.
                 receiver = asyncio.create_task(_receive(socket, shutter_url))
                 try:
-                    for frame in source.frames():
-                        jpeg = encode_jpeg(
-                            frame.image,
-                            long_edge=EDGE_LONG_EDGE,
-                            quality=EDGE_JPEG_QUALITY,
-                        )
-                        header = EdgeFrameHeader(
-                            index=frame.index,
-                            captured_at=frame.captured_at,
-                            bytes=len(jpeg),
-                        )
-                        await socket.send(header.model_dump_json())
-                        await socket.send(jpeg)
-                        if interval:
-                            await asyncio.sleep(interval)
-                        else:
-                            # Yield to the receive task even at unlimited rate,
-                            # so a grant is never starved by the frame pump.
-                            await asyncio.sleep(0)
+                    while True:
+                        pushed = await _push_all(socket, source, interval)
+                        if reopen is None:
+                            logger.info(
+                                "edge: source exhausted after %d frames. Stopping "
+                                "rather than reconnecting: an empty source is not a "
+                                "dropped link. Pass --loop to replay it.",
+                                pushed,
+                            )
+                            exhausted = True
+                            break
+                        source.close()
+                        source = reopen()
+                        logger.info("edge: source exhausted after %d frames, reopening", pushed)
                 finally:
                     receiver.cancel()
 
@@ -293,6 +319,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--index", type=int, default=0, help="Camera index. 0 is the Brio.")
     parser.add_argument("--path", default=None, help="Video file, for --source fixture.")
     parser.add_argument("--fps", type=float, default=10.0)
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help=(
+            "Replay a fixture from the start when it ends. A looping video is "
+            "still labelled camera-sim, so nothing downstream can mistake it for "
+            "a camera."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -305,10 +340,21 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("no token. Set HAWKEYE_EDGE_TOKEN or pass --token.")
         return 2
 
-    source = open_source(args.source, args.index, args.path)
+    def build() -> FrameSource:
+        return open_source(args.source, args.index, args.path)
+
+    source = build()
     try:
         asyncio.run(
-            pump(args.hub, args.token, args.edge_id, source, args.fps, args.shutter_url)
+            pump(
+                args.hub,
+                args.token,
+                args.edge_id,
+                source,
+                args.fps,
+                args.shutter_url,
+                reopen=build if args.loop else None,
+            )
         )
     except KeyboardInterrupt:
         logger.info("edge: stopped")
