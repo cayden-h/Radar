@@ -542,3 +542,22 @@ def test_the_selftest_returns_the_shield_to_closed() -> None:
 
     assert backend.history[-1] == CLOSED_ANGLE
     assert OPEN_ANGLE in backend.history, "a selftest that never opens tests nothing"
+
+
+def test_a_close_grant_attests_a_position_not_a_verb(
+    shutter: Shutter, master_key
+) -> None:
+    """`close` is an action; `closed` is where the shield ends up.
+
+    The close path shipped untested and reported the verb, which disagreed with
+    `Shutter.position` and would have put "close" into the sealed record as a
+    position. Found when `master` first issued a close grant.
+    """
+    shutter.open(grant_bytes(master_key, nonce=shutter.challenge()))
+
+    result = shutter.open(
+        grant_bytes(master_key, nonce=shutter.challenge(), action="close")
+    )
+
+    assert result.position == "closed"
+    assert result.position == shutter.position

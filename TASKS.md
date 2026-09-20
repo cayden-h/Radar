@@ -32,7 +32,7 @@ Roles decide who picks first when several tasks are open, not who is allowed to 
 Everything else is decoration if this line does not complete:
 
 ```
-T01 delete  ─►  T10 presence  ─►  T13 intruder  ─►  T14 shutter grant  ─►  T16 vision claims
+T01 delete  ─►  T10 presence  ─►  T13 intruder  ─►  T14 shutter grant  ─►  T15b motion gate  ─►  T16 vision claims
                                                           │                      │
                                                           ▼                      ▼
                                                     T20 master wiring  ──►  T30 notice to watch
@@ -168,14 +168,40 @@ before you touch the neighbouring tasks:
 does, which is T20.
 
 ### T15 - `vision` against a fixture video file
-**Lane** A · **Skill** py · **Needs** T02 · **Blocks** T16 · **Who** ___
+**Lane** A · **Skill** py · **Needs** T02 · **Blocks** T16 · **Who** Cayden · **DONE 2026-09-19**
 
 Frame source reading an mp4 at real time, the luminance guard, and the segment writer producing closed, hashable 10s files.
 
-**Done when** running `vision` against a fixture produces segment files with correct hashes, and a deliberately dark fixture produces `frame_too_dark` rather than a description.
+**Delivered more than the line asked for.** The task assumed a fixture file; the package also drives the live Logitech Brio, and it grew a measured person tracker, because `people_visible` as a generated number was too weak to corroborate anything.
+Spec in `docs/superpowers/specs/2026-09-19-vision-tracking-design.md`, plan in `docs/superpowers/plans/2026-09-19-vision-camera-and-tracking.md`. 104 tests.
+
+Three findings worth carrying forward:
+
+- **`dark_threshold` was 25 and is now 10.** Measured over 675 frames of real footage: YOLO11m found people in 100% of frames from luma 10 upward, at *higher* mean confidence (0.81) than above luma 40 (0.78). The old floor discarded 72 frames in which four people were plainly visible. Recalibrate at the venue anyway.
+- **On the Mac, camera index 0 is the Brio.** Every index opens and reports 1280x720, so "it works" proves nothing. `docs/hardware/logitech-camera.md` has the identification procedure.
+- **There is no night vision and there cannot be.** The Brio 101 has no IR sensor and no illuminator is owned. See the limits in `vision/CLAUDE.md`.
+
+**Still open here:** track identities churn in the dark. 14 identities persisted past 20 frames for at most 5 people. Some of that is correct, since `track_buffer` is 2 seconds and we claim no re-identification, but ReID on `model: auto` is weak at luma 12. Expect new ids for anyone who leaves frame.
+
+### T15b - The motion-gated shutter
+**Lane** A · **Skill** py · **Needs** T13, T14, T15 · **Blocks** T16, T20 · **Who** Cayden · **DONE 2026-09-20**
+
+Motion alone opens the lens; `vision.occupancy` closes it again. Spec in `docs/superpowers/specs/2026-09-20-motion-gated-shutter-design.md`, plan in `docs/superpowers/plans/2026-09-20-motion-gated-shutter.md`.
+
+Delivered: `hawkeye_vision.occupancy`, `agents/agents/vision/` behind an ANS identity, `master/episode.py` (the refractory lock that keeps the SG92R from browning out the Pi), `master/shutter_client.py` (master had never issued a grant - `sign_grant` was called only from tests), `agents/people` renamed to `agents/presence` with `respiration.py` deleted, and `intruder` rewritten to read a camera against a router.
+
+**Found and fixed on the way:** the `close` grant path had shipped with no test at all and attested `position="close"`, the action verb, where `Shutter.position` reports `"closed"`. They disagreed, and both land in the sealed record.
+
+**Still open here, deliberately:**
+
+- **The real `OccupancySource` adapter.** `VisionAgent` takes a Protocol and only the test fake implements it. The adapter that pulls a `Frame`, calls `Tracker.update`, feeds `TrackBook` and calls `verdict()` belongs with the capture loop and needs a camera to exercise honestly. Everything shipped runs on `StubTracker`.
+- **`LocalShutterClient` is in-process.** It signs and verifies real grants against the real gate, but an in-process call verifies no transport. Same warning `LocalMesh` carries, and it must not survive into the demo.
 
 ### T16 - `vision` claims, gated on the shutter attestation
-**Lane** A · **Skill** py · **Needs** T14, T15 · **Blocks** T20 · **Who** ___
+**Lane** A · **Skill** py · **Needs** T14, T15 · **Blocks** T20 · **Who** ___ · **Unblocked: T14 and T15 are both done**
+
+The measured inputs are ready and named: `TrackBook.people_visible` and `.active` feed `vision.people_visible` and `vision.tracks`; `LightingClassifier.mode` and `mean_luminance` feed `vision.lighting` and `vision.mean_luminance`; `LightingMode.TOO_DARK` is the `frame_too_dark` trigger; `Tracker.available` and `.reason` are the `tracker_unavailable` trigger.
+This task will also need a `Source.GEMINI_LIVE` and a new `SourceClass.GENERATED` in `hawkeye_backend/models/common.py`, plus the matching case in `app/ios/HawkEye/Models/Provenance.swift` or the app will fail to decode the claim.
 
 No claim without a current verified attestation. `Unknown(reason="shield_closed")` otherwise.
 

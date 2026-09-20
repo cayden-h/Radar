@@ -1,7 +1,7 @@
 """The wire, end to end, over real HTTP. The test that proves rather than assumes.
 
 Every other test in this suite exercises domain logic and takes verification as
-given. This one stands up `agents/people` as an actual ASGI app, has `master`
+given. This one stands up `agents/presence` as an actual ASGI app, has `master`
 fetch from it over A2A, and verifies every claim against the key `people`
 publishes in its own trust card.
 
@@ -30,10 +30,10 @@ from agents.core.runtime import build_app
 from agents.core.signing import ClaimSigner
 from agents.core.transport import CLAIM_TARGET_PATH, A2AObservationSource, Peer
 from agents.master import MasterAgent
-from agents.people import PeopleAgent
+from agents.presence import PresenceAgent
 
 MASTER = identity("master")
-PEOPLE = identity("people")
+PEOPLE = identity("presence")
 TARGET = f"{MASTER.base_url}{CLAIM_TARGET_PATH}"
 
 
@@ -47,12 +47,12 @@ def people_key(tmp_path_factory) -> Ed25519PrivateKey:
     `tmp_path` rather than the shared key directory, so a test run never mints
     an identity a later real deployment would be stale against.
     """
-    return load_or_create("people", root=tmp_path_factory.mktemp("keys"))
+    return load_or_create("presence", root=tmp_path_factory.mktemp("keys"))
 
 
 @pytest.fixture(scope="module")
 def people_app(people_key):
-    """agents/people, running, signing, and serving /a2a.
+    """agents/presence, running, signing, and serving /a2a.
 
     Module-scoped because warming the rolling baseline costs 130 simulated
     seconds and none of these tests mutate the agent's state - they only fetch
@@ -64,9 +64,11 @@ def people_app(people_key):
     from .conftest import ZONES
 
     feed = SyntheticCsiFeed(ZONES)
-    agent = PeopleAgent(feed, StaticRoster())
-    feed.occupy("main_bedroom", bpm=15.0)
+    agent = PresenceAgent(feed, StaticRoster())
     for _ in range(130):
+        feed.advance(1)
+    feed.perturb("main_bedroom")
+    for _ in range(5):
         feed.advance(1)
         agent.run_once()
     return build_app(agent, signer=ClaimSigner(PEOPLE, people_key))
@@ -79,7 +81,7 @@ def source_over(app, store: TrustStore, *, ansname: str = PEOPLE.ansname) -> A2A
     point, because the failure this transport is designed around is a signature
     breaking when something re-serializes a claim in the middle.
     """
-    peers = {"people": Peer(slug="people", base_url="http://people.test", ansname=ansname)}
+    peers = {"presence": Peer(slug="presence", base_url="http://people.test", ansname=ansname)}
     verifier = ClaimVerifier(
         policy=VerifierPolicy(audience=MASTER.ansname, target=TARGET),
         trust=store,
@@ -111,12 +113,12 @@ def store_with(key: Ed25519PrivateKey, *, ansname: str = PEOPLE.ansname) -> Trus
 def test_a_claim_crosses_the_hop_and_verifies(people_app, people_key):
     """The whole point, in one assertion: signed there, verified here."""
     source = source_over(people_app, store_with(people_key))
-    fetched = source.fetch("people")
+    fetched = source.fetch("presence")
 
     assert fetched is not None
     assert fetched.envelope_verified is True
     assert fetched.rejected == ()
-    assert any(a.field == "people.personhood" for a in fetched.observation.assertions)
+    assert any(a.field == "presence.motion" for a in fetched.observation.assertions)
 
 
 def test_the_signed_bytes_survive_the_json_layer(people_app, people_key):
@@ -127,7 +129,7 @@ def test_the_signed_bytes_survive_the_json_layer(people_app, people_key):
     exactly like tampering.
     """
     source = source_over(people_app, store_with(people_key))
-    fetched = source.fetch("people")
+    fetched = source.fetch("presence")
 
     assert fetched.envelope_verified is True, "re-serialization would break every signature"
 
@@ -156,7 +158,7 @@ def test_a_claim_signed_by_the_wrong_key_is_discarded(people_app):
     registry says it is.
     """
     source = source_over(people_app, store_with(Ed25519PrivateKey.generate()))
-    fetched = source.fetch("people")
+    fetched = source.fetch("presence")
 
     assert fetched.envelope_verified is False
     assert fetched.observation.assertions == ()
@@ -167,7 +169,7 @@ def test_a_claim_signed_by_the_wrong_key_is_discarded(people_app):
 def test_an_unregistered_agent_is_refused_entirely(people_app, people_key):
     """An empty trust store is not an empty guest list. Unknown means refused."""
     source = source_over(people_app, TrustStore())
-    fetched = source.fetch("people")
+    fetched = source.fetch("presence")
 
     assert fetched.envelope_verified is False
     assert all(r.check == "known_issuer" for r in fetched.rejected)
@@ -182,7 +184,7 @@ def test_a_lookalike_ansname_is_caught(people_app, people_key):
     """
     lookalike = "ans://v0.1.0.people.batradar-secure.club"
     source = source_over(people_app, store_with(people_key, ansname=lookalike), ansname=lookalike)
-    fetched = source.fetch("people")
+    fetched = source.fetch("presence")
 
     assert fetched.envelope_verified is False
     assert any(r.check == "peer_identity" for r in fetched.rejected)
@@ -223,8 +225,8 @@ def test_every_fetch_issues_a_fresh_challenge(people_app, people_key):
     claim in advance, because it cannot guess the challenge it will be asked.
     """
     source = source_over(people_app, store_with(people_key))
-    first = source.fetch("people")
-    second = source.fetch("people")
+    first = source.fetch("presence")
+    second = source.fetch("presence")
 
     assert first.envelope_verified and second.envelope_verified
     firsts = {a.provenance.detail for a in first.observation.assertions}
@@ -239,7 +241,7 @@ def test_a_replayed_claim_is_refused(people_app, people_key):
     resubmitted is spent even if everything about it still verifies.
     """
     source = source_over(people_app, store_with(people_key))
-    fetched = source.fetch("people")
+    fetched = source.fetch("presence")
     assert fetched.envelope_verified
 
     # Reach past the source and resubmit one claim's exact bytes.

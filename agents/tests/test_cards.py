@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from hawkeye_backend.verification.card import commit_address, verify_card
 
 from agents.core import cards
-from agents.core.identity import ROSTER, identity
+from agents.core.identity import ROSTER, Role, identity
 
 
 def test_every_card_is_signed_and_verifies():
@@ -47,7 +47,7 @@ def test_master_declares_its_simulated_input():
 
 def test_the_card_declares_only_what_is_enforced():
     """Copied from the track owner's own card, and so is the discipline."""
-    card = cards.build_a2a_card(identity("people"))
+    card = cards.build_a2a_card(identity("presence"))
     assert "NOT currently enforced" in card["x-security-note"]
 
 
@@ -96,10 +96,31 @@ def test_every_field_an_agent_asserts_is_declared_on_its_card():
     and nothing caught it. `agent.webmesh.ai` reads the published card, so this
     is the surface that matters. This is the test that would have caught it.
     """
-    assert "people.respiration_lost" in _declared("people")
+    assert "presence.motion" in _declared("presence")
+    assert "presence.zone" in _declared("presence")
+    assert "vision.occupancy" in _declared("vision")
 
 
-def test_people_declares_no_collapse_fields():
-    declared = _declared("people")
+def test_presence_declares_nothing_it_can_no_longer_sense():
+    """Respiration went on 2026-09-19 and the code went on 2026-09-20.
 
-    assert not any("collapse" in f or "still_down" in f or "long_lie" in f for f in declared)
+    A card still advertising a breathing rate is drift in the direction that
+    costs most: a capability claimed to a verifier and not present in the code.
+    """
+    declared = _declared("presence")
+
+    assert not any(
+        token in f
+        for f in declared
+        for token in ("respiration", "breathing", "heart", "personhood", "headcount", "collapse")
+    )
+
+
+def test_vision_is_registered_and_scoped_to_one_room():
+    """The camera sees one room. That limit is carried on the identity, not in
+    a comment, so the published card states it too."""
+    vision = identity("vision")
+    assert vision.role is Role.SENSING
+    fields = {f for skill in vision.skills for f in skill.fields}
+    assert "vision.occupancy" in fields
+    assert any("identif" in claim.lower() for claim in vision.must_not_claim)
