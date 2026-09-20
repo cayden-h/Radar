@@ -74,9 +74,13 @@ extension View {
     /// so no panel in the app quietly reverts to the old opaque look.
     func glassPanel(cornerRadius: CGFloat = Radius.lg, tint: Color = .clear) -> some View {
         self
+            // `.ultraThinMaterial` at full strength is still a fairly opaque
+            // dark-grey fill in dark mode — cut to half so the gradient
+            // behind a panel actually shows through it, with the white wash
+            // below doing the work of keeping it legible rather than dark.
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(.ultraThinMaterial.opacity(0.5))
             )
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
