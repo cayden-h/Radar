@@ -69,6 +69,42 @@ protocol HawkEyeClienting: AnyObject {
     /// and an empty panel is not.
     var cameraFrame: CameraFrame? { get }
 
+    /// The detector's boxes and their vouch state, refreshed while the camera
+    /// panel is on screen.
+    ///
+    /// Empty is the resting value and it is not the same as "nobody is there":
+    /// it means nobody has measured the room recently enough to draw a box.
+    /// `CameraFeedView` never turns this into a statement about occupancy.
+    var tracks: TracksSnapshot { get }
+
+    /// Why the boxes cannot be tapped, when they cannot. Nil when nothing is
+    /// wrong.
+    ///
+    /// Set when `GET /v1/camera/tracks` does not answer - most likely a hub
+    /// older than this app. The phone then falls back to the boxes the hub
+    /// burns into the frame itself, which look identical and do not respond to
+    /// a tap, so the reason is said out loud rather than left to be discovered
+    /// by pressing one repeatedly.
+    var tracksUnavailable: String? { get }
+
+    /// Start or stop polling `GET /v1/camera/tracks`.
+    ///
+    /// Driven by the camera view appearing rather than by `connect`, because
+    /// geometry at camera rate is the one thing on this client worth paying for
+    /// only while something is actually drawing it.
+    func setTracksPolling(_ on: Bool)
+
+    /// Vouch for the person in one box. This session only; nothing persists.
+    ///
+    /// **Not authentication.** No credential is checked and nothing recognises
+    /// anybody: this records that the resident looked at a picture and said who
+    /// was in it. Like `approvePresence`, it only ever lowers an alarm.
+    func vouchForTrack(_ trackID: Int, name: String) async throws
+
+    /// Take a vouch back. One gesture, because tapping the wrong box is the
+    /// likeliest mistake on this screen.
+    func revokeTrackVouch(_ trackID: Int) async throws
+
     /// `GET /v1/camera/live` on the connected hub, for `MJPEGStream`.
     ///
     /// Nil when no hub is connected, and nil on the mock client, which has no

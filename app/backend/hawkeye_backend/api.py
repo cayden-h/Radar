@@ -38,6 +38,7 @@ from twilio.jwt.access_token import AccessToken
 from twilio.jwt.access_token.grants import VoiceGrant
 
 from hawkeye_backend import __version__
+from hawkeye_backend.edge.annotate import draw_tracks
 from hawkeye_backend.edge.link import run_edge_link
 from hawkeye_backend.household import DeviceAlreadyClaimed, UnknownDevice
 from hawkeye_backend.master.base import (
@@ -46,6 +47,12 @@ from hawkeye_backend.master.base import (
     ParticipationModeRefused,
 )
 from hawkeye_backend.master.simulated import SimulatedMasterClient
+from hawkeye_backend.models.camera import (
+    PersonVouch,
+    TracksRequest,
+    TracksSnapshot,
+    VouchRequest,
+)
 from hawkeye_backend.models.common import utc_now
 from hawkeye_backend.models.events import (
     Envelope,
@@ -87,6 +94,20 @@ MJPEG_BOUNDARY = "hawkeyeframe"
 def _runtime(request: Request) -> HubRuntime:
     runtime: HubRuntime = request.app.state.runtime
     return runtime
+
+
+def _raw(request: Request) -> bool:
+    """Whether this caller wants the frame with nothing drawn on it.
+
+    **Overlay is the default and raw is the opt-out**, which is the opposite of
+    what it first looks like it should be. The reasoning is that every consumer
+    that renders a frame to a human wants to see what the detector saw - that is
+    the whole point of running a detector - and only two callers want it clean:
+    `agents/vision`, which must not feed last pass's boxes back into YOLO, and
+    anything pulling a frame as evidence. Both of those are code we control and
+    can pass a flag; the humans are not.
+    """
+    return request.query_params.get("raw", "").lower() in {"1", "true", "yes"}
 
 
 class DemoRunAck(BaseModel):
@@ -867,12 +888,20 @@ async def get_camera_still(request: Request) -> Response:
     status = runtime.camera.status()
     if frame is None:
         raise HTTPException(status_code=503, detail=status.detail)
+
+    # `agents/vision` pulls this endpoint to *feed* the detector, and must get
+    # the clean frame back: running YOLO over a picture with last pass's boxes
+    # already painted on it would let the overlay influence the measurement.
+    tracks = () if _raw(request) else runtime.camera.tracks
+    jpeg = draw_tracks(frame.jpeg, tracks) if tracks else frame.jpeg
+
     return Response(
-        content=frame.jpeg,
+        content=jpeg,
         media_type="image/jpeg",
         headers={
             "X-HawkEye-Frame-Age": f"{status.last_frame_age_s or 0.0:.3f}",
             "X-HawkEye-Live": "true" if status.live else "false",
+            "X-HawkEye-Tracks": str(len(tracks)),
             "Cache-Control": "no-store",
         },
     )
@@ -911,6 +940,20 @@ async def get_camera_live(request: Request) -> StreamingResponse:
         raise HTTPException(status_code=503, detail=runtime.camera.status().detail)
 
     idle_timeout_s = max(1.0, runtime.settings.camera_stale_after_s * 2)
+    raw = _raw(request)
+
+    def render(jpeg: bytes) -> bytes:
+        """Burn in whatever the detector last measured.
+
+        Read per frame rather than once, because the boxes change under this
+        loop and because `LiveCamera.tracks` is what ages them out. A viewer
+        watching an empty room sees the boxes disappear when the detector stops
+        finding anybody, which is the behaviour that makes them trustworthy.
+        """
+        if raw:
+            return jpeg
+        tracks = runtime.camera.tracks
+        return draw_tracks(jpeg, tracks) if tracks else jpeg
 
     async def parts():
         sub = await runtime.camera.subscribe()
@@ -919,7 +962,7 @@ async def get_camera_live(request: Request) -> StreamingResponse:
             # something immediately instead of waiting for the next capture.
             first = runtime.camera.latest
             if first is not None:
-                yield _mjpeg_part(first.jpeg)
+                yield _mjpeg_part(render(first.jpeg))
             while True:
                 try:
                     frame = await asyncio.wait_for(sub.queue.get(), timeout=idle_timeout_s)
@@ -938,7 +981,7 @@ async def get_camera_live(request: Request) -> StreamingResponse:
                         idle_timeout_s,
                     )
                     return
-                yield _mjpeg_part(frame.jpeg)
+                yield _mjpeg_part(render(frame.jpeg))
         finally:
             await runtime.camera.unsubscribe(sub)
 
@@ -1030,6 +1073,88 @@ async def post_occupancy(request: Request, body: OccupancyRequest) -> OccupancyE
     )
     await runtime.emit(event, active.incident_id if active else None)
     return event
+
+
+@router.post("/camera/tracks", status_code=202, summary="What the detector just measured")
+async def post_camera_tracks(request: Request, body: TracksRequest) -> dict[str, int]:
+    """`agents/vision` publishes here after every pass of YOLO.
+
+    **Deliberately not an event.** Occupancy is a claim and belongs on the
+    stream where the apps and the sealed record can see it; boxes arrive at
+    camera rate and are a rendering detail. Putting them on the stream would
+    bury an incident under several hundred geometry messages a minute and would
+    seal coordinates into a record that already has the video.
+
+    So this updates the relay's overlay state and nothing else. It emits
+    nothing, it is never recorded, and if it stops arriving the boxes age off on
+    their own - see `LiveCamera.tracks`.
+
+    202 rather than 200: this creates nothing addressable, it publishes.
+    """
+    runtime = _runtime(request)
+    runtime.camera.set_tracks(body.tracks)
+    # The one place that knows which ids the tracker is still holding, so it is
+    # the one place a vouch's grace window can be measured from. See
+    # `edge/vouch.py`: a vouch outlives its track by a minute and no longer.
+    runtime.camera_vouches.observe(frozenset(t.track_id for t in body.tracks))
+    return {"tracks": len(body.tracks)}
+
+
+@router.get("/camera/tracks", summary="The boxes, and who has been vouched for")
+async def get_camera_tracks(request: Request) -> TracksSnapshot:
+    """What a surface needs to draw its own overlay and make it tappable.
+
+    **Polled, not pushed, and that is the same call `POST /camera/tracks` makes
+    for itself.** Geometry arrives at camera rate; putting it on the event
+    stream would bury an incident under several hundred messages a minute and
+    seal coordinates into a record that already has the video. A phone that is
+    looking at the camera asks for this a few times a second and nothing else
+    pays for it.
+
+    The boxes here are the same ones `annotate.py` burns into the MJPEG for the
+    browser and the watch, aged off by the same rule - so a surface that draws
+    its own cannot show a box the hub would no longer draw itself.
+    """
+    runtime = _runtime(request)
+    return TracksSnapshot(
+        tracks=list(runtime.camera.tracks),
+        vouches=list(runtime.camera_vouches.active()),
+    )
+
+
+@router.post("/camera/vouch", status_code=202, summary="Vouch for a person on camera")
+async def post_camera_vouch(request: Request, body: VouchRequest) -> PersonVouch:
+    """The resident tapped a box and said who it is. This session only.
+
+    **This is not authentication and nothing here claims it is.** No credential
+    is checked and `vision` cannot say who anybody is; what is recorded is that
+    a human looked at a picture and vouched for the person in it. It is the same
+    override `POST /presences/{id}/approve` performs against the radio, pointed
+    at the camera instead - and like that one it only ever lowers an alarm.
+
+    Vouching an unknown track id is accepted rather than refused. The boxes move
+    under the resident's thumb, and a tap that lands a frame after the tracker
+    dropped an id is a near miss, not an error worth a red banner - the vouch
+    simply lapses on its own if that id never comes back.
+    """
+    runtime = _runtime(request)
+    return runtime.camera_vouches.vouch(body.track_id, body.name)
+
+
+@router.delete(
+    "/camera/vouch/{track_id}",
+    status_code=204,
+    response_model=None,
+    summary="Take a vouch back",
+)
+async def delete_camera_vouch(request: Request, track_id: int) -> None:
+    """Undo, in one gesture.
+
+    Tapping the wrong box is the likeliest mistake on this screen, and 204 on a
+    track that was never vouched for is deliberate: the resident's intent is
+    "this person is not vouched for", and that is true either way.
+    """
+    _runtime(request).camera_vouches.revoke(track_id)
 
 
 @router.post("/shutter", status_code=202, summary="Move the physical shield")

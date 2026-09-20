@@ -187,15 +187,46 @@ def occupancy_source():  # noqa: ANN201 - OccupancySource, a Protocol
     try:
         from hawkeye_vision.config import VisionConfig
         from hawkeye_vision.live_occupancy import LiveOccupancySource
-        from hawkeye_vision.relay import RelayFrameSource
+        from hawkeye_vision.relay import HubTrackPublisher, RelayFrameSource
         from hawkeye_vision.yolo_tracker import build_tracker
 
+        from hawkeye_vision.live_record import IncidentRecorder
+
         config = VisionConfig()
+        # The recording. Runs for as long as the hub has a replay record open,
+        # writes ten-second mp4 segments, and posts each hash back as the file
+        # closes so the chain covers footage rather than carrying it.
+        #
+        # **This was missing until 2026-09-20.** `SegmentWriter` existed and
+        # only `python -m hawkeye_vision --record` drove it, so the live path -
+        # the one every demo runs - recorded nothing at all, and a sealed record
+        # referred to video that had never been written.
+        recorder = IncidentRecorder(
+            os.environ.get("HAWKEYE_VIDEO_DIR", "video/incidents"),
+            hub_url=hub,
+            fps=config.day_fps,
+            segment_frames=config.day_fps * 10,
+        )
         source = LiveOccupancySource(
-            RelayFrameSource(hub), build_tracker(config), config=config
+            RelayFrameSource(hub),
+            build_tracker(config),
+            config=config,
+            on_frame=recorder,
+            # The boxes go back up to the hub so the live console, the phone and
+            # the browser can draw what the detector is seeing. The hub cannot
+            # run YOLO itself - `ultralytics` is not in its environment, and the
+            # Pi holding the camera could not run it in the timing budget - so
+            # this process is the only one in the system that knows where the
+            # people are, and publishing is how anybody else finds out.
+            on_tracks=HubTrackPublisher(hub),
         )
         source.start()
-        logger.info("vision reading the camera relay at %s", hub)
+        logger.info(
+            "vision reading the camera relay at %s, publishing tracks back, and "
+            "recording into %s whenever a record is open",
+            hub,
+            os.environ.get("HAWKEYE_VIDEO_DIR", "video/incidents"),
+        )
         return source
     except Exception as exc:  # noqa: BLE001 - see the docstring
         logger.error(
@@ -434,6 +465,18 @@ def main(argv: list[str] | None = None) -> int:
         transport = (settings.call_transport or "retell").strip().lower()
         internal_token = os.environ.get("HAWKEYE_INTERNAL_TRIGGER_TOKEN", "").strip() or None
 
+        # Where the end-of-call facts go: the address the operator gave for the
+        # sealed record, and the fact that the call is over. Same token as the
+        # trigger routes above, because a route that decides where an incident
+        # record gets emailed is an exfiltration path if anyone on the LAN can
+        # post to it. See `agents/caller/hub_report.py`.
+        from agents.caller.hub_report import HubReporter
+
+        hub_reporter = HubReporter(
+            os.environ.get("HAWKEYE_HUB_URL", "http://127.0.0.1:8787"),
+            token=internal_token,
+        )
+
         if transport == "twilio":
             # Dormant path, retained. Paywalled; not the default.
             from agents.caller.transport.orchestrator import CallOrchestrator
@@ -455,6 +498,7 @@ def main(argv: list[str] | None = None) -> int:
                 twilio_voice_number=settings.twilio_voice_number or "+15550003333",
                 twiml_app_sid=settings.twilio_conference_app_sid or "APxxxx",
                 status_callback_url=(settings.public_base_url or f"http://{args.host}:{args.transport_port}") + "/twilio/status",
+                hub=hub_reporter,
             )
             transport_app = build_transport_app(
                 orchestrator,
@@ -485,6 +529,7 @@ def main(argv: list[str] | None = None) -> int:
                 retell_client,
                 from_number=settings.retell_from_number or "+15550003333",
                 operator_number=settings.mock_911_number or "+15550004444",
+                hub=hub_reporter,
             )
             transport_app = build_retell_transport_app(
                 orchestrator,

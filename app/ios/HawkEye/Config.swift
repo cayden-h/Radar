@@ -84,6 +84,14 @@ enum Config {
     static let householdMembersPath = "/v1/household/members"
 
     /// `POST /v1/presences/{id}/approve`. Base path; the presence id is appended.
+    /// The detector's boxes plus their vouch state. Polled, never pushed: the
+    /// hub keeps geometry off the event stream so an incident is not buried
+    /// under several hundred messages a minute.
+    static let cameraTracksPath = "/v1/camera/tracks"
+
+    /// Vouch for the person in one box. `DELETE {path}/{track_id}` takes it back.
+    static let cameraVouchPath = "/v1/camera/vouch"
+
     static let presencesPath = "/v1/presences"
 
     // MARK: Behaviour

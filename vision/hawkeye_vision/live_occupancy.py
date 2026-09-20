@@ -41,13 +41,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable, Sequence
 
 from hawkeye_backend.models.common import Source
 
 from hawkeye_vision.config import VisionConfig
-from hawkeye_vision.frames import FrameSource
+from hawkeye_vision.frames import Frame, FrameSource
 from hawkeye_vision.occupancy import Occupancy, verdict
-from hawkeye_vision.track import Tracker
+from hawkeye_vision.track import Detection, Tracker
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,22 @@ STALE_AFTER_S = 3.0
 #: capture loop that gave up on the first failure would need a human to restart
 #: the agent every time.
 RECONNECT_AFTER_S = 2.0
+
+#: A sink for the boxes the tracker is holding, called once per frame with the
+#: detections from that frame. Deliberately a bare callable rather than an
+#: interface: the only implementation posts to the hub, and a Protocol here
+#: would be ceremony around one function.
+TrackSink = Callable[[Sequence[Detection]], None]
+
+#: A sink for the frames themselves, called once per frame with the frame
+#: exactly as it came off the source. The one implementation is
+#: `hawkeye_vision.live_record.IncidentRecorder`.
+#:
+#: **It is handed the raw frame, before anything looks at it.** The recording is
+#: evidence: nothing enhanced, brightened or annotated may reach it, and taking
+#: the frame here rather than after detection is what makes that structural
+#: rather than a rule somebody has to remember.
+FrameSink = Callable[["Frame"], None]
 
 
 class LiveOccupancySource:
@@ -79,9 +96,20 @@ class LiveOccupancySource:
         *,
         config: VisionConfig | None = None,
         stale_after_s: float = STALE_AFTER_S,
+        on_tracks: "TrackSink | None" = None,
+        on_frame: "FrameSink | None" = None,
     ) -> None:
         self._frames = frames
         self._tracker = tracker
+        #: Where to send the boxes so a human can see them. Optional, and it
+        #: stays optional: nothing about the verdict depends on anyone being
+        #: interested in the geometry, and the webcam path and the tests have no
+        #: hub to publish to.
+        self._on_tracks = on_tracks
+        #: Where each frame goes to be recorded. Optional, and it stays
+        #: optional: the verdict is this class's job and the mp4 is somebody
+        #: else's, so a webcam run and every test work with no recorder at all.
+        self._on_frame = on_frame
         self._config = config or VisionConfig()
         self._stale_after_s = stale_after_s
         self._lock = threading.Lock()
@@ -175,11 +203,47 @@ class LiveOccupancySource:
         for frame in self._frames.frames():
             if self._stopping.is_set():
                 return
+            self._record_frame(frame)
             detections = self._tracker.update(frame)
             available = getattr(self._tracker, "available", True)
             self._record(verdict(detections, tracker_available=available))
             if not available:
                 self.detail = getattr(self._tracker, "reason", None) or "tracker unavailable"
+            else:
+                # Publish on every pass, including the passes that found nobody.
+                # An empty list is what takes the last person's box off the
+                # screen, so skipping it would leave a rectangle hanging over an
+                # empty room until it aged out.
+                self._publish(detections)
+
+    def _record_frame(self, frame: Frame) -> None:
+        """Hand the frame to the recorder, and never let it break capture.
+
+        Same rule as `_publish`, for a different artifact and a sharper reason.
+        Losing the overlay costs a rectangle on a screen; losing this thread
+        costs the personhood verdict that closes a shutter. A disk that filled
+        up must not be able to blind the camera.
+        """
+        if self._on_frame is None:
+            return
+        try:
+            self._on_frame(frame)
+        except Exception as exc:  # noqa: BLE001 - see the docstring
+            logger.error("could not record a frame (%s)", exc)
+
+    def _publish(self, detections) -> None:  # noqa: ANN001 - Sequence[Detection]
+        """Hand the boxes to the sink, and never let it break capture.
+
+        The sink is a network call to the hub. The hub restarting, or being
+        slow, must not stop this thread measuring the room - the verdict is the
+        job and the overlay is a courtesy.
+        """
+        if self._on_tracks is None:
+            return
+        try:
+            self._on_tracks(detections)
+        except Exception as exc:  # noqa: BLE001 - see the docstring
+            logger.debug("could not publish tracks (%s)", exc)
 
     def _record(self, value: Occupancy) -> None:
         with self._lock:

@@ -21,6 +21,7 @@ import logging
 import time
 from collections.abc import Iterator
 
+import httpx
 import numpy as np
 from hawkeye_backend.models.common import Source
 
@@ -78,7 +79,11 @@ class RelayFrameSource(FrameSource):
         return self._client
 
     def _get_still(self):  # noqa: ANN202 - httpx.Response
-        return self._http().get("/v1/camera/still")
+        # `raw=1` is not optional here. The hub draws this tracker's own boxes
+        # onto that endpoint by default, for the humans watching it, and a
+        # detector fed a frame with last pass's rectangles painted on it is
+        # measuring its own output. Ask for the clean frame, always.
+        return self._http().get("/v1/camera/still", params={"raw": "1"})
 
     def _fetch_status(self) -> dict:
         response = self._http().get("/v1/hub")
@@ -159,6 +164,73 @@ class RelayFrameSource(FrameSource):
     def _sleep(self) -> None:
         if self._poll_interval_s:
             time.sleep(self._poll_interval_s)
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+
+class HubTrackPublisher:
+    """Posts the tracker's boxes to the hub so every surface can draw them.
+
+    The counterpart to `RelayFrameSource`: frames come down that, boxes go up
+    this, and between them the camera can sit on a Pi that cannot run a model
+    while the model runs on a machine that has no lens.
+
+    **It throttles, and the throttle is the point.** YOLO runs at whatever rate
+    the relay feeds it - about 7 Hz against the Brio - and a POST per frame
+    would put several hundred requests a minute onto the one service every app
+    talks to, to move a payload that changes by a few pixels. `MIN_INTERVAL_S`
+    keeps it to a rate a human eye cannot tell from continuous.
+
+    The one case that is never throttled is the transition to empty. A box left
+    on screen after the person has gone is the failure this whole overlay could
+    plausibly introduce, so the frame that first finds nobody is always sent.
+    """
+
+    #: Fast enough to look continuous, slow enough to be a rounding error on
+    #: the hub. Well inside `LiveCamera.TRACK_STALE_AFTER_S`, so a steady
+    #: publisher never ages its own boxes out.
+    MIN_INTERVAL_S = 0.2
+
+    def __init__(self, base_url: str = "http://127.0.0.1:8787", *, timeout_s: float = 2.0) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._timeout_s = timeout_s
+        self._client: httpx.Client | None = None
+        self._last_sent = 0.0
+        self._last_count = -1
+
+    def _http(self) -> httpx.Client:
+        if self._client is None:
+            self._client = httpx.Client(base_url=self._base_url, timeout=self._timeout_s)
+        return self._client
+
+    def __call__(self, detections) -> None:  # noqa: ANN001 - Sequence[Detection]
+        now = time.monotonic()
+        count = len(detections)
+        emptied = count == 0 and self._last_count != 0
+        if not emptied and now - self._last_sent < self.MIN_INTERVAL_S:
+            return
+        self._last_sent = now
+        self._last_count = count
+
+        self._http().post(
+            "/v1/camera/tracks",
+            json={
+                "tracks": [
+                    {
+                        "track_id": int(d.track_id),
+                        "x1": float(d.bbox.x1),
+                        "y1": float(d.bbox.y1),
+                        "x2": float(d.bbox.x2),
+                        "y2": float(d.bbox.y2),
+                        "confidence": float(getattr(d, "confidence", 1.0)),
+                    }
+                    for d in detections
+                ]
+            },
+        )
 
     def close(self) -> None:
         if self._client is not None:

@@ -32,6 +32,9 @@ struct CameraFeedView: View {
     @State private var selectedCamera = 1
     @State private var stream = MJPEGStream()
 
+    /// The box the resident tapped, if the naming sheet is open.
+    @State private var naming: TrackBox?
+
     /// Re-evaluated on every tick so the "seconds ago" label on a stale frame
     /// counts up rather than freezing at whatever it said on arrival.
     @State private var now = Date()
@@ -63,10 +66,34 @@ struct CameraFeedView: View {
             provenanceMarker
                 .padding(10)
         }
+        .overlay(alignment: .bottomTrailing) {
+            untappableMarker
+                .padding(10)
+        }
         .aspectRatio(4.0 / 3.0, contentMode: .fit)
         .onReceive(Self.staleTick) { now = $0 }
         .task(id: streamIdentity) { openOrCloseStream() }
-        .onDisappear { stream.stop() }
+        // Boxes are polled, not pushed, and only while this panel is on screen.
+        // The hub keeps geometry off the event stream on purpose - see
+        // `POST /v1/camera/tracks` - so nothing pays for it unless something is
+        // drawing it.
+        .onAppear { client.setTracksPolling(true) }
+        .onDisappear {
+            stream.stop()
+            client.setTracksPolling(false)
+        }
+        .sheet(item: $naming) { track in
+            VouchSheet(
+                trackID: track.trackID,
+                existing: client.tracks.vouch(for: track.trackID),
+                onVouch: { name in
+                    Task { try? await client.vouchForTrack(track.trackID, name: name) }
+                },
+                onRevoke: {
+                    Task { try? await client.revokeTrackVouch(track.trackID) }
+                }
+            )
+        }
     }
 
     // MARK: What is on screen
@@ -88,6 +115,17 @@ struct CameraFeedView: View {
                 .opacity(isStale ? 0.45 : 1)
                 .overlay(alignment: .top) {
                     if isStale { staleBanner }
+                }
+                // Boxes are drawn over the picture rather than burned into it,
+                // because on this surface a box is a control: you point at a
+                // person and say who they are. `annotate.py` still burns them
+                // in for the browser and the watch, which have no such gesture.
+                //
+                // Suppressed on a stale frame. A box is a statement about where
+                // somebody is *now*, and drawing one over a frozen picture
+                // would be the same lie the dimming exists to prevent.
+                .overlay {
+                    if !isStale { overlay(for: image) }
                 }
         } else {
             placeholder
@@ -185,14 +223,78 @@ struct CameraFeedView: View {
         }
     }
 
+    /// Why a box will not respond to a tap, on the rare occasion one will not.
+    ///
+    /// The hub burns boxes into the frame itself, and those look exactly like
+    /// the ones this view draws. When the tracks endpoint is unavailable the
+    /// resident is looking at the hub's boxes, and pressing them does nothing -
+    /// so the reason is on screen rather than left to be discovered by
+    /// pressing one several times and concluding the app is broken.
+    @ViewBuilder
+    private var untappableMarker: some View {
+        if let reason = client.tracksUnavailable, currentImage != nil, !isStale {
+            Text(reason)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(Palette.ink.opacity(0.9))
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Palette.ground.opacity(0.75))
+                )
+                .frame(maxWidth: 190)
+        }
+    }
+
     private var accessibilityDescription: String {
         guard currentImage != nil else {
             return "Camera \(selectedCamera). \(placeholderMessage)"
         }
         let room = client.cameraFrame?.room ?? Config.cameraRoom
-        return isStale
-            ? "Camera \(selectedCamera), \(room). \(staleDescription)."
-            : "Camera \(selectedCamera), \(room), live."
+        if isStale {
+            return "Camera \(selectedCamera), \(room). \(staleDescription)."
+        }
+        return "Camera \(selectedCamera), \(room), live. \(peopleDescription)"
+    }
+
+    /// Who is in frame, for somebody who cannot see the boxes.
+    ///
+    /// The vouched people are named and the rest are counted, which is the same
+    /// distinction the boxes draw: a name is something a resident supplied and
+    /// the count is something the detector measured.
+    private var peopleDescription: String {
+        let snapshot = client.tracks
+        guard !snapshot.tracks.isEmpty else { return "Nobody in frame." }
+        let named = snapshot.vouches.filter(\.held).map(\.name)
+        let unnamed = snapshot.tracks.count - named.count
+        var parts: [String] = []
+        if !named.isEmpty {
+            parts.append("\(named.joined(separator: ", ")) vouched for")
+        }
+        if unnamed > 0 {
+            parts.append("\(unnamed) person\(unnamed == 1 ? "" : "s") not named")
+        }
+        return parts.joined(separator: ", ") + "."
+    }
+
+    /// The tappable boxes, positioned against the letterboxed picture.
+    ///
+    /// `GeometryReader` is what gives the view's own bounds; the *image* rect
+    /// inside them is computed from the frame's pixel size, because the panel
+    /// is 4:3, the camera is 16:9 and `.fit` leaves bars. Using the bounds
+    /// directly would put every box off by the size of those bars - a bug that
+    /// reads as tracker drift rather than as bad arithmetic. See
+    /// `TrackBox.fittedRect(for:in:)`.
+    private func overlay(for image: UIImage) -> some View {
+        GeometryReader { proxy in
+            TrackOverlay(
+                snapshot: client.tracks,
+                imageRect: TrackBox.fittedRect(for: image.size, in: proxy.size),
+                onTap: { naming = $0 }
+            )
+        }
     }
 
     // MARK: The stream
