@@ -90,6 +90,12 @@ class RetellCallOrchestrator:
     #: same reason `courier` is: the orchestrator runs unchanged where nothing
     #: is wired to receive lines, and never raises into the call loop when it is.
     transcript_sink: TranscriptSink | None = None
+    #: Demo affordance. When non-empty, this fixed line is spoken to the operator
+    #: in place of any non-answer from `answer_operator` (an "I don't know" it
+    #: reached because nothing verified was available). It never overrides a real
+    #: verified answer, so it cannot present an unverified claim as a fact; it
+    #: only replaces the honest non-answer with a benign restatement for a demo.
+    demo_operator_line: str = ""
     call_id: str | None = field(default=None, init=False)
     incident_id: str | None = field(default=None, init=False)
     transcript: list[tuple[str, str]] = field(default_factory=list, init=False)
@@ -188,7 +194,7 @@ class RetellCallOrchestrator:
                 return f"Thank you - I'll send the record to {email}."
             # No address in that line. Fall back to the normal verified answer
             # and stay in ASKED_EMAIL so the operator can repeat it.
-            return self.caller.answer_operator(operator_line).text
+            return self._verified_answer(operator_line)
 
         if self._email_capture is _EmailCapture.NORMAL and _trips_closing_cue(operator_line):
             # The operator is winding the call down. Ask where to mail the sealed
@@ -200,7 +206,20 @@ class RetellCallOrchestrator:
                 "incident record to?"
             )
 
-        return self.caller.answer_operator(operator_line).text
+        return self._verified_answer(operator_line)
+
+    def _verified_answer(self, operator_line: str) -> str:
+        """The normal verified-claims answer, with the demo fallback applied.
+
+        `answer_operator` is called unchanged, so the verified-claims contract
+        is intact. Only when it returns a deliberate non-answer (`answered` is
+        False) and a `demo_operator_line` is configured does the fixed demo line
+        stand in - never in place of a real verified answer.
+        """
+        utterance = self.caller.answer_operator(operator_line)
+        if self.demo_operator_line and not utterance.answered:
+            return self.demo_operator_line
+        return utterance.text
 
     def _opening_text(self) -> str:
         utterances = self.caller.opening_report(self._incident_type, self._address_spoken)

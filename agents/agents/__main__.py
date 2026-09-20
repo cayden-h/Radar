@@ -535,6 +535,9 @@ def main(argv: list[str] | None = None) -> int:
                 # conversation on the existing TRANSCRIPT stream events. Fails
                 # soft: it never raises into the call loop.
                 transcript_sink=HttpTranscriptSink(settings.edge_base_url),
+                # Demo fallback: spoken only in place of an "I don't know", never
+                # over a real verified answer. Empty in production.
+                demo_operator_line=settings.caller_demo_operator_line,
             )
             transport_app = build_retell_transport_app(
                 orchestrator,
