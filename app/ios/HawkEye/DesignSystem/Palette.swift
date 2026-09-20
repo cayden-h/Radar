@@ -48,11 +48,13 @@ enum Palette {
 
     /// The border every frosted panel uses in place of `hairline` — see
     /// `View.glassPanel` in `Components.swift`.
-    static let glassBorder = Color.white.opacity(0.12)
+    static let glassBorder = Color.white.opacity(0.16)
     /// A light, neutral grey wash over every frosted panel — deliberately
     /// *not* tinted purple, so glass reads as glass and the brand colour
-    /// stays reserved for accents, state and the mascot.
-    static let glassTint = Color.white.opacity(0.09)
+    /// stays reserved for accents, state and the mascot. Raised from 0.09:
+    /// against the gradient's darker lower half, `.ultraThinMaterial` alone
+    /// was still reading as dark grey rather than lit glass.
+    static let glassTint = Color.white.opacity(0.20)
 
     // MARK: Ink
 
