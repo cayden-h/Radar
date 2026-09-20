@@ -8,14 +8,15 @@ enum Palette {
 
     // MARK: Ground
 
-    /// The base ground. Near-black with a trace of blue so it does not read as OLED void.
-    static let ground = Color(hex: 0x07090C)
+    /// The base ground. Near-black with a trace of purple, echoing the
+    /// mascot, so it does not read as OLED void.
+    static let ground = Color(hex: 0x090810)
     /// One step up from ground. Cards, sheets, the floorplan well.
-    static let surface = Color(hex: 0x0E1218)
+    static let surface = Color(hex: 0x100D19)
     /// Two steps up. Rows, fields, pressed states.
-    static let surfaceRaised = Color(hex: 0x161B23)
+    static let surfaceRaised = Color(hex: 0x1A1522)
     /// Hairlines. Always this, never an opacity guess.
-    static let hairline = Color(hex: 0x232A35)
+    static let hairline = Color(hex: 0x282030)
 
     // MARK: Ink
 
@@ -29,7 +30,10 @@ enum Palette {
     // MARK: State
 
     /// The system is healthy and watching. Used sparingly.
-    static let calm = Color(hex: 0x4FD1C5)
+    /// Purple-pink, matching the mascot. Deliberately warmer/pinker than
+    /// `collapse`/`faint` below (also a purple) so the two never read as the
+    /// same signal — one is brand chrome, the other is a person down.
+    static let calm = Color(hex: 0xC97BFF)
     /// A confirmed person, moving and breathing. Nothing is wrong.
     static let personMoving = Color(hex: 0x5BA8FF)
     /// A person whose breathing signature we had and no longer have. The
@@ -40,17 +44,22 @@ enum Palette {
 
     /// A confirmed person the system did not expect to be in the building.
     ///
-    /// Deliberately the same violet as the Burglary button: the colour the
+    /// Deliberately the same deep red as the Burglary button: the colour the
     /// roster turns and the button the resident presses are the same fact, and
     /// pairing them means the screen does not have to explain the link.
     ///
     /// `expected` is an orthogonal axis to `PresenceState`, not a fourth state,
     /// so this tint replaces the state tint rather than adding a case to it.
-    static let personUnexpected = Color(hex: 0x8B7CFF)
+    static let personUnexpected = Color(hex: 0x9A1B1B)
+
+    /// A confirmed person who is still and breathing, on the map/roster only.
+    /// Kept separate from `Palette.personUnresponsive`, which is the
+    /// unrelated danger/refusal red used elsewhere in the app.
+    static let collapse = Color(hex: 0x8B7CFF)
 
     // MARK: Incidents
 
-    static let burglary = Color(hex: 0x8B7CFF)
+    static let burglary = Color(hex: 0x9A1B1B)
     static let fire = Color(hex: 0xFF7A3D)
 
     /// Active call state.

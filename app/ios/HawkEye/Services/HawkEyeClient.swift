@@ -63,6 +63,15 @@ protocol HawkEyeClienting: AnyObject {
     /// `caller` for the rest of the call.
     func sendContext(_ text: String) async throws
 
+    /// Forgets the open incident on this phone. **Front-end only** — the
+    /// backend has no stand-down route (see `app/CLAUDE.md`), so this does
+    /// not tell `master` anything and is not a claim that the 911 call was
+    /// actually ended. It exists so ending a call on this screen frees
+    /// `raiseIncident` to open a new one; without it, `incident` stays set
+    /// until the backend eventually sends `resolved`, and the 911 button
+    /// silently does nothing in the meantime.
+    func dismissIncident()
+
     /// The roster. Empty until loaded.
     var household: [HouseholdMember] { get }
 

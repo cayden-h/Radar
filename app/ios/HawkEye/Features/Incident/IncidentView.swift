@@ -28,6 +28,12 @@ struct IncidentView: View {
         }
     }
 
+    /// Leaves this screen without ending the call — the transcript, the
+    /// operator, and the context field all keep running underneath.
+    /// `HomeView` re-presents this same screen via `LiveCallBanner`.
+    var onBack: () -> Void
+    var onEndCall: () -> Void
+
     @State private var context: String = ""
     @State private var sending = false
     @State private var feed: Feed = .call
@@ -42,7 +48,7 @@ struct IncidentView: View {
     var body: some View {
         GeometryReader { proxy in
         ZStack(alignment: .top) {
-            Palette.ground.ignoresSafeArea()
+            AmbientBackground()
 
             // One scroll for the whole page, with the context field pinned.
             //
@@ -62,7 +68,9 @@ struct IncidentView: View {
                             Color.clear.frame(height: 1).id(Self.bottomAnchor)
                         }
                         .padding(.horizontal, Space.gutter)
-                        .padding(.top, Space.md)
+                        // Extra top clearance for the fixed back button
+                        // overlaid above this scroll content — see `backButton`.
+                        .padding(.top, Hit.min + Space.xs)
                         .padding(.bottom, Space.sm)
                     }
                     .scrollIndicators(.hidden)
@@ -76,6 +84,11 @@ struct IncidentView: View {
 
                 contextField
                     .padding(.horizontal, Space.gutter)
+                    .padding(.top, Space.sm)
+
+                endCallButton
+                    .padding(.horizontal, Space.gutter)
+                    .padding(.top, Space.xl)
                     .padding(.bottom, Space.md)
             }
 
@@ -86,10 +99,32 @@ struct IncidentView: View {
                 .frame(height: proxy.safeAreaInsets.top)
                 .ignoresSafeArea(edges: .top)
                 .allowsHitTesting(false)
+
+            backButton
+                .padding(.top, proxy.safeAreaInsets.top + Space.xs)
+                .padding(.leading, Space.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         }
         .preferredColorScheme(.dark)
         .animation(Motion.arrive, value: refusals.count)
+    }
+
+    // MARK: Back
+
+    /// Fixed above the scroll content rather than inside it, so it's always
+    /// reachable regardless of scroll position — this is the one way off
+    /// this screen that does not end the call.
+    private var backButton: some View {
+        Button(action: onBack) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Palette.ink)
+                .frame(width: Hit.min, height: Hit.min)
+                .background(Circle().fill(Palette.surface.opacity(0.9)))
+        }
+        .buttonStyle(.pressable)
+        .accessibilityLabel("Back, call continues")
     }
 
     // MARK: Banner
@@ -255,10 +290,6 @@ struct IncidentView: View {
             }
 
             Spacer()
-
-            Text(feed == .call ? "They cannot see this" : "Before anything is said")
-                .font(.system(size: 10, weight: .regular))
-                .foregroundStyle(Palette.inkFaint)
         }
         .animation(Motion.snappy, value: feed)
     }
@@ -330,9 +361,6 @@ struct IncidentView: View {
     /// resident said rather than as something a sensor observed.
     private var contextField: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            Text("What is happening")
-                .eyebrowStyle(Palette.inkFaint)
-
             HStack(alignment: .bottom, spacing: Space.sm) {
                 TextField(
                     "Anything the system cannot see",
@@ -374,10 +402,6 @@ struct IncidentView: View {
                 .animation(Motion.snappy, value: canSend)
                 .accessibilityLabel("Send to the dispatcher")
             }
-
-            Text("Goes to the dispatcher, attributed to you.")
-                .font(.system(size: 11))
-                .foregroundStyle(Palette.inkFaint)
         }
     }
 
@@ -393,6 +417,36 @@ struct IncidentView: View {
             try? await client.sendContext(text)
             sending = false
         }
+    }
+
+    // MARK: End call
+
+    /// **Front-end only.** The backend has no stand-down route (see
+    /// `app/CLAUDE.md`: "the app has no stand-down button... an incident
+    /// closes when `master` sends `resolved`"), so this does not tell the
+    /// backend anything — it stops showing this incident on this phone. A
+    /// real hang-up needs a real stand-down route; this is a placeholder for
+    /// that, not a claim that the 911 call itself was ended.
+    private var endCallButton: some View {
+        VStack(spacing: 8) {
+            HoldToConfirmButton(
+                tint: Palette.ground,
+                circular: true,
+                accessibilityLabel: "Hold to end call",
+                action: onEndCall
+            ) {
+                Image(systemName: "phone.down.fill")
+                    .font(.system(size: 36, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .frame(width: 108, height: 108)
+                    .background(Circle().fill(Palette.personUnresponsive))
+            }
+
+            Text("End call")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Palette.personUnresponsive)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -447,11 +501,33 @@ private struct TranscriptRow: View {
         }
     }
 
+    /// The operator's label is bold and highlighted red so the one voice the
+    /// resident did not choose to be on this call stands out from the other
+    /// three speakers, which keep the plain eyebrow treatment.
+    @ViewBuilder
+    private var speakerLabel: some View {
+        if line.speaker == .operatorVoice {
+            Text(line.speaker.label)
+                .font(.system(size: 11, weight: .bold))
+                .tracking(1.0)
+                .textCase(.uppercase)
+                .foregroundStyle(Palette.ink)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                        .fill(Palette.personUnresponsive)
+                )
+        } else {
+            Text(line.speaker.label)
+                .eyebrowStyle(rail.opacity(0.9))
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(line.speaker.label)
-                    .eyebrowStyle(rail.opacity(0.9))
+                speakerLabel
                 Text(line.at, style: .time)
                     .font(.system(size: 10, weight: .regular, design: .monospaced))
                     .foregroundStyle(Palette.inkFaint)

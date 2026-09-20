@@ -54,7 +54,7 @@ enum IncidentOrigin: String, Codable, Sendable, Hashable, CaseIterable {
     var label: String {
         switch self {
         case .user: "Raised by you"
-        case .system: "Raised by Hawk Eye"
+        case .system: "Raised by Radar"
         }
     }
 }
@@ -269,7 +269,7 @@ struct TranscriptLine: Codable, Sendable, Hashable, Identifiable {
 
         var label: String {
             switch self {
-            case .caller: "Hawk Eye"
+            case .caller: "Radar"
             case .operatorVoice: "911 Operator"
             case .resident: "You"
             case .system: "Call"

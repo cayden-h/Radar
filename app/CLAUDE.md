@@ -48,13 +48,18 @@ The notice reaches the resident three ways now:
 
 | Sink | When it works | Status |
 |---|---|---|
-| Watch notification | Whenever the watch is on a wrist. **The primary path** | New with the pivot |
+| Watch notification | Whenever the watch is on a wrist. **The primary path** | Built. A **local** notification the watch raises itself, not a push |
 | In-app banner | While the app holds the socket | Built |
 | SMS through Twilio | Phone locked, app closed, watch not worn | Built |
 
-There is deliberately still no local notification on the phone.
+There is deliberately still no local notification **on the phone**.
 One would only fire while the app holds the socket, which is exactly the case the resident does not need help with, and on stage it is indistinguishable from a real push.
 APNs is a driver behind `NoticeSink`, which already exists.
+
+**The watch is the exception, and the reason is that the objection does not apply there.**
+The phone holds the socket and relays to the watch, so the watch raising a local notification does not require the *watch* app to be open, only the phone app to be running - which is the same condition the whole relay already depends on.
+It needs no APNs, no push server and no paid developer account, and it reaches the one surface that is physically on the resident while they sleep.
+`app/ios/HawkEyeWatch/README.md` has the mechanism, including why the still frame is not carried in the notification payload.
 
 The trigger rule lives in `app/backend/hawkeye_backend/notices/detector.py` and is deliberately conservative: unaccounted motion only, a hold before it fires, suppressed when the capture path is unhealthy, and once per presence while it is here.
 A notice is unrecallable once it is on someone's wrist.
@@ -384,7 +389,9 @@ Target Best UI/UX Hack while you are here. It is stackable and this view is the 
 
 Native iOS is justified by live transcription, the interior view, and an audio path the app controls precisely enough to keep a phone silent while someone is hiding. A home-screen web app does all three badly.
 
-**Push notifications are not part of that justification, because we did not ship them.** They were the original argument and it did not survive contact: APNs needs a paid developer account and a push server, a local notification only fires while the app already holds the socket, and what actually reaches a locked phone with the app closed is an SMS, which needs no iOS capability at all. Stated here rather than left as a claim nobody checked, since a reader who takes this paragraph at face value and then greps for `UNUserNotificationCenter` finds nothing.
+**Remote push notifications are not part of that justification, because we did not ship them.** They were the original argument and it did not survive contact: APNs needs a paid developer account and a push server, and what actually reaches a locked *phone* with the app closed is an SMS, which needs no iOS capability at all.
+
+**The watch does ship a local notification**, and a reader who greps for `UNUserNotificationCenter` will find it in `app/ios/HawkEyeWatch/Services/NoticeNotifier.swift`. It is not a push and nothing in this project talks to Apple's push service: the phone relays the notice over WatchConnectivity and the watch raises the notification itself. That is what carries the camera's first sentence to a wrist, and it is the one iOS-family capability the platform choice actually did buy.
 
 Budget for it. If iOS becomes a time sink, the fallback is a web app on the home screen with polling instead of push, and the demo video narrates over the gap.
 
