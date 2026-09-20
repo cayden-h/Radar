@@ -84,6 +84,11 @@ targets:
         NSBonjourServices:
           - _hawkeye._tcp
           - _hawkeye._udp
+        # The hub is reached over plain HTTP on the local network (loopback in
+        # the Simulator, a LAN address on a physical device). ATS permits this
+        # for local destinations without disabling HTTPS elsewhere.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
 
   # The watch app. Shares Models, Shared and DesignSystem with the phone by
   # source path rather than by a copied file, so there is one definition of

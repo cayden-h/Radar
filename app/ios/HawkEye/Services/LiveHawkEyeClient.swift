@@ -437,6 +437,12 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     /// resolution that would break on IPv6-only networks, and Bonjour names are
     /// what survive a DHCP lease change.
     private static func resolveBaseURL(for hub: Hub) throws -> URL {
+        // A configured direct URL wins over Bonjour resolution: the hub's
+        // address is known, so there is nothing to discover. See
+        // `Config.directHubURL`.
+        if let direct = Config.directHubURL {
+            return direct
+        }
         let host = "\(hub.id).\(Config.bonjourServiceType).\(Config.bonjourDomain)"
             .replacingOccurrences(of: " ", with: "\\032")
         let port = hub.port ?? Config.defaultHubPort
