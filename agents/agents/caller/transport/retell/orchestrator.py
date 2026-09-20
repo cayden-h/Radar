@@ -94,6 +94,21 @@ class RetellCallOrchestrator:
     incident_id: str | None = field(default=None, init=False)
     transcript: list[tuple[str, str]] = field(default_factory=list, init=False)
     _email_capture: _EmailCapture = field(default=_EmailCapture.NORMAL, init=False)
+    #: Notes the resident's app has injected, queued for the next operator
+    #: turn. Context, never instruction: they are spoken attributed and never
+    #: widen what claims `answer_operator` will trust or touch the dispatch
+    #: address. See `enqueue_resident_note` and the front-run in
+    #: `_respond_to_operator`.
+    _pending_resident_notes: list[str] = field(default_factory=list, init=False)
+    #: Every note actually spoken so far, in order. Read by Task 5.
+    _context_resident_notes: list[str] = field(default_factory=list, init=False)
+
+    def enqueue_resident_note(self, text: str) -> None:
+        """Queue a resident-supplied note to be spoken, attributed, on the
+        next operator turn. Front-run only: it never bypasses or alters
+        `answer_operator`'s verified-claims path, and it never touches the
+        dispatch address."""
+        self._pending_resident_notes.append(text)
 
     async def start_call(
         self, incident_id: str, incident_type: IncidentType, address_spoken: str
@@ -148,7 +163,18 @@ class RetellCallOrchestrator:
         courier records with `operator_supplied` provenance and never treats as a
         grant. Everything outside those two moments still routes through the
         verified-claims path unchanged.
+
+        A queued resident note front-runs everything below: it is spoken,
+        attributed, on this turn only, and the operator's line is still
+        recorded and answered on the following turn. It is context, never
+        instruction - it never widens what `answer_operator` trusts and never
+        touches the dispatch address.
         """
+        if self._pending_resident_notes:
+            note = self._pending_resident_notes.pop(0)
+            self._context_resident_notes.append(note)  # see Task 5
+            return f"The resident reports: {note}"
+
         if self._email_capture is _EmailCapture.ASKED_EMAIL:
             email = find_email(operator_line)
             if email is not None:

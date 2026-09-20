@@ -99,6 +99,22 @@ class _FakeSink:
 
 
 @pytest.mark.asyncio
+async def test_queued_resident_note_spoken_attributed_next_turn(mesh):
+    orch, _ = _orchestrator(mesh)
+    orch.incident_id = "inc-1"
+    orch.enqueue_resident_note("he has a knife")
+    reply = await orch.handle_ws_message(
+        {
+            "interaction_type": "response_required",
+            "response_id": 1,
+            "transcript": [{"role": "user", "content": "what's happening?"}],
+        }
+    )
+    assert "The resident reports: he has a knife" in reply["content"]
+    assert orch._context_resident_notes == ["he has a knife"]
+
+
+@pytest.mark.asyncio
 async def test_orchestrator_pushes_each_line_to_sink(mesh):
     caller = CallerAgent(mesh, MasterAgent(mesh))
     transport = SimulatedRetellVoiceClient()
