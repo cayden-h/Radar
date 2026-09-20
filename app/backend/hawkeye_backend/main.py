@@ -24,6 +24,7 @@ from hawkeye_backend.master.base import MasterClient
 from hawkeye_backend.master.live import LiveMasterClient
 from hawkeye_backend.master.simulated import SimulatedMasterClient
 from hawkeye_backend.notices import NoticeSink, TwilioSink
+from hawkeye_backend.replay.archive import MongoReplayArchive, NullArchive, ReplayArchive
 from hawkeye_backend.runtime import HubRuntime
 from hawkeye_backend.store import build_store
 
@@ -71,8 +72,41 @@ def build_runtime(settings: Settings | None = None) -> HubRuntime:
     else:
         logger.info("notices: twilio not configured, in-app banner only")
 
+    # The replay archive. Sealed records only, written once when a call ends.
+    # Built here rather than inside HubRuntime so a failure to construct the
+    # driver is a startup log line rather than an exception inside an incident.
+    archive: ReplayArchive = NullArchive()
+    if settings.replay_archive == "mongodb":
+        if not settings.mongodb_uri:
+            logger.warning(
+                "replay archive: HAWKEYE_REPLAY_ARCHIVE=mongodb but "
+                "HAWKEYE_MONGODB_URI is empty. Sealed records will be memory-only."
+            )
+        else:
+            try:
+                archive = MongoReplayArchive(settings.mongodb_uri, settings.mongodb_database)
+                logger.info(
+                    "replay archive: mongodb, database %s, collection replays",
+                    settings.mongodb_database,
+                )
+            except Exception as exc:
+                # Constructing a motor client does not connect, so this is a
+                # missing dependency or a malformed URI rather than an outage.
+                logger.error(
+                    "replay archive: could not build the mongodb client (%s). "
+                    "Sealed records will be memory-only.",
+                    exc,
+                )
+    else:
+        logger.info("replay archive: off, sealed records are memory-only")
+
     return HubRuntime(
-        settings, store, EventBus(), build_client(settings), notice_sinks=notice_sinks
+        settings,
+        store,
+        EventBus(),
+        build_client(settings),
+        notice_sinks=notice_sinks,
+        archive=archive,
     )
 
 
@@ -80,10 +114,32 @@ def build_runtime(settings: Settings | None = None) -> HubRuntime:
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     runtime: HubRuntime = app.state.runtime
     await runtime.start()
+
+    # One line at boot saying whether sealed records are actually going
+    # anywhere. The .env for this service already makes this argument about
+    # Twilio - a partial configuration "looks exactly like Twilio being slow.
+    # Check the startup log line, not the banner" - and the archive has the
+    # same shape: silently memory-only is indistinguishable from a quiet night.
+    #
+    # Never fatal. The demo must not depend on a remote cluster being alive, so
+    # an unreachable archive is a warning and the hub serves records from memory.
+    try:
+        status = await runtime.archive.status()
+        # `detail` is already a complete sentence starting "Replay archive ...",
+        # written to be printed on the console. Prefixing it here produced
+        # "replay archive: connected. Replay archive connected. 1 record."
+        if status.configured and not status.connected:
+            logger.warning("%s", status.detail)
+        else:
+            logger.info("%s", status.detail)
+    except Exception as exc:
+        logger.warning("replay archive: status could not be read at startup (%s)", exc)
+
     try:
         yield
     finally:
         await runtime.stop()
+        await runtime.archive.close()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -134,7 +190,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-app = create_app()
+#: The ASGI target, `hawkeye_backend.main:app`, built on first access.
+#:
+#: Lazy rather than module-level, because importing this module must not
+#: construct a hub. A module-level `app = create_app()` opens a MongoDB client
+#: for the replay archive as a side effect of an import - in every test run, in
+#: a `--factory` launch that then builds a second one, and in any tool that
+#: imports this module to read a symbol out of it.
+#:
+#: `__getattr__` keeps the uvicorn target spelled exactly as before (PEP 562).
+_app: FastAPI | None = None
+
+
+def __getattr__(name: str) -> FastAPI:
+    global _app
+    if name != "app":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if _app is None:
+        _app = create_app()
+    return _app
 
 
 def main() -> None:

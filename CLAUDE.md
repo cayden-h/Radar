@@ -11,7 +11,7 @@ What exists right now:
 
 - **`agents/`** - the ANS agent mesh, its identities, its two cards each, **the A2A transport between them**, and a test suite. `cd agents && python -m pytest -q`.
   The trust layer is complete and is the part of this project with the most work already banked. The roster is being reshaped by the pivot; see `agents/CLAUDE.md`.
-- **`app/backend/`** - the app-facing edge service. Holds `hawkeye_backend/verification/`, the claim-envelope defence, all thirteen `fraud.webmesh.ai` shapes implemented and passing. Also records incidents as they happen into a hash-chained replay record.
+- **`app/backend/`** - the app-facing edge service. Holds `hawkeye_backend/verification/`, the claim-envelope defence, all thirteen `fraud.webmesh.ai` shapes implemented and passing. Also records incidents as they happen into a hash-chained replay record, and **persists each sealed record to MongoDB Atlas** so it survives a restart.
 - **`app/ios/`** - the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. `cd app/ios && xcodegen generate`. Builds and runs on an iPhone 17 simulator against Xcode 27.0.
 - **`app/watch/`** - the watchOS app. **Written.** Three screens - Idle, Notice, Saved - on a phone-paired WatchConnectivity relay, plus the notification that carries the camera's first sentence to a wrist. A mock feed runs all three screens with no phone and no hub. It lives as a second XcodeGen target in `app/ios/` so it can share `Models/`, `Shared/` and `DesignSystem/` by source path; see `app/ios/HawkEyeWatch/README.md`. This is where a human starts an incident.
 - **`app/web/replay/`** - the replay console at `/replay`. Gains video playback with the pivot.
@@ -347,13 +347,15 @@ It also unlocks a better demo beat than the refusal alone: point the judge's own
 
 MLH tracks are stackable and published: Gemini API, ElevenLabs, Solana, TigerData, Presage, Vultr, MongoDB Atlas, and Best Domain Name from GoDaddy Registry.
 
-The pivot improves three of these:
+Where each of these stands:
 
 - **Gemini API** - `vision` is now a first-class Gemini Live consumer, not a bolt-on. This went from "not claimed" to "a core agent"
 - **ElevenLabs** - the 911 operator side is voice, and the narration driving it is now worth listening to
 - **Best Domain Name (GoDaddy Registry)** - free, required anyway
 - **Vultr** - the agents must be internet-reachable regardless, so host them there
-- **MongoDB Atlas / TigerData** - the event timeline and the video index have to persist somewhere
+- **MongoDB Atlas** - **claimed, and done.** Sealed replay records persist to Atlas via `HAWKEYE_REPLAY_ARCHIVE=mongodb`; verified against the real cluster on 2026-09-19, including a hub restart with the chain still verifying. `app/backend/hawkeye_backend/replay/archive.py`, and the archive section of `app/backend/README.md`.
+  Note the shape of the claim: `HAWKEYE_STORE_BACKEND` stays `memory` and `MongoStore` stays unimplemented, deliberately. The store is on the incident path and the timing budget has no room for a round trip to Atlas; what needed to outlive the process was the sealed record, and that is what persists
+- **TigerData** - not claimed. `DATABASE_URL` points at a real Timescale cloud instance and nothing reads it
 
 VTHacks-branded tracks: 1st/2nd/3rd, Best First-Time Hack, Best Hack That Didn't Work, Best DEI Hack, Best UI/UX Hack, Best Ut Prosim Hack.
 Ut Prosim is "That I May Serve," and a public safety project is squarely on theme.
