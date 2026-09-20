@@ -162,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m agents", description=__doc__)
     parser.add_argument("slug", nargs="?", help="Which agent to run.")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--transport-port", type=int, default=8107, help="Transport server port (caller only)")
     parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - must be reachable
     parser.add_argument("--list", action="store_true", help="List the five and exit.")
     args = parser.parse_args(argv)
@@ -183,7 +184,59 @@ def main(argv: list[str] | None = None) -> int:
     import uvicorn
 
     print(f"{identity(args.slug).name} on http://{args.host}:{args.port}")
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+
+    # If this is the caller agent, also launch the Twilio transport server.
+    if args.slug == "caller":
+        from agents.caller.transport.orchestrator import CallOrchestrator
+        from agents.caller.transport.server import build_transport_app
+        from agents.caller.transport.twilio_client import RealTwilioVoiceClient
+        from agents.caller.transport.simulated import SimulatedCallTransport
+        from hawkeye_backend.config import get_settings
+
+        settings = get_settings()
+
+        # Choose real or simulated transport, mirroring app/backend's build_client pattern.
+        if settings.mode == "live" and settings.twilio_voice_configured:
+            voice_client = RealTwilioVoiceClient(
+                account_sid=settings.twilio_account_sid,
+                auth_token=settings.twilio_auth_token.get_secret_value(),
+            )
+        else:
+            voice_client = SimulatedCallTransport()
+
+        orchestrator = CallOrchestrator(
+            caller=agent,
+            transport=voice_client,
+            mock_911_number=settings.mock_911_number or "+15550004444",
+            twilio_voice_number=settings.twilio_voice_number or "+15550003333",
+            twiml_app_sid=settings.twilio_conference_app_sid or "APxxxx",
+            status_callback_url=(settings.public_base_url or f"http://{args.host}:{args.transport_port}") + "/twilio/status",
+        )
+
+        transport_app = build_transport_app(
+            orchestrator,
+            auth_token=settings.twilio_auth_token.get_secret_value() if settings.twilio_voice_configured else "test_auth_token",
+            elevenlabs_voice_id=settings.elevenlabs_voice_id or "voice123",
+            public_base_url=settings.public_base_url or f"http://{args.host}:{args.transport_port}",
+        )
+
+        print(f"caller transport on http://{args.host}:{args.transport_port}")
+
+        # Run both servers: the A2A server on the main port and the transport server on transport-port.
+        # We use a simple async wrapper to run both concurrently.
+        import asyncio
+
+        async def run_both():
+            config_a2a = uvicorn.Config(app, host=args.host, port=args.port, log_level="info")
+            config_transport = uvicorn.Config(transport_app, host=args.host, port=args.transport_port, log_level="info")
+            server_a2a = uvicorn.Server(config_a2a)
+            server_transport = uvicorn.Server(config_transport)
+            await asyncio.gather(server_a2a.serve(), server_transport.serve())
+
+        asyncio.run(run_both())
+    else:
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+
     return 0
 
 
