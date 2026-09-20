@@ -213,9 +213,13 @@ def main(argv: list[str] | None = None) -> int:
             status_callback_url=(settings.public_base_url or f"http://{args.host}:{args.transport_port}") + "/twilio/status",
         )
 
+        # `None` when Twilio isn't configured tells build_transport_app to fail
+        # every webhook and WS connection closed rather than falling back to a
+        # constant - see that module's docstring for why a fallback secret is
+        # unsafe once this process is publicly reachable but unconfigured.
         transport_app = build_transport_app(
             orchestrator,
-            auth_token=settings.twilio_auth_token.get_secret_value() if settings.twilio_voice_configured else "test_auth_token",
+            auth_token=settings.twilio_auth_token.get_secret_value() if settings.twilio_voice_configured else None,
             elevenlabs_voice_id=settings.elevenlabs_voice_id or "voice123",
             public_base_url=settings.public_base_url or f"http://{args.host}:{args.transport_port}",
         )
