@@ -226,6 +226,49 @@ Also: reject a request where `DPoP`, `Authorization`, `X-SCITT-Receipt`, or `X-A
 
 The line worth remembering, near-verbatim from the spec: a proof passing steps 1 through 7 is cryptographically well-formed but **not yet trusted**. Verifying the status token is what turns "someone holds this key" into "this registered, currently-valid agent holds this key."
 
+## What `verify_agent` actually returned
+
+Run for the first time 2026-09-20, against all seven. Before the card work:
+
+```
+identity      pass              tl=verified dnssec=verified dnsid=absent
+protocol      warning           speaks A2A v0.3.0; needs the compat adapter or MCP
+auth          pass              schemes: ansIdentityCert, noAuth
+attestations  unable-to-check   his Phase 2, not our gap
+can_traveler_transact: "with-adapter"     mcp_capable: false     interfaces_raw: []
+```
+
+After adding `/mcp`, `supportedInterfaces` and the MCP capability extension:
+
+```
+can_traveler_transact: "yes"    "MCP endpoint available - use MCP as primary path"
+mcp_capable: true               interfaces_raw: both endpoints, with versions
+```
+
+Three things this settles that guessing had not:
+
+- **`interfaces_raw` was empty** because we published no `supportedInterfaces` array, despite him having just spoken A2A to us successfully. Pure card shape, and free to fix.
+- **The `protocol` warning is honest and stays.** It compares our `protocolVersion` string to his `1.0`. Claiming 1.0 would have cleared it in one character and would have been a signed, published lie about a surface we do not implement. Measure 5 is exactly this temptation.
+- **`attestations: unable-to-check` is his side.** Phase 2 is not built. Do not read it as a finding against us, and do not try to fix it.
+
+## Why `x5c` is null, and why that is the right answer
+
+The ANS PKI refuses our signing algorithm outright:
+
+```
+csrvalidation: public key algorithm not accepted:
+CSR public key must use RSA or EC, but was 'Ed25519'.
+PKI only accepts RSA 2048 or 3072 or 4096 bit keys or EC P-256 keys
+```
+
+Verified by building a CSR from an agent's real signing key and submitting it. So there is no certificate anywhere that contains the key `keys[].x` publishes.
+
+The two certificates the RA did issue cover keys `ans-cli` generated for its own CSRs - EC P-256 for the identity certificate, RSA-2048 for the server certificate. Putting either chain beside our Ed25519 `x` would publish a certificate that does not contain the key it sits next to. ANS-6 §7.4 step 4 requires a verifier to compare `jwk` against `x5c[0]` **before any signature work**, and probe 8, `wrong_dpop_key_attack`, is precisely "valid credential, wrong key".
+
+So a populated `x5c` here would be the attack shape we claim to defend against, published on the surface the judge inspects first. `null` is correct, and saying why is stronger than filling it.
+
+**The only real fix is re-keying the mesh to EC P-256**, which makes the signing key certifiable. That is the right architecture and it is not a judging-morning change: it touches every signature, the verification package, and both test suites.
+
 ## Checklist
 
 Per agent, all five:
@@ -236,7 +279,7 @@ Per agent, all five:
 - [ ] One JCS implementation across all five agents
 - [ ] Card is a build artifact, byte-stable, sorted keys, no dynamic fields
 - [ ] ansName carries the version; certificate SAN carries the ansName
-- [ ] SCITT receipt stapled. **Outstanding** - all seven are ANS ACTIVE with badges as of 2026-09-20, but `transparencyReceipt` is still `null` in every trust card, so verification needs a network round trip and cannot reach Gold offline
+- [x] SCITT receipt stapled. Done 2026-09-20, all seven. We publish the RA's own badge document verbatim - merkle proof, signed payload, root signature, status - rather than the reference's compact COSE receipt, because that is what the RA actually hands us and it is what an offline verifier needs. Note this changed no verdict: `verify_agent` already reported `tl: verified` by fetching `_ans-badge` itself. The staple buys resilience, not a score
 - [x] `_ans` and `_ans-badge` TXT published and matching the TL. Done 2026-09-20, all seven. A fourth record, `<host>` HTTPS `1 . alpn=h2`, is also required by `verify-dns`; see `docs/deploy.md`
 - [x] DNSSEC enabled
 - [ ] `securitySchemes` and `securityRequirements` match what is enforced

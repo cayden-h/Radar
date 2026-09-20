@@ -27,9 +27,10 @@ credential we actually required. An agent whose card advertises an endpoint that
 is not there fails the judge's own verifier on the surface we called our best
 demo beat.
 
-MCP is deliberately not here. All the webmesh.ai agents speak both, and ours
-should eventually, but it is a second adapter over these same handlers and it
-buys presentation rather than capability. Roadmap, not this weekend.
+MCP lives in `agents/core/mcp.py`, over these same handlers. It was deferred as
+"presentation rather than capability" until `agent.webmesh.ai verify_agent` was
+finally pointed at us on 2026-09-20 and named MCP in the one warning it
+returned. See that module's docstring.
 
 ## The trap this file exists to avoid
 
