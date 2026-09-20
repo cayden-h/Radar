@@ -21,10 +21,11 @@ What exists right now:
 - **`vision/`** - the camera capture path. **Written, and verified against real footage of real people.**
   A `FrameSource` seam with fixture, webcam and future-Pi implementations; three-state lighting detection with hysteresis and a dwell; measured person tracking on YOLO11m plus BoT-SORT with ReID; and rotating mp4 segments hashed as they close.
   `cd vision && python3 -m pytest -q`, and `python3 -m hawkeye_vision` runs the whole path live with boxes and a lighting readout.
-  Narration lives beside it in `hawkeye_vision/narrate.py`. **The shutter attestation gate and claim emission to `master` are not written yet**, so it produces no claims: that is T16.
+  Narration lives beside it in `hawkeye_vision/narrate.py`. **`hawkeye_vision/live_occupancy.py` is the real `OccupancySource` as of 2026-09-20**: a capture thread that reads the hub's relay, runs the tracker and answers `agents/vision` with a measured verdict, so the camera agent no longer runs on a script. **The shutter attestation gate and `vision.description` are still not written**, which is the rest of T16.
 - **`shutter/`** - the servo control path. The contract; the agent is `agents/agents/shutter/`. **Gate written and tested, 22 tests, no hardware needed. The servo itself is unrun.**
   Reachable end to end from all three apps as of 2026-09-20: `POST /v1/shutter` asks the shutter for a nonce, has `master` sign a grant bound to it, and publishes the attestation or the refusal to every surface.
 - **`docs/hardware/`** - one guide per hardware item, plus a linear bring-up checklist.
+- **`scripts/up.sh`** - **New 2026-09-20.** Brings the whole system up on one machine in live mode, in dependency order: the four agents, `master` with its hub-facing surface, the hub at `HAWKEYE_MODE=live`, and the camera on the edge link. `--fixture` swaps recorded footage for the Brio, `--stop` stops it. Until this existed every one of those seven processes was a remembered command line.
 - **`TASKS.md`** - the work board. Dependency-ordered, claimable, not assigned by person. Start there.
 
 ## What we are building

@@ -49,13 +49,27 @@ class OccupancySource(Protocol):
         """The verdict for the most recent frame."""
         ...
 
+    #: What is actually producing frames, when the source knows. Optional,
+    #: because a test fake has nothing to report and should not have to invent
+    #: one. A source that offers it is believed over the agent's own default:
+    #: the edge can reconnect carrying replayed footage where a camera used to
+    #: be, and the claim must carry the label of whatever produced it rather
+    #: than one fixed at construction.
+    source: Source
+
 
 class VisionAgent(Agent):
     """Personhood from the camera, scoped to the one room it covers."""
 
     interval_s = 1.0
 
-    def __init__(self, source: OccupancySource, *, room: str, source_kind: Source) -> None:
+    def __init__(
+        self,
+        source: OccupancySource,
+        *,
+        room: str,
+        source_kind: Source = Source.CAMERA_SIM,
+    ) -> None:
         super().__init__(identity("vision"))
         if source_kind not in CAMERA_SOURCES:
             raise ValueError(
@@ -65,7 +79,27 @@ class VisionAgent(Agent):
             )
         self._source = source
         self._room = room
+        #: The floor, used when the capture source does not report one of its
+        #: own. `CAMERA_SIM` is the honest default: it classes as SIMULATED, so
+        #: anything rendering a provenance badge shows one until the source
+        #: proves otherwise. Defaulting the other way would let a process with
+        #: no lens attached present as a camera.
         self._source_kind = source_kind
+
+    @property
+    def source_kind(self) -> Source:
+        """The label this tick's claim will carry.
+
+        Read from the capture source when it reports one, and validated against
+        `CAMERA_SOURCES` every time rather than once at construction. A source
+        that starts reporting `nexmon-csi` is either confused or compromised,
+        and either way the honest response is to fall back to the simulated
+        label rather than to repeat it.
+        """
+        reported = getattr(self._source, "source", None)
+        if isinstance(reported, Source) and reported in CAMERA_SOURCES:
+            return reported
+        return self._source_kind
 
     def tick(self) -> AgentObservation:
         verdict = self._source.occupancy()
@@ -106,7 +140,7 @@ class VisionAgent(Agent):
                         "many."
                     ),
                     provenance=Provenance(
-                        source=self._source_kind,
+                        source=self.source_kind,
                         producer=self.identity.name,
                         ansname=self.identity.ansname,
                         detail=f"camera:{self._room}",

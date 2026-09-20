@@ -48,6 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fastapi import FastAPI
     from hawkeye_backend.verification import TrustStore
 
+    from agents.master.shutter_client import ShutterClient
     from agents.shutter.backend import ShutterBackend
 
 logger = logging.getLogger(__name__)
@@ -121,24 +122,15 @@ def build_agent(slug: str) -> Agent:
         case "master":
             from agents.master import MasterAgent, SimulatedCoSensor
 
-            return MasterAgent(mesh, gas=SimulatedCoSensor())
+            return MasterAgent(mesh, gas=SimulatedCoSensor(), shutter_client=shutter_client())
         case "caller":
             from agents.caller import CallerAgent
 
             return CallerAgent(mesh)
         case "vision":
-            from hawkeye_backend.models.common import Source
-
-            from agents.core.dev import SyntheticOccupancy
             from agents.vision import VisionAgent
 
-            # `CAMERA_SIM` because that is what this is. The agent refuses any
-            # source label that is not a camera, and the honest camera label for
-            # a process with no lens attached is the simulated one - which the
-            # app renders a badge from rather than hiding.
-            return VisionAgent(
-                SyntheticOccupancy(), room=VISION_ROOM, source_kind=Source.CAMERA_SIM
-            )
+            return VisionAgent(occupancy_source(), room=VISION_ROOM)
         case "replay":
             from agents.replay import ReplayAgent
 
@@ -154,6 +146,108 @@ def build_agent(slug: str) -> Agent:
             return ShutterAgent(trust=trust_store(slug), backend=shutter_backend())
         case _:
             raise SystemExit(f"no agent {slug!r}. Try --list.")
+
+
+def occupancy_source():  # noqa: ANN201 - OccupancySource, a Protocol
+    """Where `vision` gets its personhood verdict.
+
+    The real one by default, reading the hub's camera relay and running YOLO11m
+    plus BoT-SORT on this machine. `HAWKEYE_VISION_SOURCE=synthetic` opts back
+    into the scripted verdict for a laptop with no hub up.
+
+    **The real path is the default and the synthetic one is the opt-in**, which
+    is the reverse of how this started. A synthetic default is how you get to a
+    judging table with a camera pointed at a room and an agent answering from a
+    script, and nothing on any screen tells you which one you are watching -
+    because a `CAMERA_SIM` badge is exactly what a real camera relay reports
+    until the hub says otherwise.
+
+    Failing to build the real one is **not** a fallback to the synthetic one. It
+    returns a source that reports `tracker_unavailable` forever, which is the
+    honest answer: this process could not look. A silent downgrade to a scripted
+    verdict would let a demo with no camera present as a demo with one.
+    """
+    from hawkeye_vision.occupancy import Occupancy
+
+    choice = os.environ.get("HAWKEYE_VISION_SOURCE", "relay").strip().lower()
+    if choice == "synthetic":
+        from agents.core.dev import SyntheticOccupancy
+
+        logger.warning(
+            "HAWKEYE_VISION_SOURCE=synthetic: vision is answering from a script, not "
+            "from a camera. Every claim it makes will be labelled camera-sim."
+        )
+        return SyntheticOccupancy()
+    if choice != "relay":
+        raise SystemExit(
+            f"HAWKEYE_VISION_SOURCE={choice!r}; expected 'relay' or 'synthetic'"
+        )
+
+    hub = os.environ.get("HAWKEYE_HUB_URL", "http://127.0.0.1:8787")
+    try:
+        from hawkeye_vision.config import VisionConfig
+        from hawkeye_vision.live_occupancy import LiveOccupancySource
+        from hawkeye_vision.relay import RelayFrameSource
+        from hawkeye_vision.yolo_tracker import build_tracker
+
+        config = VisionConfig()
+        source = LiveOccupancySource(
+            RelayFrameSource(hub), build_tracker(config), config=config
+        )
+        source.start()
+        logger.info("vision reading the camera relay at %s", hub)
+        return source
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        logger.error(
+            "could not build the camera path (%s). vision will report "
+            "tracker_unavailable rather than falling back to a script: an agent that "
+            "answered from a fixture while a camera was on the table would be lying "
+            "about which sensor produced the claim.",
+            exc,
+        )
+
+        class _Blind:
+            """Reports that it could not look. Never that the room is empty."""
+
+            def occupancy(self) -> Occupancy:
+                return Occupancy.TRACKER_UNAVAILABLE
+
+        return _Blind()
+
+
+def shutter_client() -> "ShutterClient | None":
+    """How `master` reaches the shield, from `HAWKEYE_PEERS`.
+
+    The same env var that turns the mesh on turns this on, and for the same
+    reason: both are the difference between an in-process stand-in that verifies
+    nothing about a transport and two independently registered agents talking
+    over one.
+
+    `None` when `shutter` is not in the peer list, and that is the correct
+    degenerate behaviour rather than a fallback. A master with no shutter client
+    never issues a grant, so the lens stays covered - and a silent in-process
+    substitute here would be a shield that moved without anything crossing the
+    wire, which is the one outcome this project must never demonstrate by
+    accident.
+    """
+    raw = os.environ.get("HAWKEYE_PEERS", "").strip()
+    base_urls = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
+    url = base_urls.get("shutter")
+    if not url:
+        logger.warning(
+            "no shutter in HAWKEYE_PEERS, so master holds no shutter client and will "
+            "never issue a grant. The lens stays covered, which is safe and is not a "
+            "working demo."
+        )
+        return None
+
+    from agents.master.shutter_client import A2AShutterClient
+
+    return A2AShutterClient(
+        url,
+        key=load_or_create("master"),
+        issuer=identity("master").ansname,
+    )
 
 
 def shutter_backend() -> "ShutterBackend":
