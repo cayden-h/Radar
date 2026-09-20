@@ -510,6 +510,7 @@ def main(argv: list[str] | None = None) -> int:
             from agents.caller.transport.retell.courier_client import (
                 HttpBackendCourierClient,
             )
+            from agents.caller.transport.retell.transcript_sink import HttpTranscriptSink
 
             if settings.mode == "live" and settings.retell_configured:
                 retell_client = RealRetellVoiceClient(
@@ -529,6 +530,11 @@ def main(argv: list[str] | None = None) -> int:
                 from_number=settings.retell_from_number or "+15550003333",
                 operator_number=settings.mock_911_number or "+15550004444",
                 courier=HttpBackendCourierClient(settings.edge_base_url),
+                # Best-effort fan-out of each transcript line to the hub, so the
+                # resident's app can render the live operator <-> agent
+                # conversation on the existing TRANSCRIPT stream events. Fails
+                # soft: it never raises into the call loop.
+                transcript_sink=HttpTranscriptSink(settings.edge_base_url),
             )
             transport_app = build_retell_transport_app(
                 orchestrator,
