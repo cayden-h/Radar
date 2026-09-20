@@ -467,7 +467,11 @@ def main(argv: list[str] | None = None) -> int:
 
         settings = get_settings()
         transport = (settings.call_transport or "retell").strip().lower()
-        internal_token = os.environ.get("HAWKEYE_INTERNAL_TRIGGER_TOKEN", "").strip() or None
+        # Read via Settings (sourced from .env or the environment) rather than
+        # os.environ alone, so a bare caller restart keeps the token. A caller
+        # that comes up without it answers 503 on /internal/* and the call
+        # bridge silently stops placing calls.
+        internal_token = settings.internal_trigger_token.get_secret_value().strip() or None
 
         if transport == "twilio":
             # Dormant path, retained. Paywalled; not the default.
@@ -565,9 +569,14 @@ def main(argv: list[str] | None = None) -> int:
         # build_app() already returned - the same pattern used for caller's
         # second transport-server app above, just without a second port.
         from agents.master.transport import attach_call_bridge_routes
+        from hawkeye_backend.config import get_settings
 
+        settings = get_settings()
         caller_transport_url = os.environ.get("HAWKEYE_CALLER_TRANSPORT_URL", "").strip()
-        internal_trigger_token = os.environ.get("HAWKEYE_INTERNAL_TRIGGER_TOKEN", "").strip() or None
+        # Read via Settings (sourced from .env or the environment) so it matches
+        # the caller's token across bare restarts. It MUST equal the caller's, or
+        # master's Bearer is rejected and the call bridge fails closed.
+        internal_trigger_token = settings.internal_trigger_token.get_secret_value().strip() or None
 
         caller_client: httpx.AsyncClient | None = None
         if caller_transport_url:
