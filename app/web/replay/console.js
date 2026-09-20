@@ -115,5 +115,76 @@ const HawkEye = (() => {
     return `${mb.toFixed(1)} MB`;
   }
 
-  return { index };
+  // ------------------------------------------------------------------ tabs
+
+  function tabs() {
+    const buttons = document.querySelectorAll(".tab");
+    const subtitle = $("pagesub");
+    const TITLES = { segments: "Video segments", calibration: "Calibration" };
+
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const target = btn.dataset.tab;
+        buttons.forEach((b) => b.setAttribute("aria-selected", String(b === btn)));
+        document.querySelectorAll(".tabpanel").forEach((panel) => {
+          panel.hidden = panel.id !== `tab-${target}`;
+        });
+        if (subtitle) subtitle.textContent = TITLES[target] || "";
+      });
+    });
+  }
+
+  // ------------------------------------------------------- security mode
+  //
+  // Arm/disarm, proxied through app/backend to agents/master. Disarmed is
+  // the safe default: motion is still observed, it just never opens the
+  // shield until a human arms it here. See agents/master/agent.py's
+  // `security_mode`.
+
+  async function securityMode() {
+    const btn = $("armBtn");
+    const title = $("armTitle");
+    if (!btn || !title) return;
+
+    function render(enabled) {
+      btn.disabled = false;
+      btn.textContent = enabled ? "Disarm" : "Arm security mode";
+      btn.className = `armbtn ${enabled ? "armed" : "disarmed"}`;
+      title.textContent = `Security mode: ${enabled ? "armed" : "disarmed"}`;
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch("/v1/security-mode");
+        if (!res.ok) throw new Error(`GET /v1/security-mode: ${res.status}`);
+        const body = await res.json();
+        render(Boolean(body.enabled));
+      } catch (err) {
+        btn.disabled = true;
+        btn.textContent = "Unavailable";
+        title.textContent = "Security mode: could not reach the hub";
+      }
+    }
+
+    btn.addEventListener("click", async () => {
+      const wantEnabled = !btn.classList.contains("armed");
+      btn.disabled = true;
+      try {
+        const res = await fetch("/v1/security-mode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: wantEnabled }),
+        });
+        if (!res.ok) throw new Error(`POST /v1/security-mode: ${res.status}`);
+        const body = await res.json();
+        render(Boolean(body.enabled));
+      } catch (err) {
+        render(!wantEnabled);
+      }
+    });
+
+    await refresh();
+  }
+
+  return { index, tabs, securityMode };
 })();

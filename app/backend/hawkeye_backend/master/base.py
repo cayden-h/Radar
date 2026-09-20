@@ -152,6 +152,23 @@ class MasterClient(Protocol):
         """
         ...
 
+    async def security_mode(self) -> bool:
+        """Is motion currently allowed to open the shutter.
+
+        Disarmed by default (see `agents/master/agent.py`'s `security_mode`):
+        motion has always opened the shutter unconditionally on detection, and
+        this is the human arm/disarm switch on top of it.
+        """
+        ...
+
+    async def set_security_mode(self, enabled: bool) -> bool:
+        """Arm or disarm. Returns the state as master now holds it.
+
+        A human decision from the app, never inferred: automation does not
+        arm or disarm itself.
+        """
+        ...
+
     async def issue_shutter_grant(
         self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
     ) -> str:

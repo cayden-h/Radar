@@ -217,6 +217,7 @@ class SimulatedMasterClient:
         self._incident: Incident | None = None
         self._call_started_for: str | None = None
         self._participation_mode: str | None = None
+        self._security_mode = False
         # Recorded rather than acted on: there is no real caller in simulated
         # mode to speak these, so this is a test/inspection seam mirroring
         # what LiveMasterClient.inject_context actually POSTs.
@@ -424,6 +425,13 @@ class SimulatedMasterClient:
             "full_voice": "Sound on - your phone will be audible.",
         }.get(mode, f"Mode changed to {mode}.")
         return label
+
+    async def security_mode(self) -> bool:
+        return self._security_mode
+
+    async def set_security_mode(self, enabled: bool) -> bool:
+        self._security_mode = enabled
+        return self._security_mode
 
     # ------------------------------------------------------------- state ticker
 

@@ -62,6 +62,7 @@ PATH_START_CALL = "/a2a/start-call"
 PATH_SET_MODE = "/a2a/set-mode"
 PATH_INJECT_CONTEXT = "/a2a/inject-context"
 PATH_GRANT = "/v1/shutter/grant"
+PATH_SECURITY_MODE = "/v1/security-mode"
 
 
 class LiveMasterClient:
@@ -295,6 +296,14 @@ class LiveMasterClient:
             PATH_INJECT_CONTEXT,
             {"incident_id": incident_id, "text": text},
         )
+
+    async def security_mode(self) -> bool:
+        payload = await self._get(PATH_SECURITY_MODE)
+        return bool(payload.get("enabled", False))
+
+    async def set_security_mode(self, enabled: bool) -> bool:
+        payload = await self._post(PATH_SECURITY_MODE, {"enabled": enabled})
+        return bool(payload.get("enabled", False))
 
     async def issue_shutter_grant(
         self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
