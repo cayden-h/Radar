@@ -42,6 +42,8 @@ from agents.core.discovery import discover
 from hawkeye_backend.verification import ClaimVerifier, VerifierPolicy
 
 if TYPE_CHECKING:  # pragma: no cover
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from fastapi import FastAPI
     from hawkeye_backend.verification import TrustStore
 
     from agents.shutter.backend import ShutterBackend
@@ -239,6 +241,56 @@ def build_mesh(slug: str) -> ObservationSource:
     )
 
 
+def build_master_app(
+    agent: Agent, signer: ClaimSigner, key: "Ed25519PrivateKey"
+) -> "FastAPI":
+    """Master serves two surfaces on one app, and this wires the first of them.
+
+    `hub_router` is the read/incident/grant/stream surface `app/backend`'s
+    `LiveMasterClient` polls - `/v1/state`, `/v1/sensor`, `/v1/agents`,
+    `/v1/stream`, `/v1/shutter/grant`. It is mounted through `build_app`'s
+    `routers`/`on_start`/`on_stop` hooks, which exist for exactly this agent:
+    the hub needs a background publisher started alongside the agent's own tick
+    and stopped before it. Every other agent passes those hooks nothing.
+
+    The second surface, the `/a2a/{start-call,set-mode}` call bridge, is added
+    by `attach_call_bridge_routes` after this returns. The two are deliberately
+    separate implementations: this surface reports and never dials, and the call
+    bridge is the only path to a phone call. `hub_api.a2a_hub_router` is
+    intentionally *not* mounted here - it duplicates those two paths but gates
+    without triggering `agents/caller`, so mounting it would both shadow the
+    dialing routes and serve a start-call that never dials.
+
+    Site id and address come from the same `hawkeye_backend` settings the hub's
+    `SimulatedMasterClient` reads, so the live state a surface renders is scoped
+    to the same installation the mock one was.
+    """
+    from agents.master import MasterAgent
+    from agents.master.hub_api import MasterHub, hub_router
+    from hawkeye_backend.config import get_settings
+    from hawkeye_backend.master.scenario import build_floorplan
+
+    if not isinstance(agent, MasterAgent):  # pragma: no cover - guarded by caller
+        raise SystemExit("build_master_app called for a non-master agent")
+
+    settings = get_settings()
+    hub = MasterHub(
+        agent,
+        site_id=settings.site_id,
+        site_address=settings.site_address,
+        floorplan=build_floorplan(settings.site_id),
+        key=key,
+        camera_room=VISION_ROOM,
+    )
+    return build_app(
+        agent,
+        signer=signer,
+        routers=[hub_router(hub)],
+        on_start=hub.start,
+        on_stop=hub.stop,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m agents", description=__doc__)
     parser.add_argument("slug", nargs="?", help="Which agent to run.")
@@ -259,8 +311,16 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("name an agent, or pass --list")
 
     agent = build_agent(args.slug)
-    signer = ClaimSigner(identity(args.slug), load_or_create(args.slug))
-    app = build_app(agent, signer=signer)
+    key = load_or_create(args.slug)
+    signer = ClaimSigner(identity(args.slug), key)
+    # `master` alone serves a second surface - the one `app/backend` reads - so
+    # its app is built with the hub router and its background publisher. The
+    # `/a2a` call bridge is attached to this same app in the `master` branch
+    # below. Every other agent gets the plain single-surface app.
+    if args.slug == "master":
+        app = build_master_app(agent, signer, key)
+    else:
+        app = build_app(agent, signer=signer)
 
     import uvicorn
 
@@ -268,8 +328,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # If this is the caller agent, also launch the Twilio transport server.
     if args.slug == "caller":
-        import os
-
+        # `os` is imported at module top and must not be re-imported here: a
+        # local `import os` inside this function makes `os` a local of `main()`
+        # for the whole body, so the `master` branch below raises
+        # UnboundLocalError reading `os.environ` when its own branch never ran.
         from hawkeye_backend.config import get_settings
 
         settings = get_settings()
