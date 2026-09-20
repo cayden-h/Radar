@@ -26,13 +26,19 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from hawkeye_backend.models.common import Provenance, Source
+from hawkeye_backend.models.common import Provenance, Source, utc_now
 from hawkeye_backend.verification.envelope import Severity
+from hawkeye_vision.narrate import UNREACHABLE
 from hawkeye_vision.occupancy import Occupancy
 
 from agents.core.base import Agent
 from agents.core.identity import identity
 from agents.core.observations import AgentObservation, Assertion, Unknown
+from agents.vision.attestation import (
+    AttestationSource,
+    NarrationSource,
+    attestation_is_open,
+)
 
 #: The only sources a vision claim may carry. A claim from this agent labelled
 #: `nexmon-csi` or `servo-gpio` would be a lie about which sensor produced it,
@@ -40,6 +46,19 @@ from agents.core.observations import AgentObservation, Assertion, Unknown
 CAMERA_SOURCES: frozenset[Source] = frozenset(
     {Source.CAMERA_UVC, Source.REPLAY_VIDEO, Source.CAMERA_SIM}
 )
+
+#: The exact reason string a claim carries when the shield is not attested clear.
+#: Named once because root and `vision/CLAUDE.md` specify it verbatim, and two
+#: spellings in two files is how a required behaviour quietly stops being tested.
+SHIELD_CLOSED = "shield_closed"
+
+#: The label carried in `Provenance.detail` so a `vision.description` claim is
+#: legible as generated language-model text and not as a measurement. The
+#: `source` stays the camera that produced the frame - that is what the app
+#: renders the simulated badge from - but the sentence itself was written by a
+#: model, and `vision/CLAUDE.md` requires that fact be in the claim, not only in
+#: the docs. See the description branch of `tick`.
+GENERATED_LABEL = "generated"
 
 
 class OccupancySource(Protocol):
@@ -55,7 +74,15 @@ class VisionAgent(Agent):
 
     interval_s = 1.0
 
-    def __init__(self, source: OccupancySource, *, room: str, source_kind: Source) -> None:
+    def __init__(
+        self,
+        source: OccupancySource,
+        *,
+        attestations: AttestationSource,
+        narrations: NarrationSource,
+        room: str,
+        source_kind: Source,
+    ) -> None:
         super().__init__(identity("vision"))
         if source_kind not in CAMERA_SOURCES:
             raise ValueError(
@@ -64,36 +91,65 @@ class VisionAgent(Agent):
                 "app renders a simulated badge from."
             )
         self._source = source
+        # The two seams that gate and feed this agent. Neither is computed here:
+        # the attestation is a separate agent's signed word that the lens is
+        # uncovered, and the narration is a separate module's sentence about what
+        # it saw. See `attestation.py`.
+        self._attestations = attestations
+        self._narrations = narrations
         self._room = room
         self._source_kind = source_kind
 
     def tick(self) -> AgentObservation:
-        verdict = self._source.occupancy()
-
-        if verdict is Occupancy.TRACKER_UNAVAILABLE:
-            # Deliberately not an assertion. `tracker_unavailable` as a *value*
-            # is something a careless consumer can compare against and get a
-            # truthy answer from; an unknown cannot be mistaken for a reading.
+        # The gate comes first, before the camera is even consulted. The rule in
+        # root and `vision/CLAUDE.md` is that this agent produces *no* claim -
+        # not occupancy, not description - without a current, verified
+        # attestation from `shutter` that the shield is clear. A stale or absent
+        # attestation is `shield_closed`, and both fields say so rather than one
+        # of them leaking a reading the camera should not have been able to take.
+        attestation = self._attestations.current()
+        if not attestation_is_open(attestation, now=utc_now()):
             return AgentObservation(
                 agent=self.identity.name,
                 ansname=self.identity.ansname,
+                healthy=False,
+                note=SHIELD_CLOSED,
                 unknowns=(
                     Unknown(
                         field="vision.occupancy",
                         zone_scope=self._room,
-                        reason=(
-                            "The detector could not look: no weights loaded or no frames "
-                            "arriving. Zero detections from a blind camera is not evidence "
-                            "that the room is empty."
-                        ),
+                        reason=SHIELD_CLOSED,
+                    ),
+                    Unknown(
+                        field="vision.description",
+                        zone_scope=self._room,
+                        reason=SHIELD_CLOSED,
                     ),
                 ),
             )
 
-        return AgentObservation(
-            agent=self.identity.name,
-            ansname=self.identity.ansname,
-            assertions=(
+        assertions: list[Assertion] = []
+        unknowns: list[Unknown] = []
+
+        # --- occupancy: the measured half, unchanged behind the gate ---------
+        verdict = self._source.occupancy()
+        if verdict is Occupancy.TRACKER_UNAVAILABLE:
+            # Deliberately not an assertion. `tracker_unavailable` as a *value*
+            # is something a careless consumer can compare against and get a
+            # truthy answer from; an unknown cannot be mistaken for a reading.
+            unknowns.append(
+                Unknown(
+                    field="vision.occupancy",
+                    zone_scope=self._room,
+                    reason=(
+                        "The detector could not look: no weights loaded or no frames "
+                        "arriving. Zero detections from a blind camera is not evidence "
+                        "that the room is empty."
+                    ),
+                )
+            )
+        else:
+            assertions.append(
                 Assertion(
                     field="vision.occupancy",
                     value=verdict.value,
@@ -111,6 +167,55 @@ class VisionAgent(Agent):
                         ansname=self.identity.ansname,
                         detail=f"camera:{self._room}",
                     ),
-                ),
-            ),
+                )
+            )
+
+        # --- description: the generated half, labelled as generated ----------
+        narration = self._narrations.latest()
+        if narration is None:
+            # No sentence yet, or the narrator went unreachable. Either way the
+            # honest claim is that we cannot describe the room, never a line the
+            # model did not write. Same reason string the narrator uses so the
+            # two never drift apart.
+            unknowns.append(
+                Unknown(
+                    field="vision.description",
+                    zone_scope=self._room,
+                    reason=UNREACHABLE,
+                )
+            )
+        else:
+            assertions.append(
+                Assertion(
+                    field="vision.description",
+                    value=narration.text,
+                    zone_scope=self._room,
+                    # Generated witness-grade text corroborates a presence; it
+                    # must never be the thing that leads an escalation on its
+                    # own, so its ceiling sits below occupancy's ACTIONABLE.
+                    severity_ceiling=Severity.CORROBORATING,
+                    confidence=0.6,
+                    basis=(
+                        f"Gemini Live narration of the {self._room} camera, generated text. "
+                        "As reliable as a witness describing what they see: build, clothing, "
+                        "what a person is carrying and doing, never who they are."
+                    ),
+                    provenance=Provenance(
+                        # The frame's source stays the camera - that is what the
+                        # app's simulated badge reads - but the sentence is model
+                        # output, and `detail` carries the `generated` label the
+                        # honesty rule requires in the claim itself.
+                        source=self._source_kind,
+                        producer=self.identity.name,
+                        ansname=self.identity.ansname,
+                        detail=f"{GENERATED_LABEL}:gemini-live:{self._room}",
+                    ),
+                )
+            )
+
+        return AgentObservation(
+            agent=self.identity.name,
+            ansname=self.identity.ansname,
+            assertions=tuple(assertions),
+            unknowns=tuple(unknowns),
         )
