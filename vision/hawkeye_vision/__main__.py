@@ -3,6 +3,7 @@
     python3 -m hawkeye_vision                        # live Brio
     python3 -m hawkeye_vision --fixture clip.mp4     # replay a file
     python3 -m hawkeye_vision --record out/inc-1     # also write segments
+    python3 -m hawkeye_vision --fixture clip.mp4 --render print.mp4 --headless
 
 Press q to stop.
 
@@ -26,6 +27,7 @@ from hawkeye_vision.lighting import LightingClassifier, mean_luminance
 from hawkeye_vision.overlay import draw
 from hawkeye_vision.profiles import CaptureProfile, for_mode
 from hawkeye_vision.record import SegmentWriter
+from hawkeye_vision.render import OverlayRenderer
 from hawkeye_vision.track import Detection, TrackBook
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,7 @@ def _run(
     config: VisionConfig,
     source: FrameSource,
     writer: SegmentWriter | None,
+    renderer: OverlayRenderer | None,
     classifier: LightingClassifier,
     book: TrackBook,
     tracker,
@@ -103,6 +106,16 @@ def _run(
 
         book.ingest(detect_for_frame(tracker, frame, profile), frame_index=frame.index)
 
+        # Drawn once, whoever wants it. `draw` returns a copy, so neither the
+        # print nor the window can reach back into the frame the recorder took.
+        overlaid = (
+            draw(frame.image, book, mode, luminance)
+            if (renderer is not None or not args.headless)
+            else None
+        )
+        if renderer is not None and overlaid is not None:
+            renderer.write(overlaid)
+
         if args.headless:
             if frame.index % 15 == 0:
                 logger.info(
@@ -111,7 +124,7 @@ def _run(
                 )
             continue
 
-        cv2.imshow("Hawk Eye vision", draw(frame.image, book, mode, luminance))
+        cv2.imshow("Hawk Eye vision", overlaid)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             return
 
@@ -125,6 +138,13 @@ def main() -> None:
         help="AVFoundation device index. 0 is the Brio; see webcam.MacCamera.",
     )
     parser.add_argument("--record", help="Directory to write mp4 segments into.")
+    parser.add_argument(
+        "--render",
+        help=(
+            "Write one mp4 with the overlay burned in. The film print, not the "
+            "record; --record still writes clean evidence alongside it."
+        ),
+    )
     parser.add_argument("--headless", action="store_true", help="No window; log only.")
     args = parser.parse_args()
 
@@ -156,7 +176,12 @@ def main() -> None:
             closing.callback(_report_sealed, writer)
             closing.callback(writer.close)
 
-        _run(args, config, source, writer, classifier, book, tracker)
+        renderer: OverlayRenderer | None = None
+        if args.render:
+            renderer = OverlayRenderer(args.render, fps=config.day_fps)
+            closing.callback(renderer.close)
+
+        _run(args, config, source, writer, renderer, classifier, book, tracker)
 
 
 def _report_sealed(writer: SegmentWriter) -> None:

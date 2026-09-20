@@ -25,7 +25,7 @@ Read the root `CLAUDE.md` first, especially the honesty rule.
 | watchOS app | Not built | `app/watch/` | n/a |
 | Hub backend | Simulated master | `HAWKEYE_MODE` env var | `HAWKEYE_MODE=live` |
 | Storage | In memory | `HAWKEYE_STORE_BACKEND` | `mongodb` (not implemented, and should stay memory) |
-| **Replay archive** | **Real. MongoDB, sealed records** | `HAWKEYE_REPLAY_ARCHIVE` env var | `mongodb` plus `HAWKEYE_MONGODB_URI` |
+| **Replay archive** | **Done. MongoDB Atlas, verified against the real cluster 2026-09-19** | `HAWKEYE_REPLAY_ARCHIVE` env var | Already `mongodb` in `.env` |
 | Agent mesh | Six written and wired over A2A; `vision` not yet | `HAWKEYE_PEERS` env var | Set it to a `slug=url` list |
 | Agent certificates | Raw public keys from published cards, no chain | `discovery._agent_from_card` | Validate `keys[].x5c` once ANS registration exists |
 | mTLS between agents | Declared on the cards, not enforced | Reverse proxy | Enable, and update `x-security-note` in the same commit |
@@ -141,7 +141,25 @@ The document carries a denormalized summary alongside the record, because the co
 
 Rows read back out of storage are badged `ARCHIVED` on the index, because a record written by a process that is gone is not the same claim as one this hub is currently holding.
 
-**The failure you will actually hit is the Atlas IP Access List.** Atlas refuses the TLS handshake outright when the client IP is not on it, which surfaces as `TLSV1_ALERT_INTERNAL_ERROR` and reads like a certificate problem. It is not one. Add the machine's IP under Network Access in the Atlas console. The banner says this rather than printing the driver's topology dump.
+#### Verified, end to end, against the real cluster
+
+Done on 2026-09-19 against the project's own Atlas cluster, not a local stand-in:
+
+1. Ran an incident to a sealed record, 32 entries.
+2. Confirmed the document in Atlas directly: `hawkeye.replays`, `_id: inc-0001`, `schema_version: 1`, summary and full record both present.
+3. **Killed the hub process.**
+4. Restarted. The console listed the record as `source: archive`, served the full record, and the chain verified `INTACT`.
+5. Exported the bundle and ran the shipped standalone `verify.py` against it: `INTACT: 32 entries`.
+6. Recomputed the chain in the browser on the record page: `INTACT`.
+
+That last pair is the one that matters. The record survives a restart and still verifies under a verifier that never trusted the server, which is what "the record outlives the process" has to mean to be worth claiming.
+
+#### Two failures that look like a broken cluster and are not
+
+Both were hit during bring-up and both are handled in code now, so neither should recur.
+
+- **`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate.`** A python.org Python on macOS ships no system root certificates. This is a local trust-store problem and says nothing about Atlas. `MongoReplayArchive.client_kwargs()` points the driver at `certifi` so it does not happen; nobody needs to run Apple's `Install Certificates.command`.
+- **`TLSV1_ALERT_INTERNAL_ERROR`.** Atlas refuses the TLS handshake outright when the client IP is not on the project's IP Access List, before authentication, so it reads like a certificate problem. It is not one. Add the machine's IP under Network Access in the Atlas console. **This will recur on a new network** - the venue Wi-Fi will have a different egress IP than wherever you tested. The banner names this cause in plain English rather than printing the driver's topology dump.
 
 ## The agents
 
@@ -341,6 +359,7 @@ These are the combinations that waste an evening, because most of them look like
 | Shutter to real GPIO | Servo on the Pi's 5V rail | The Pi browns out when the shield moves. Presents as the camera dying, or the CSI capture dying, or an unreachable Pi. Never mentions the servo. |
 | Shutter to real GPIO | Pulse width not stopped after the move | The shield buzzes and twitches at rest, on camera, in the footage. |
 | Shutter to real GPIO | Closed position not recalibrated after the mount was touched | **The worst one.** The shield partly covers, frames are not black, and the privacy claim is quietly false while everything reports healthy. Check with a live frame, not by eye. |
+| Vision to real camera | Weights never fetched | `tracker_unavailable`, so the shutter never closes and `master.vision_silent` fires. Correct behaviour, and it looks like the camera path is broken. It is: pre-fetch `yolo11m.pt`. |
 | Vision to real camera | Fixture file still configured | Narration repeats on a fixed cycle. Looks like a model quirk, is a config bug. |
 | Vision to real camera | Auto-exposure left on | Narration contradicts itself one second apart on a live call. |
 | Vision to real camera | Two processes opening `/dev/video0` | "Device busy", usually the first time the recorder and narrator are run separately. |
@@ -393,6 +412,34 @@ Covered in full in `docs/hardware/logitech-camera.md`, and repeated here because
 Every AVFoundation index opens and reports the same 1280x720, so an index that works is not evidence it is the right camera.
 On the MacBook, index 0 is the Brio, 1 is an iPhone over Continuity Camera, and 2 is the built-in FaceTime.
 The Pi does not have this problem.
+
+## The occupancy verdict, which closes the shutter
+
+**New on 2026-09-20**, and the highest-consequence seam on this page, because this is the one that decides whether a lens gets covered back up.
+
+`vision.occupancy` is the camera's answer to one question: is there a human in frame.
+Three values, and the third one is the entire point.
+
+| Value | What it means | What `master` does |
+|---|---|---|
+| `person_present` | A person is in frame | Holds the lens open, hands the verdict to `intruder` |
+| `no_person` | The detector looked and saw nobody | Issues a `close` grant. The shield drops |
+| `tracker_unavailable` | The detector could not look at all | Nothing. The lens stays open and the resident is told |
+
+**The seam** is the same `StubTracker` to `YoloBotSortTracker` swap as the section below, chosen by `build_tracker`.
+
+**How to tell the flip worked:** the verdict changes when you walk in front of the camera, and the shield physically closes a few seconds after you leave frame.
+A verdict that never leaves `no_person` while somebody is visibly in the room is the failure to look for.
+
+**The half-flipped state, and it is the worst one on this page:** a real tracker with no weights file returns zero detections.
+If that reached the verdict as `no_person`, `master` would issue a close grant, the shield would drop, and it would look exactly like a working benign close - the demo beat we most want to show - while the camera was blind the whole time.
+
+This is why the verdict has three values rather than two.
+`UnavailableTracker` reports `available = False`, `verdict()` checks that first and unconditionally, and `VisionAgent` emits an `Unknown` rather than an assertion, so `tracker_unavailable` is not a value anything downstream can compare against and get a truthy answer from.
+`vision/tests/test_occupancy.py::test_a_tracker_with_no_weights_reads_as_unavailable_not_empty` is the assertion that keeps this true, and it is the reason this is a code guarantee rather than a line on this page.
+
+**Nothing closes the shutter on silence.** If `vision` stops answering entirely, the lens stays open and `master` raises `master.vision_silent` to the watch and the phone.
+A silence timeout would be exactly what an attacker who can kill `vision` wants, so there is none, and a human closes it instead.
 
 ## The detector, and what happens without it
 

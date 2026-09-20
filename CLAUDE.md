@@ -70,45 +70,51 @@ That asymmetry is the whole architecture.
                                                      │
                                                      ▼
                                                   presence
-                                        something moved, which room,
-                                        which registered devices are attached
-                                                     │
-                                                 ANS │
-                                                     ▼
-       roster + device association ──────────►   intruder
-                                            motion no device accounts for
+                                          something moved, which room
                                                      │
                                                  ANS │
                                                      ▼
                                               master (coordinator)
                                        verifies every claim, discards what it
                                        cannot, and issues the shutter grant
-                                              │                    │
-                                          ANS │                ANS │
-                                              ▼                    │
-                                          shutter                  │
-                                    SG92R, 90°, shield clears      │
-                                    the lens, position attested    │
-                                              │                    │
-                                          ANS │ open               │
-                                              ▼                    ▼
-                                           vision  ◄───────────────┘
-                                  Gemini Live: continuous narration
-                                  local mp4 segments: the record
-                                              │
-                                          ANS │
-                                              ▼
-                                            master
-                                              │
-                                    ┌─────────┴─────────┐
-                                ANS │                   │ ANS
-                                    ▼                   ▼
-                                 caller               replay
-                                  │   │                 │
-                     ElevenLabs   │   │ watchOS + iOS   │ sealed log + video
-                        voice     ▼   ▼                 ▼
-                           911 operator   the user   Resend ──► police email
+                                                     │              ▲
+                                                 ANS │              │ ANS
+                                                     ▼              │ close
+                                                  shutter           │ on no_person
+                                            SG92R, 90°, shield      │
+                                            clears the lens,        │
+                                            position attested       │
+                                                     │              │
+                                                 ANS │ open         │
+                                                     ▼              │
+                                                   vision ──────────┘
+                                          Gemini Live: continuous narration
+                                          local mp4 segments: the record
+                                          `vision.occupancy`: is anyone there
+                                                     │
+                                                 ANS │ person_present
+                                                     ▼
+       roster + device association ──────────►   intruder
+                                            a person no device accounts for
+                                                     │
+                                                 ANS │
+                                                     ▼
+                                                   master
+                                                     │
+                                           ┌─────────┴─────────┐
+                                       ANS │                   │ ANS
+                                           ▼                   ▼
+                                        caller               replay
+                                         │   │                 │
+                            ElevenLabs   │   │ watchOS + iOS   │ sealed log + video
+                               voice     ▼   ▼                 ▼
+                                  911 operator   the user   Resend ──► police email
 ```
+
+**Motion opens the lens; the camera decides whether to keep it open.**
+Changed 2026-09-20, and `docs/PIVOT.md` records why and what it rejected.
+The two decisions are independent: neither reads the other's input, which is what let the body count the pivot deleted stop being load-bearing.
+`intruder` moved downstream of the camera as a result - it now corroborates a camera against a router rather than a radio against itself.
 
 **The boundary is the point.**
 Human to agent is plain English, both directions, at both ends. There is no ANS there and there cannot be, because the far ends are people.
@@ -122,11 +128,11 @@ Tiered by priority in `agents/CLAUDE.md`.
 
 | Agent | Job |
 |---|---|
-| `presence` | Motion, which room, which registered devices are attached to it |
-| `intruder` | Which motion no registered device accounts for |
+| `presence` | Motion, and which room. Nothing else: it cannot tell a person from a curtain and does not try |
+| `intruder` | Which person the camera found that no registered device accounts for |
 | `master` | Trust boundary, coordinator, classifier. Issues the shutter grant |
 | `shutter` | One GPIO pin. Verifies a grant, moves 90 degrees, attests the position, refuses everything else |
-| `vision` | The camera. Gemini Live narration and continuous mp4 to disk |
+| `vision` | The camera. Personhood, which is what closes the shutter again. Gemini Live narration and continuous mp4 to disk |
 | `caller` | ElevenLabs to the operator, guidance to the resident, asks for the police email |
 | `replay` | Seals the record, ships it to the police via Resend |
 
@@ -145,10 +151,13 @@ The demo lives or dies on this. Every number is a target with a test behind it.
 |---|---|
 | 0.0s | CSI perturbation crosses the motion threshold |
 | 0.3s | `presence` emits the motion claim on `master`'s next pull |
-| 0.6s | `intruder` returns the unaccounted verdict |
-| 0.8s | `master` issues the shutter grant; `shutter` verifies it and begins moving |
-| 1.2s | Shutter attests open. `vision` opens its Gemini Live session and starts recording |
+| 0.4s | `master` issues the shutter grant; `shutter` verifies it and begins moving |
+| 0.8s | Shutter attests open. `vision` opens its Gemini Live session and starts recording |
 | ~3.0s | First narration returns. Push lands on the watch and the phone carrying it |
+| ~3.0s | `vision.occupancy` returns. `no_person` closes the lens again; `person_present` sends it to `intruder` |
+| ~3.3s | `intruder` returns the unaccounted verdict, now corroborated by a camera |
+
+**The intruder verdict moved after the camera, not before it.** That is what removed a full hop from the critical path: the grant now issues at roughly 0.4s instead of 0.8s, because nothing has to decide whether the motion was a person before the lens may open.
 
 **The notification carries the first sentence the camera produced**, not a generic "motion detected".
 That difference is the demo.
