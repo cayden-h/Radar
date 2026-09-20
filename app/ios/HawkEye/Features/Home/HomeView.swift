@@ -159,17 +159,13 @@ struct HomeView: View {
             }
             .padding(.top, Space.md)
 
-            // A single flexible spacer above the button, and a fixed
-            // distance below it to the tab bar, rather than two flexible
-            // spacers splitting the space evenly — that way nudging the
-            // camera panel down (the padding above) only eats into the
-            // flexible gap and never moves the button itself, which stays
-            // pinned the same distance off the bar regardless of what's
-            // above it.
+            // Two flexible spacers, so the button centers in whatever room
+            // is actually left between the camera panel and the tab bar.
             Spacer(minLength: Space.xl)
 
             IncidentBar(client: client)
-                .padding(.bottom, Space.xxxl)
+
+            Spacer(minLength: Space.xl)
         }
         .padding(.horizontal, Space.gutter)
         .padding(.top, Space.sm)
@@ -337,14 +333,34 @@ private struct LiveCallBanner: View {
 
     var body: some View {
         Button(action: action) {
-            Text("Return to Call")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Palette.ink)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(Palette.live)
+            HStack(spacing: Space.sm) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 7, height: 7)
+                Text("Return to Call")
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundStyle(Palette.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(
+                Capsule().fill(
+                    LinearGradient(
+                        colors: [Palette.live, Palette.live.opacity(0.82)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            )
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.32), lineWidth: 1))
+            .shadow(color: Palette.live.opacity(0.4), radius: 18, y: 8)
         }
         .buttonStyle(.pressable)
+        // Same floating-pill language as the tab bar directly below it —
+        // a rounded capsule inset from both edges, not a flat rectangle
+        // butting against the bar's rounded corners.
+        .padding(.horizontal, Space.gutter)
+        .padding(.bottom, Space.sm)
         .accessibilityLabel("Live call in progress, \(incident.type.title). Return to call.")
     }
 }
@@ -409,9 +425,9 @@ private struct IncidentBar: View {
                     Task { try? await client.raiseIncident(.burglary) }
                 } label: {
                     Image(systemName: "phone.fill")
-                        .font(.system(size: 36, weight: .semibold))
+                        .font(.system(size: 40, weight: .semibold))
                         .foregroundStyle(Palette.ink)
-                        .frame(width: 108, height: 108)
+                        .frame(width: 122, height: 122)
                         .background(
                             Circle().fill(
                                 RadialGradient(
@@ -421,7 +437,7 @@ private struct IncidentBar: View {
                                     ],
                                     center: UnitPoint(x: 0.32, y: 0.28),
                                     startRadius: 4,
-                                    endRadius: 90
+                                    endRadius: 102
                                 )
                             )
                         )
