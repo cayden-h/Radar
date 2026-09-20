@@ -79,6 +79,22 @@ def test_call_bridge_routes_are_not_duplicated() -> None:
         assert len(matching) == 1, f"{path} mounted {len(matching)} times, expected 1"
 
 
+def test_security_mode_starts_disarmed_and_can_be_armed_over_the_hub() -> None:
+    """The replay console's toggle talks to this pair of routes: read the
+    current arm state, then flip it, with no restart in between."""
+    with TestClient(_master_app()) as client:
+        before = client.get("/v1/security-mode")
+        assert before.status_code == 200
+        assert before.json() == {"enabled": False}
+
+        armed = client.post("/v1/security-mode", json={"enabled": True})
+        assert armed.status_code == 200
+        assert armed.json() == {"enabled": True}
+
+        after = client.get("/v1/security-mode")
+        assert after.json() == {"enabled": True}
+
+
 def test_state_is_served_with_the_publisher_running() -> None:
     """GET /v1/state returns the composed InteriorState under the app lifespan.
 

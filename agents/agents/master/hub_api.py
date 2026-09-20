@@ -144,6 +144,14 @@ class SetModeRequest(BaseModel):
     by_human: bool
 
 
+class SecurityModeRequest(BaseModel):
+    """Arm/disarm. Motion has always opened the shutter unconditionally on
+    detection; this is the human switch on top of it, and it defaults to
+    disarmed - see `MasterAgent.security_mode`."""
+
+    enabled: bool
+
+
 class MasterHub:
     """Composes master's verified picture into what the three surfaces render.
 
@@ -630,6 +638,15 @@ def hub_router(hub: MasterHub) -> APIRouter:
     @router.get("/agents", summary="Which peers answered the last fan-out")
     async def get_agents() -> dict[str, list[AgentReachability]]:
         return {"agents": hub.reachability()}
+
+    @router.get("/security-mode", summary="Is motion currently allowed to open the shutter")
+    async def get_security_mode() -> dict[str, bool]:
+        return {"enabled": hub.agent.security_mode}
+
+    @router.post("/security-mode", summary="Arm or disarm. A human decision, from the app")
+    async def post_security_mode(body: SecurityModeRequest) -> dict[str, bool]:
+        hub.agent.set_security_mode(body.enabled)
+        return {"enabled": hub.agent.security_mode}
 
     @router.post("/incident", summary="Raise an incident")
     async def post_incident(body: IncidentRequest) -> HubIncident:

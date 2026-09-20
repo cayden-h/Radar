@@ -11,55 +11,93 @@
   <div class="brand">
     <img class="mark" src="mascot.png" alt="" aria-hidden="true">
     <div>
-      <h1>Video segments</h1>
-      <p class="sub">Hawk Eye Hub</p>
+      <h1>Radar Hub</h1>
+      <p class="sub" id="pagesub">Video segments</p>
     </div>
   </div>
   <div class="topmeta" id="topmeta">
     <!-- The RSSI motion detector is a separate process on a separate port;
-         /motion is the hub's stable address for whatever that port is. -->
-    <a class="toplink" href="/motion" target="_blank" rel="noopener">Motion</a>
+         /motion is the hub's stable address for whatever that port is. Kept
+         as an escape hatch for opening the detector's own UI full-size,
+         alongside the embedded Calibration tab below. -->
+    <a class="toplink" href="/motion" target="_blank" rel="noopener">Open motion console</a>
   </div>
 </header>
 
+<nav class="tabbar" id="tabbar">
+  <button class="tab" data-tab="segments" aria-selected="true">Segments</button>
+  <button class="tab" data-tab="calibration" aria-selected="false">Calibration</button>
+</nav>
+
 <main class="wrap">
-  <section class="preamble">
-    <p>
-      Every rotating segment <code>vision/</code> writes while a shield is open, hashed as it
-      closes. One row per file: which incident and room it belongs to, when it was recorded,
-      and the hash that ties it to the sealed record.
-    </p>
-    <p class="caution glass mockcaution">
-      <span class="tag">SAMPLE DATA</span>
-      <span>
-        The backend has no endpoint serving segment metadata yet &mdash; <code>vision/</code>
-        writes the files, but nothing in <code>app/backend</code> exposes them over the API. The
-        rows below show the shape this table is built for, not a live read. Nothing here should
-        be read as evidence.
-      </span>
-    </p>
+  <section class="tabpanel" id="tab-segments">
+    <section class="preamble">
+      <p>
+        Every rotating segment <code>vision/</code> writes while a shield is open, hashed as it
+        closes. One row per file: which incident and room it belongs to, when it was recorded,
+        and the hash that ties it to the sealed record.
+      </p>
+      <p class="caution glass mockcaution">
+        <span class="tag">SAMPLE DATA</span>
+        <span>
+          The backend has no endpoint serving segment metadata yet &mdash; <code>vision/</code>
+          writes the files, but nothing in <code>app/backend</code> exposes them over the API. The
+          rows below show the shape this table is built for, not a live read. Nothing here should
+          be read as evidence.
+        </span>
+      </p>
+    </section>
+
+    <div class="tablewrap glass">
+      <table class="vtable">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Incident</th>
+            <th>Room</th>
+            <th>Recorded</th>
+            <th>Duration</th>
+            <th>Size</th>
+            <th>SHA-256</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
   </section>
 
-  <div class="tablewrap glass">
-    <table class="vtable">
-      <thead>
-        <tr>
-          <th>File</th>
-          <th>Incident</th>
-          <th>Room</th>
-          <th>Recorded</th>
-          <th>Duration</th>
-          <th>Size</th>
-          <th>SHA-256</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </div>
+  <section class="tabpanel" id="tab-calibration" hidden>
+    <section class="preamble">
+      <p>
+        The Mac-based WiFi-RSSI motion detector needs calibrating against this room at least
+        once &mdash; a short "stand still" then "walk" capture &mdash; before its threshold means
+        anything. Calibrate below, then arm Security Mode so a confirmed motion reading is
+        allowed to open the shield.
+      </p>
+    </section>
+
+    <div class="armrow glass">
+      <div class="armlabel">
+        <span class="armtitle" id="armTitle">Security mode: disarmed</span>
+        <span class="armnote">Disarmed means motion is observed but never opens the shield.</span>
+      </div>
+      <button class="armbtn" id="armBtn" disabled>Loading…</button>
+    </div>
+
+    <div class="calibrationwrap glass">
+      <iframe
+        id="calibrationFrame"
+        class="calibrationFrame"
+        src="/motion"
+        title="Motion detector calibration"
+        loading="lazy"
+      ></iframe>
+    </div>
+  </section>
 </main>
 
 <script src="console.js"></script>
-<script>HawkEye.index();</script>
+<script>HawkEye.index(); HawkEye.tabs(); HawkEye.securityMode();</script>
 </body>
 </html>

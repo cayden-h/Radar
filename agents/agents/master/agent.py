@@ -153,6 +153,18 @@ class MasterAgent(Agent):
         self._shutter = shutter_client
         self._episode = ShutterEpisode()
         self._vision_silent_ticks = 0
+        # Disarmed by default. Motion has always opened the shutter
+        # unconditionally; this is the human arm/disarm switch on top of it,
+        # and the safe default is off - automation should never be the thing
+        # that decides a house starts watching for the first time.
+        self._security_mode = False
+
+    @property
+    def security_mode(self) -> bool:
+        return self._security_mode
+
+    def set_security_mode(self, enabled: bool) -> None:
+        self._security_mode = enabled
 
     # ------------------------------------------------------------------ the job
 
@@ -160,6 +172,7 @@ class MasterAgent(Agent):
         gate, admitted, unreachable = self._gather()
         self._last_gate = gate
         vision_silent = self._drive_shutter(admitted)
+        marked_rooms = self._mark_confirmed_recording(admitted)
 
         classification = classify(
             admitted,
@@ -213,6 +226,36 @@ class MasterAgent(Agent):
                         "closes it automatically, because a silence timeout is what an "
                         "attacker who can kill the vision agent would want. Close it from "
                         "the app if this is not expected."
+                    ),
+                    provenance=provenance,
+                )
+            )
+        assertions.append(
+            Assertion(
+                field="master.security_mode",
+                value="true" if self._security_mode else "false",
+                severity_ceiling=Severity.INFORMATIONAL,
+                confidence=1.0,
+                basis=(
+                    "Armed" if self._security_mode else "Disarmed"
+                ) + ": whether motion is currently allowed to open the shutter.",
+                provenance=provenance,
+            )
+        )
+        for room in marked_rooms:
+            assertions.append(
+                Assertion(
+                    field="master.recording_marked",
+                    value="true",
+                    zone_scope=room,
+                    severity_ceiling=Severity.ACTIONABLE,
+                    confidence=1.0,
+                    basis=(
+                        f"agents/intruder reported a confirmed unaccounted presence in {room} "
+                        "while the lens was already open and recording. This does not start or "
+                        "change the recording - vision opened on motion alone before intruder "
+                        "could decide anything - it correlates the segments already being "
+                        "written with a verified roster verdict, for replay to surface."
                     ),
                     provenance=provenance,
                 )
@@ -351,6 +394,13 @@ class MasterAgent(Agent):
             if not moving:
                 self._episode.on_clear(room)
                 continue
+            if not self._security_mode:
+                # Disarmed. The house still notices motion - on_clear above and
+                # the episode's own bookkeeping keep running - it just does not
+                # act on it. Disarming is not a substitute for the resident's
+                # own close-from-the-app control, so an already-open lens is
+                # untouched; this only withholds a *new* open.
+                continue
             if self._episode.on_motion(room) and self._shutter.request(
                 action="open", reason=f"motion:{room}"
             ):
@@ -358,6 +408,33 @@ class MasterAgent(Agent):
                 self._vision_silent_ticks = 0
 
         return notice
+
+    def _mark_confirmed_recording(self, admitted: list[AdmittedClaim]) -> list[str]:
+        """Which currently-recording rooms `intruder` confirmed this tick.
+
+        intruder runs downstream of vision and cannot start a recording that
+        motion alone already started. What it can do, once its verdict is in,
+        is mark the segments already being written as corresponding to a
+        confirmed-unaccounted presence - a correlation for `replay` to surface,
+        not a new capture command. Gated on `spoken` for the same reason
+        `_drive_shutter` gates the close decision on it: a claim that never
+        arrived over a verified transport must not mark a sealed record either.
+        """
+        confirmed_zones: set[str] = set()
+        unaccounted = False
+        for claim in admitted:
+            if not claim.spoken:
+                continue
+            if claim.assertion.field == "intruder.unexpected_presence":
+                unaccounted = claim.assertion.value == "true"
+            elif claim.assertion.field == "intruder.intruder_zone":
+                confirmed_zones.add(claim.assertion.zone_scope)
+            elif claim.assertion.field == "intruder.occupied_zones":
+                confirmed_zones.update(claim.assertion.value.split(","))
+
+        if not unaccounted:
+            return []
+        return [room for room in sorted(confirmed_zones) if self._episode.is_open(room)]
 
     def _gather(self) -> tuple[TrustGate, list[AdmittedClaim], list[str]]:
         """Re-read and re-admit every sensing agent. Fresh, every time.

@@ -193,6 +193,13 @@ class SetParticipationModeRequest(BaseModel):
     by_human: bool = True
 
 
+class SecurityModeRequest(BaseModel):
+    """POST /v1/security-mode body. A human decision from the app; automation
+    never arms or disarms itself."""
+
+    enabled: bool
+
+
 @router.get("/hub", response_model=HubStatus, summary="Hub identity and health")
 async def get_hub(request: Request) -> HubStatus:
     """What the Connect screen hits after Bonjour discovery.
@@ -346,6 +353,32 @@ async def set_mode(
     except ParticipationModeRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"announcement": announcement}
+
+
+@router.get(
+    "/security-mode",
+    summary="Is motion currently allowed to open the shutter",
+)
+async def get_security_mode(request: Request) -> dict:
+    runtime = _runtime(request)
+    try:
+        enabled = await runtime.client.security_mode()
+    except MasterUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"agent mesh unavailable: {exc}") from exc
+    return {"enabled": enabled}
+
+
+@router.post(
+    "/security-mode",
+    summary="Arm or disarm. Motion opens the shutter only while armed",
+)
+async def set_security_mode(request: Request, body: SecurityModeRequest) -> dict:
+    runtime = _runtime(request)
+    try:
+        enabled = await runtime.client.set_security_mode(body.enabled)
+    except MasterUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"agent mesh unavailable: {exc}") from exc
+    return {"enabled": enabled}
 
 
 class CallTokenResponse(BaseModel):

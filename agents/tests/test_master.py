@@ -260,8 +260,9 @@ def _wired() -> tuple[MasterAgent, Shutter, _Mesh]:
 
 
 def test_motion_alone_opens_the_lens() -> None:
-    """Decision A. No roster in this path at all."""
+    """Decision A, while armed. No roster in this path at all."""
     master, shutter, mesh = _wired()
+    master.set_security_mode(True)
     mesh.put("presence", _motion())
 
     master.tick()
@@ -272,6 +273,7 @@ def test_motion_alone_opens_the_lens() -> None:
 def test_no_person_closes_the_lens() -> None:
     """Decision B. The camera says the motion was not a person."""
     master, shutter, mesh = _wired()
+    master.set_security_mode(True)
     mesh.put("presence", _motion())
     master.tick()
 
@@ -283,6 +285,7 @@ def test_no_person_closes_the_lens() -> None:
 
 def test_person_present_keeps_the_lens_open() -> None:
     master, shutter, mesh = _wired()
+    master.set_security_mode(True)
     mesh.put("presence", _motion())
     master.tick()
 
@@ -297,6 +300,7 @@ def test_silent_vision_keeps_the_lens_open() -> None:
     agent. Open-on-failure is the safe direction, because opening has already
     been paid for by a verified grant."""
     master, shutter, mesh = _wired()
+    master.set_security_mode(True)
     mesh.put("presence", _motion())
     master.tick()
 
@@ -310,6 +314,7 @@ def test_silent_vision_keeps_the_lens_open() -> None:
 def test_unverified_no_person_does_not_close_the_lens() -> None:
     """An unverified claim cannot retire a verified grant's effect."""
     master, shutter, mesh = _wired()
+    master.set_security_mode(True)
     mesh.put("presence", _motion())
     master.tick()
 
@@ -323,6 +328,7 @@ def test_a_long_vision_silence_raises_a_notice_for_the_resident() -> None:
     """There is no silence timeout, because a timeout is what an attacker who
     can kill vision wants. The condition is made loud instead."""
     master, _, mesh = _wired()
+    master.set_security_mode(True)
     mesh.put("presence", _motion())
     master.tick()
     mesh.drop("vision")
@@ -331,3 +337,166 @@ def test_a_long_vision_silence_raises_a_notice_for_the_resident() -> None:
         obs = master.tick()
 
     assert obs.value("master.vision_silent") == "true"
+
+
+# --------------------------------------------------------- the recording mark
+#
+# intruder's roster arithmetic runs downstream of vision, after recording has
+# already started on motion alone. It cannot start a recording that is already
+# running - what it can do is mark the segments already being written as
+# corresponding to a confirmed-unaccounted presence, for replay to surface.
+
+
+def _intruder(value: str, *, zone: str | None = ROOM) -> AgentObservation:
+    """An `intruder.unexpected_presence` claim, with the zone it names when
+    the clean (unambiguous) case applies."""
+    name = "agents/intruder"
+    ansname = f"ans://v{VERSION}.intruder.batradar.club"
+    assertions = [
+        Assertion(
+            field="intruder.unexpected_presence",
+            value=value,
+            severity_ceiling=Severity.ACTIONABLE,
+            confidence=0.8,
+            basis="test fixture",
+            provenance=Provenance(
+                source=Source.AGENT_INFERENCE,
+                producer=name,
+                ansname=ansname,
+                detail="test",
+            ),
+        )
+    ]
+    if zone is not None:
+        assertions.append(
+            Assertion(
+                field="intruder.intruder_zone",
+                value=zone,
+                zone_scope=zone,
+                severity_ceiling=Severity.ACTIONABLE,
+                confidence=0.8,
+                basis="test fixture",
+                provenance=Provenance(
+                    source=Source.AGENT_INFERENCE,
+                    producer=name,
+                    ansname=ansname,
+                    detail="test",
+                ),
+            )
+        )
+    return AgentObservation(agent=name, ansname=ansname, assertions=tuple(assertions))
+
+
+def test_a_confirmed_intruder_marks_the_open_recording() -> None:
+    master, shutter, mesh = _wired()
+    master.set_security_mode(True)
+    mesh.put("presence", _motion())
+    master.tick()
+    mesh.put("vision", _vision("person_present"))
+    master.tick()
+    assert shutter.position == "open"
+
+    mesh.put("intruder", _intruder("true"))
+    obs = master.tick()
+
+    assert obs.value("master.recording_marked") == "true"
+
+
+def test_an_accounted_for_person_does_not_mark_the_recording() -> None:
+    master, _, mesh = _wired()
+    master.set_security_mode(True)
+    mesh.put("presence", _motion())
+    master.tick()
+    mesh.put("vision", _vision("person_present"))
+    master.tick()
+
+    mesh.put("intruder", _intruder("false"))
+    obs = master.tick()
+
+    assert obs.value("master.recording_marked") is None
+
+
+def test_an_unverified_intruder_claim_does_not_mark_the_recording() -> None:
+    """capped severity, the same rule that keeps an unverified vision claim
+    from retiring a grant. A claim that never arrived over a verified
+    transport must not mark a sealed record either."""
+    master, _, mesh = _wired()
+    master.set_security_mode(True)
+    mesh.put("presence", _motion())
+    master.tick()
+    mesh.put("vision", _vision("person_present"))
+    master.tick()
+
+    mesh.put("intruder", _intruder("true"), verified=False)
+    obs = master.tick()
+
+    assert obs.value("master.recording_marked") is None
+
+
+def test_a_confirmed_intruder_does_not_mark_a_room_with_no_open_recording() -> None:
+    """intruder names a room master never opened a lens in. Nothing there to
+    mark, and nothing gets marked."""
+    master, _, mesh = _wired()
+
+    mesh.put("intruder", _intruder("true"))
+    obs = master.tick()
+
+    assert obs.value("master.recording_marked") is None
+
+
+# ------------------------------------------------------------- security mode
+#
+# Motion has always opened the shutter unconditionally. Adding a human
+# arm/disarm switch means a disarmed house sees the same motion and does
+# nothing with it - the safe default, since automation should never be the
+# thing that decides to start watching.
+
+
+def test_disarmed_by_default() -> None:
+    master, _, _ = _wired()
+    assert master.security_mode is False
+
+
+def test_motion_does_not_open_the_lens_while_disarmed() -> None:
+    master, shutter, mesh = _wired()
+    mesh.put("presence", _motion())
+
+    master.tick()
+
+    assert shutter.position == "closed"
+
+
+def test_arming_lets_motion_open_the_lens() -> None:
+    master, shutter, mesh = _wired()
+    master.set_security_mode(True)
+    mesh.put("presence", _motion())
+
+    master.tick()
+
+    assert shutter.position == "open"
+
+
+def test_disarming_does_not_close_an_already_open_lens() -> None:
+    """Disarming turns off future opens. It is not a substitute for the
+    resident's own close-from-the-app control, and must not fight it."""
+    master, shutter, mesh = _wired()
+    master.set_security_mode(True)
+    mesh.put("presence", _motion())
+    master.tick()
+    assert shutter.position == "open"
+
+    master.set_security_mode(False)
+    master.tick()
+
+    assert shutter.position == "open"
+
+
+def test_security_mode_is_reported_on_the_observation() -> None:
+    master, _, _ = _wired()
+
+    disarmed = master.tick()
+    assert disarmed.value("master.security_mode") == "false"
+
+    master.set_security_mode(True)
+    armed = master.tick()
+    assert armed.value("master.security_mode") == "true"
