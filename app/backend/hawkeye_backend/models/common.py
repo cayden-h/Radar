@@ -56,6 +56,17 @@ class Source(StrEnum):
     # separately from SERVO_GPIO so that running the demo with no hardware
     # attached cannot present as running it with hardware attached.
     SERVO_STUB = "servo-stub"
+    # The Logitech Brio 101 on USB, frames read live off the device. MEASURED_LIVE
+    # because a person is in front of a lens and the sensor recorded them.
+    CAMERA_UVC = "camera-uvc"
+    # Real footage, captured at the house earlier, replayed through the same
+    # pipeline. Mirrors REPLAY_CSI exactly: measured, but not live. The venue
+    # fallback runs on this when the camera cannot be set up in the room.
+    REPLAY_VIDEO = "replay-video"
+    # A synthetic video fixture: flat colour fields, luminance ramps, generated
+    # test footage. Not measured, and named separately so a test rig cannot
+    # present as a camera.
+    CAMERA_SIM = "camera-sim"
 
 
 class SourceClass(StrEnum):
@@ -83,6 +94,9 @@ _SOURCE_CLASS: dict[Source, SourceClass] = {
     Source.AGENT_INFERENCE: SourceClass.DERIVED,
     Source.SERVO_GPIO: SourceClass.DERIVED,
     Source.SERVO_STUB: SourceClass.SIMULATED,
+    Source.CAMERA_UVC: SourceClass.MEASURED_LIVE,
+    Source.REPLAY_VIDEO: SourceClass.MEASURED_REPLAY,
+    Source.CAMERA_SIM: SourceClass.SIMULATED,
 }
 
 MEASURED_SOURCES: frozenset[Source] = frozenset(
