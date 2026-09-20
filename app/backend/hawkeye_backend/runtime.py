@@ -22,6 +22,7 @@ from hawkeye_backend.master.base import MasterClient
 from hawkeye_backend.models.common import Source, utc_now
 from hawkeye_backend.models.events import (
     ContextEvent,
+    CourierEvent,
     Envelope,
     FrameEvent,
     EventPayload,
@@ -34,9 +35,15 @@ from hawkeye_backend.models.events import (
 )
 from hawkeye_backend.master.base import MasterUnavailable
 from hawkeye_backend.notices import NoticeDetector, NoticeSink, StreamSink, deliver
-from hawkeye_backend.replay import ReplayRecorder
+from hawkeye_backend.replay import RecordSealed, ReplayRecorder
 from hawkeye_backend.notices.detector import PERSON_STATES
 from hawkeye_backend.replay.archive import NullArchive, ReplayArchive
+from hawkeye_backend.replay.courier import (
+    AddressProvenance,
+    Courier,
+    CourierReceipt,
+    NullCourier,
+)
 from hawkeye_backend.store import InMemoryStore, Store
 
 logger = logging.getLogger(__name__)
@@ -68,6 +75,7 @@ class HubRuntime:
         notice_sinks: list[NoticeSink] | None = None,
         recorder: ReplayRecorder | None = None,
         archive: ReplayArchive | None = None,
+        courier: Courier | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
@@ -98,6 +106,11 @@ class HubRuntime:
             frame_interval_s=settings.replay_frame_interval_s,
             max_entries=settings.replay_max_entries,
         )
+        # Who mails a sealed record to the responding department. Defaults to
+        # NullCourier, which sends nothing and says so in terms the chain can
+        # carry. Off by default because an accidental send cannot be recalled.
+        self.courier: Courier = courier or NullCourier()
+
         # Where a sealed record goes so it outlives this process. Defaults to
         # NullArchive, which persists nothing and says so; see replay/archive.py.
         self.archive: ReplayArchive = archive or NullArchive()
@@ -329,6 +342,11 @@ class HubRuntime:
             session = self.recorder.get(incident_id)
             if session is None:
                 continue
+            # The courier runs first, and then the record is archived once.
+            # Ordered this way so the archived copy carries the send receipt;
+            # archiving first would store a record that is immediately stale
+            # and would need writing twice for no gain.
+            await self.deliver(incident_id, to=self.settings.courier_to, provenance="configured")
             incident = await self.store.get_incident(incident_id)
             try:
                 await self.archive.save(
@@ -340,6 +358,73 @@ class HubRuntime:
                 )
             except Exception:
                 logger.exception("replay archive: unexpected failure persisting %s", incident_id)
+
+    async def deliver(
+        self, incident_id: str, *, to: str, provenance: AddressProvenance
+    ) -> CourierReceipt:
+        """Send one sealed record to the responding department, and record it.
+
+        Three things happen and all three are the point: the bundle goes out,
+        the outcome is chained onto the sealed record, and every surface is
+        told. A send whose outcome reached none of those is the failure this
+        whole path exists to make impossible.
+
+        Fails soft, like `_archive_sealed` and for the same reason - the moment
+        this runs is the moment a 911 call ended. Anything that escapes the
+        courier becomes a `failed` receipt that is chained and published,
+        rather than an exception that silently loses the record's last fact.
+        """
+        session = self.recorder.get(incident_id)
+        if session is None:
+            raise KeyError(incident_id)
+        if not session.sealed:
+            raise RecordSealed(f"{incident_id} is not sealed; there is nothing to send yet")
+
+        if not to:
+            receipt = CourierReceipt(
+                outcome="skipped",
+                detail="no destination address; none was supplied and none is configured",
+            )
+        else:
+            try:
+                receipt = await self.courier.send(
+                    session.to_record(), to=to, provenance=provenance
+                )
+            except Exception as exc:  # noqa: BLE001
+                # Broad on purpose. A courier is an HTTP client talking to a
+                # third party, and the one outcome that must not be possible
+                # here is a record that says nothing about its own delivery.
+                logger.exception("courier: unexpected failure sending %s", incident_id)
+                receipt = CourierReceipt(
+                    outcome="failed",
+                    to=to,
+                    provenance=provenance,
+                    detail=f"unexpected failure: {type(exc).__name__}: {exc}",
+                )
+
+        try:
+            session.append_courier_receipt(
+                summary=receipt.summary,
+                detail=receipt.model_dump(mode="json"),
+                at=receipt.at,
+            )
+        except RecordSealed as exc:
+            # Already delivered. Not an error: a re-send of a record that
+            # arrived is a no-op worth logging and nothing more.
+            logger.info("courier: not chaining a receipt for %s (%s)", incident_id, exc)
+
+        await self.emit(
+            CourierEvent(
+                incident_id=incident_id,
+                outcome=receipt.outcome,
+                to=receipt.to,
+                provenance=receipt.provenance,
+                detail=receipt.detail,
+                at=receipt.at,
+            ),
+            incident_id,
+        )
+        return receipt
 
     async def _persist(self, env: Envelope) -> None:
         """Write the typed record behind an event into the store."""

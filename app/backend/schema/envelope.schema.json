@@ -149,6 +149,62 @@
         "title": "ContextNote",
         "type": "object"
       },
+      "CourierEvent": {
+        "description": "The sealed record was handed to the responding department, or was not.\n\nEmitted after the record seals, so the recorder deliberately does not chain\nit - `ReplaySession.append_courier_receipt` writes the chain entry instead,\nand it is the only thing allowed to append past a seal. This event exists\nso the three surfaces can say what happened without reopening the record.\n\nA failure is as loud as a success here for the same reason it is in the\nchain: a screen that goes quiet on a failed send is indistinguishable from\none reporting an email that arrived.",
+        "properties": {
+          "kind": {
+            "const": "courier",
+            "default": "courier",
+            "title": "Kind",
+            "type": "string"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "`sent`, `failed`, or `skipped`.",
+            "title": "Outcome",
+            "type": "string"
+          },
+          "to": {
+            "default": "",
+            "description": "The destination, empty when there was none.",
+            "title": "To",
+            "type": "string"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`operator_supplied` or `configured`. An address a person said on a phone call is a human statement, never a verified binding.",
+            "title": "Provenance"
+          },
+          "detail": {
+            "default": "",
+            "description": "Why, in one line. Always set on a failure.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incident_id",
+          "outcome"
+        ],
+        "title": "CourierEvent",
+        "type": "object"
+      },
       "EnvironmentReading": {
         "description": "Air quality. Carbon monoxide, and not from CSI.\n\nCSI cannot sense gas composition at 2.4/5 GHz. This reading comes from a\nseparate modality, which is what makes it real corroboration rather than two\nviews of one stream. No gas sensor was purchased, so in practice\n`provenance.source` is `demo-trigger` and `provenance.simulated` is true.",
         "properties": {
@@ -1830,6 +1886,7 @@
         "discriminator": {
           "mapping": {
             "context": "#/$defs/ContextEvent",
+            "courier": "#/$defs/CourierEvent",
             "error": "#/$defs/ErrorEvent",
             "frame": "#/$defs/FrameEvent",
             "hello": "#/$defs/HelloEvent",
@@ -1878,6 +1935,9 @@
           },
           {
             "$ref": "#/$defs/ShieldEvent"
+          },
+          {
+            "$ref": "#/$defs/CourierEvent"
           },
           {
             "$ref": "#/$defs/HelloEvent"

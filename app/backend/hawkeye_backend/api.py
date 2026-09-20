@@ -63,8 +63,9 @@ from hawkeye_backend.models.incident import (
 from hawkeye_backend.models.events import NoticeEvent
 from hawkeye_backend.models.notice import Notice
 from hawkeye_backend.models.state import InteriorState
-from hawkeye_backend.replay import build_export, verify_entries
+from hawkeye_backend.replay import RecordSealed, build_export, verify_entries
 from hawkeye_backend.replay.archive import ArchiveStatus
+from hawkeye_backend.replay.courier import CourierReceipt
 from hawkeye_backend.runtime import EdgeUnavailable, HubRuntime
 
 logger = logging.getLogger(__name__)
@@ -480,6 +481,58 @@ async def export_replay(request: Request, incident_id: str) -> Response:
             )
         },
     )
+
+
+class CourierRequest(BaseModel):
+    """Send a sealed record to a responding department."""
+
+    to: str = Field(
+        default="",
+        description=(
+            "The destination, as the 911 operator gave it on the call and as it "
+            "was read back to them. Recorded with `operator_supplied` provenance: "
+            "a human statement on a phone call, never a verified binding and "
+            "never authorization for anything. Empty falls back to the address "
+            "configured on the hub, recorded as `configured`."
+        ),
+    )
+
+
+@router.post(
+    "/incident/{incident_id}/courier",
+    status_code=202,
+    summary="Send the sealed record to the responding department",
+)
+async def post_courier(
+    request: Request, incident_id: str, body: CourierRequest
+) -> CourierReceipt:
+    """Hand the bundle to a police department, and chain what happened.
+
+    This exists alongside the automatic send on seal for two reasons. The
+    operator-supplied address is only known once somebody has answered the
+    phone, and a send that failed needs a way to be tried again without
+    replaying the incident.
+
+    **202 on a failed send, not 502.** The send is the subject of the request
+    rather than a step within it: a failure is a real answer, it is recorded on
+    the chain and published to every surface, and the receipt in the body says
+    which of the three outcomes happened. A 5xx here would imply the request
+    could not be processed, when in fact it was processed completely and the
+    answer was no.
+    """
+    runtime = _runtime(request)
+    to = body.to or runtime.settings.courier_to
+    provenance = "operator_supplied" if body.to else "configured"
+    try:
+        return await runtime.deliver(incident_id, to=to, provenance=provenance)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404, detail=f"no record for incident {incident_id}"
+        ) from exc
+    except RecordSealed as exc:
+        # 409: the record exists and the request is well formed, but the record
+        # is not in a state where it can be sent. Retrying later will work.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/demo/run", response_model=DemoRunAck, summary="Run the scripted detection")

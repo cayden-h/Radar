@@ -37,6 +37,7 @@ class EventKind(StrEnum):
     NARRATION = "narration"
     OCCUPANCY = "occupancy"
     SHIELD = "shield"
+    COURIER = "courier"
     HELLO = "hello"
     ERROR = "error"
 
@@ -224,6 +225,34 @@ class ShieldEvent(BaseModel):
     source: Source = Source.SERVO_GPIO
 
 
+class CourierEvent(BaseModel):
+    """The sealed record was handed to the responding department, or was not.
+
+    Emitted after the record seals, so the recorder deliberately does not chain
+    it - `ReplaySession.append_courier_receipt` writes the chain entry instead,
+    and it is the only thing allowed to append past a seal. This event exists
+    so the three surfaces can say what happened without reopening the record.
+
+    A failure is as loud as a success here for the same reason it is in the
+    chain: a screen that goes quiet on a failed send is indistinguishable from
+    one reporting an email that arrived.
+    """
+
+    kind: Literal[EventKind.COURIER] = EventKind.COURIER
+    incident_id: str
+    outcome: str = Field(description="`sent`, `failed`, or `skipped`.")
+    to: str = Field(default="", description="The destination, empty when there was none.")
+    provenance: str | None = Field(
+        default=None,
+        description=(
+            "`operator_supplied` or `configured`. An address a person said on a "
+            "phone call is a human statement, never a verified binding."
+        ),
+    )
+    detail: str = Field(default="", description="Why, in one line. Always set on a failure.")
+    at: datetime = Field(default_factory=utc_now)
+
+
 class HelloEvent(BaseModel):
     """First frame on every connection. Tells the client what it just joined."""
 
@@ -258,6 +287,7 @@ EventPayload = Annotated[
     | NarrationEvent
     | OccupancyEvent
     | ShieldEvent
+    | CourierEvent
     | HelloEvent
     | ErrorEvent,
     Field(discriminator="kind"),

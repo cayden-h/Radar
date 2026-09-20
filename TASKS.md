@@ -412,13 +412,21 @@ Watch relay as a `NoticeSink` alongside Twilio. The notice payload gains a still
 ### T44 - The police email
 **Lane** D · **Skill** py · **Needs** T40, T41 · **Blocks** T50 · **Who** ___
 
-`caller` asks the operator for an address near the end of the call and reads it back. `replay` seals and sends via Resend: video, transcript, claim log with every discard and refusal, chain, and the standalone verifier.
+**The hub's half is built as of 2026-09-20.** `app/backend/hawkeye_backend/replay/courier.py`: `NullCourier` by default, `ResendCourier` behind `HAWKEYE_COURIER=resend`, sending the export bundle - record, readable chain, standalone verifier, README - as one zip attachment. Automatic when a record seals, plus `POST /v1/incident/{id}/courier` for the operator-supplied address and for retrying a failed send. The courier section of `app/backend/README.md` has the whole design.
 
-Address recorded as `operator_supplied`, never trusted as authorization. The send itself is an event in the chain.
+Address provenance is carried: `operator_supplied` off the request, `configured` off `HAWKEYE_COURIER_TO`. Neither is authorization for anything.
+
+The send is an event in the chain. `ReplaySession.append_courier_receipt` is the one thing allowed to append past a seal, and it adds rather than edits: the emailed copy is a byte-exact prefix of the archived one and both verify under the same unchanged `verify.py`. A failed send chains as loudly as a successful one; retries accumulate until one succeeds.
+
+**Still to do, and it is the half that closes the task:**
+
+1. **Send one real email and open it.** Nothing has been sent for real. 18 tests cover the path against a mock transport, which proves the shape and not the delivery.
+2. **`caller` asking the operator for the address and reading it back.** That is T40 territory and nothing here implements it; the endpoint just accepts an address once somebody has it.
+3. **Video in the bundle.** T41. The export is four text members today.
 
 **Done when** a real test email arrives with attachments intact and the verifier in it runs standalone, **and** a failed send is visible in the chain rather than silent.
 
-**Verify the Resend domain early.** An unverified domain accepts sends and delivers nothing, and the chain will record success.
+**Verify the Resend domain early.** An unverified domain accepts sends and delivers nothing, and the chain will record success. `cayden.tech` is verified on the project account as of 2026-09-20 and is the default From domain - but a verified domain is not a tested inbox.
 
 ---
 

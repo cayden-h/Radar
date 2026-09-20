@@ -33,7 +33,7 @@ Read the root `CLAUDE.md` first, especially the honesty rule.
 | **Servo / shield** | Gate built and tested; stub backend by default | `HAWKEYE_SHUTTER_BACKEND` env var | `pigpio` (needs `sudo pigpiod` on the Pi) |
 | **Camera** | **Not built. Fixture video file planned** | `vision/source.py` | Swap the file reader for V4L2 |
 | **Gemini Live narration** | **Not built** | `vision/narrator.py` | Real API key, real session |
-| **Police email** | **Not built** | `replay/courier.py` | Real Resend key |
+| **Police email** | **Built 2026-09-20. `NullCourier` by default, `ResendCourier` behind a flag. Never sent for real yet** | `HAWKEYE_COURIER` env var | `resend`, plus `HAWKEYE_RESEND_API_KEY` and a `HAWKEYE_COURIER_FROM` on a verified domain |
 | ANS identities | `.invalid` placeholders | `HAWKEYE_HUB_ANSNAME`, `HAWKEYE_MASTER_ANSNAME` | Real registered names |
 | Voice to 911 | Text only, no audio | Not built | n/a |
 | ~~Gas sensor~~ | **Deleted 2026-09-19** | n/a | Gone with the Fire incident type |
@@ -427,7 +427,9 @@ These are the combinations that waste an evening, because most of them look like
 | Vision to real camera | Auto-exposure left on | Narration contradicts itself one second apart on a live call. |
 | Vision to real camera | Two processes opening `/dev/video0` | "Device busy", usually the first time the recorder and narrator are run separately. |
 | Gemini key set | No quota on the key | Errors that look exactly like network failures. `narrator_unreachable` either way, so recording continues, which is the design working. |
-| Resend key set | Domain not verified | Sends accepted, nothing delivered. The chain records a successful send. **Verify the domain and send one real test email before the demo.** |
+| Resend key set | Domain not verified | Sends accepted, nothing delivered. The chain records a successful send. **Verify the domain and send one real test email before the demo.** `cayden.tech` is verified on the project account as of 2026-09-20, which is why it is the default From domain - but a verified domain is not a tested inbox, and this is still unchecked end to end. |
+| `HAWKEYE_COURIER=resend` | Key or From address empty | No courier is built at all. The startup log says so and every record reads `skipped`, which is correct and looks exactly like the courier being off. Read the boot line, not the record. |
+| `HAWKEYE_COURIER=resend` | `HAWKEYE_COURIER_TO` empty | The automatic send on seal is skipped for want of an address, and the chain says exactly that. The manual endpoint still works, because it carries its own. |
 
 ## Which mode for which demo
 

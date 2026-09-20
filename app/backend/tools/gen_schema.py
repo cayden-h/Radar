@@ -22,6 +22,7 @@ from hawkeye_backend.models.events import (
     FrameEvent,
     NarrationEvent,
     OccupancyEvent,
+    CourierEvent,
     ShieldEvent,
     Envelope,
     ErrorEvent,
@@ -730,6 +731,41 @@ def main() -> None:
             "The submission. A refusal is not an error: it is the shutter declining to "
             "uncover a camera for something that could not prove it was allowed to. The "
             "position is the real, unchanged one rather than `unknown`.",
+        ),
+        (
+            "event-courier.json",
+            Envelope(
+                seq=54,
+                at=at(11.6),
+                incident_id="inc-0001",
+                payload=CourierEvent(
+                    incident_id="inc-0001",
+                    outcome="sent",
+                    to="records@blacksburgpd.example.gov",
+                    provenance="operator_supplied",
+                ),
+            ),
+            "The sealed record went to the responding department. `provenance` is "
+            "`operator_supplied` when the address came from the 911 operator on the "
+            "call, which is a human statement rather than a verified binding.",
+        ),
+        (
+            "event-courier-failed.json",
+            Envelope(
+                seq=55,
+                at=at(11.7),
+                incident_id="inc-0001",
+                payload=CourierEvent(
+                    incident_id="inc-0001",
+                    outcome="failed",
+                    to="records@blacksburgpd.example.gov",
+                    provenance="operator_supplied",
+                    detail="the mail provider refused the send: HTTP 422 (validation_error)",
+                ),
+            ),
+            "A failed send is as loud as a successful one, here and on the chain. A "
+            "surface that goes quiet on a failure is indistinguishable from one "
+            "reporting an email that arrived.",
         ),
     ]
     for name, env, note in envelopes:
