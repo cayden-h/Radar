@@ -12,7 +12,8 @@ Written as of 2026-09-19:
 - **`app/ios/`** - the full iOS app. Generate with `cd app/ios && xcodegen generate`. Every file passes `swiftc -parse -swift-version 6`.
   Xcode 27.0 is installed as of 2026-09-19, so the app can now be built and run on the simulator and on a device; see the environment section below for the one-time `xcode-select` step.
 - **`agents/`** - all five agents, with their domain logic, their identities, their two cards each, **the A2A transport between them**, and a 74-test suite. `cd agents && python -m pytest -q`. Run the mesh with `python -m agents people --port 8101` and `HAWKEYE_PEERS=people=http://127.0.0.1:8101 python -m agents master --port 8100`.
-- **`app/backend/`** - the app-facing edge service.
+- **`app/backend/`** - the app-facing edge service. It now also **records incidents as they happen**: `hawkeye_backend/replay/` opens a hash-chained record the moment a person raises an incident and seals it when the 911 call ends, rather than reconstructing one at read time.
+- **`app/web/replay/`** - the replay console, served at `/replay`. The record a detective reads: floor-plan scrubber, the entry log with discards given equal weight, the radio telemetry, an in-browser chain check, and a zip export carrying its own standalone verifier. See `app/backend/README.md`.
 - **`docs/hardware/`** - step-by-step guides for every hardware item and a bring-up checklist.
 - **`docs/research/`**, `docs/fraud-13.md`, `docs/geo.md`, `docs/threat-landscape.md` - the three assigned research deliverables, plus the incident data.
 
@@ -184,6 +185,10 @@ That keeps the ANS-verified agent mesh on one side of a line and the human surfa
 - **`app/ios/`** is the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. There is no `.xcodeproj` in the repo; `app/ios/project.yml` is an XcodeGen spec. Two stages: a Connect screen listing Hawk Eye hubs found over Bonjour, then the main screen. It is not a WiFi picker and cannot be, because enumerating SSIDs needs the `NEHotspotHelper` entitlement. See `app/CLAUDE.md`.
 - **`app/backend/`** is the edge service the app talks to. See `app/backend/README.md`.
   It also holds **`hawkeye_backend/verification/`**, the claim-envelope defence: the thirteen `fraud.webmesh.ai` shapes, agent-card signing and drift, and the dispatch-address commitment. Standalone package, no FastAPI imports, so it moves into `agents/master` as an import change. `cd app/backend && python -m pytest -q` is 37 security tests.
+
+The hub's scripted detection now covers **both** demo cases, selected with `POST /v1/demo/run?scenario=burglary|faint` and defaulting to burglary.
+Burglary is the frame the project is built around: an unexplained perturbation enters the living room with no respiration signature, respiration resolves it into a person no registered device accounts for, and it crosses the unit to the hallway outside the second bedroom.
+It stops at the doorway because a 1x1 radio merges two people within about a metre, and the call states that limit rather than drawing a separation the link cannot measure.
 
 One flag, `app/ios/HawkEye/Config.swift`, runs the entire app with no hardware and no agents up.
 **The demo must never depend on hardware being alive**, so the mock path is a first-class implementation rather than a branch inside a view.

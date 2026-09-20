@@ -325,8 +325,12 @@ const HawkEye = (() => {
       poly.setAttribute("points", room.polygon.map(([x, y]) => `${x * 10},${y * 10}`).join(" "));
       svg.append(poly);
 
+      // Room names go at the top of the room, not at its centroid. Presences
+      // sit near the centroid, so a label there collides with whoever is
+      // standing in that room - and the room the intruder is in is exactly the
+      // one you least want obscured.
       const cx = room.polygon.reduce((a, p) => a + p[0], 0) / room.polygon.length * 10;
-      const cy = room.polygon.reduce((a, p) => a + p[1], 0) / room.polygon.length * 10;
+      const cy = Math.min(...room.polygon.map((p) => p[1])) * 10 + 3.2;
       const label = document.createElementNS(ns, "text");
       label.setAttribute("class", "roomlabel");
       label.setAttribute("x", String(cx));
@@ -801,3 +805,11 @@ const HawkEye = (() => {
   // and the disagreement it catches looks exactly like tampering.
   return { index, record, _canonical: { canonical, parseKeepingNumbers, pyString } };
 })();
+
+// A classic script's top-level `const` is script-scoped, not a window property.
+// Published deliberately so the verifier can be driven from devtools: pointing
+// it at a record you have doctored yourself is the only way to satisfy yourself
+// that it reports ALTERED, and a check nobody has seen fail is not a check.
+// Guarded because tests/test_replay_console_js.py evaluates this file under
+// node, where there is no window and an unguarded assignment throws.
+if (typeof window !== "undefined") window.HawkEye = HawkEye;

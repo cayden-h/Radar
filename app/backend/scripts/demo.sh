@@ -4,9 +4,12 @@
 #
 # Needs no Raspberry Pi, no router, no agents, and no network beyond loopback.
 #
-#   ./scripts/demo.sh              # realistic timing, about 50 seconds
-#   SPEED=0.35 ./scripts/demo.sh   # rehearsal speed
+#   ./scripts/demo.sh                    # burglary, realistic timing
+#   SCENARIO=fire ./scripts/demo.sh      # the lost breathing signature instead
+#   SPEED=0.35 ./scripts/demo.sh         # rehearsal speed
 #   PORT=9000 ./scripts/demo.sh
+#
+# Either way the record it produces is readable at ${BASE}/replay/.
 #
 set -euo pipefail
 
@@ -14,6 +17,7 @@ cd "$(dirname "$0")/.."
 
 PORT="${PORT:-8787}"
 SPEED="${SPEED:-1.0}"
+SCENARIO="${SCENARIO:-burglary}"
 HOST="127.0.0.1"
 BASE="http://${HOST}:${PORT}"
 LOG="$(mktemp -t hawkeye-demo)"
@@ -66,9 +70,17 @@ curl -fsS "${BASE}/v1/state" | "$PY" tools/summarize.py state
 
 echo
 echo "== WS /v1/stream, detection then tap =="
-echo "   agents/people loses a breathing signature and nobody is dialled. It shows"
-echo "   up in interior state, respiration_lost_s climbs, and the system waits."
-echo "   Then a person taps Fire, which is what releases the call."
+if [ "$SCENARIO" = "fire" ]; then
+  echo "   agents/people loses a breathing signature and nobody is dialled. It shows"
+  echo "   up in interior state, respiration_lost_s climbs, and the system waits."
+  echo "   Then a person taps Fire, which is what releases the call."
+else
+  echo "   A perturbation appears in the living room with no respiration signature,"
+  echo "   indistinguishable from the curtain already sitting there. Respiration"
+  echo "   resolves it into a person, no registered device accounts for it, and it"
+  echo "   crosses the unit to the hallway outside the second bedroom."
+  echo "   Nobody is dialled. Then a person taps Burglary, which releases the call."
+fi
 echo
 
 WATCH_SECONDS=$("$PY" -c "print(max(26.0, 60.0 * $SPEED + 8))")
@@ -76,16 +88,16 @@ WATCH_SECONDS=$("$PY" -c "print(max(26.0, 60.0 * $SPEED + 8))")
 PROBE_PID=$!
 
 sleep 2
-curl -fsS -X POST "${BASE}/v1/demo/run" >/dev/null
+curl -fsS -X POST "${BASE}/v1/demo/run?scenario=${SCENARIO}" >/dev/null
 
 # The detection lands and nothing dials. Let it sit, then press the button, which
 # is the only thing that starts a call.
 sleep "$("$PY" -c "print(8 * $SPEED)")"
 echo
-echo "   -- tapping Fire (POST /v1/incident, raised_by user) --"
+echo "   -- tapping ${SCENARIO} (POST /v1/incident, raised_by user) --"
 curl -fsS -X POST "${BASE}/v1/incident" \
   -H 'content-type: application/json' \
-  -d '{"incident_type":"fire"}' >/dev/null
+  -d "{\"incident_type\":\"${SCENARIO}\"}" >/dev/null
 
 # Mid-incident, the resident types into the "what is happening" box.
 sleep "$("$PY" -c "print(12 * $SPEED)")"
@@ -93,7 +105,11 @@ INCIDENT_ID=$(curl -fsS "${BASE}/v1/hub" | "$PY" tools/summarize.py incident_id)
 if [ -n "$INCIDENT_ID" ]; then
   curl -fsS -X POST "${BASE}/v1/incident/${INCIDENT_ID}/context" \
     -H 'content-type: application/json' \
-    -d '{"text":"My mother has COPD and there is a space heater in that bedroom."}' >/dev/null
+    -d "$(if [ "$SCENARIO" = "fire" ]; then
+            echo '{"text":"My mother has COPD and there is a space heater in that bedroom."}'
+          else
+            echo '{"text":"I am in the back bedroom with the door shut. I can hear him in the hallway."}'
+          fi)" >/dev/null
 fi
 
 wait $PROBE_PID

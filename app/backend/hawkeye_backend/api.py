@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
@@ -385,10 +386,21 @@ async def export_replay(request: Request, incident_id: str) -> Response:
 @router.post("/demo/run", response_model=DemoRunAck, summary="Run the scripted detection")
 async def post_demo_run(
     request: Request,
+    scenario: Literal["burglary", "fire"] = Query(
+        default="burglary",
+        description=(
+            "Which detection to drive. `burglary` puts an unexpected presence in the "
+            "living room and walks it across the unit to the hallway outside the second "
+            "bedroom. `fire` takes the breathing signature off the adult in the main "
+            "bedroom, so `respiration_lost_s` climbs, with the CO reading climbing "
+            "alongside it. Neither raises an incident on its own."
+        ),
+    ),
     simulate_human_tap: bool = Query(
         default=False,
         description=(
-            "Stand in for a person pressing Fire in the app. Off by default. "
+            "Stand in for a person pressing the matching button in the app. Off by "
+            "default. "
             "The hub itself never raises an incident; this parameter exists so "
             "one curl can exercise detection plus call end to end, and it is "
             "the human, not the system, that it is imitating."
@@ -418,21 +430,39 @@ async def post_demo_run(
     if client.script_running:
         return DemoRunAck(started=False, detail="scripted incident already running")
 
-    started = not (client.detection_running or client.signature_lost)
+    already_run = client.signature_lost if scenario == "fire" else client.intrusion_detected
+    started = not (client.detection_running or already_run)
     if started:
-        asyncio.create_task(client.run_detection())
-        detail = "scripted detection started; no incident raised, waiting on a human tap"
+        asyncio.create_task(client.run_detection(scenario))
+        detail = f"scripted {scenario} detection started; no incident raised, waiting on a human tap"
     else:
-        detail = "detection already run; no incident raised, waiting on a human tap"
+        detail = f"{scenario} detection already run; no incident raised, waiting on a human tap"
 
     raised_incident_id: str | None = None
     if simulate_human_tap:
         # Exactly the path POST /v1/incident takes. RaisedBy.USER is not a
         # label of convenience here: assert_human_released refuses anything
         # else on the way to the call.
-        incident = await client.raise_incident(IncidentType.FIRE, RaisedBy.USER, None)
+        #
+        # The tap matches the detection. A person who has just watched an
+        # unexplained body cross their living room does not press Fire, and a
+        # demo where the scripted tap disagrees with the scripted detection is
+        # showing a house that contradicts itself.
+        incident_type = IncidentType.FIRE if scenario == "fire" else IncidentType.BURGLARY
+        if scenario == "burglary" and started:
+            # Let the detection resolve the perturbation into a person before
+            # the stand-in taps. A real resident taps because they were told
+            # there is someone in the house, and the system cannot tell them
+            # that until respiration has answered whether it is a person at
+            # all. Tapping into the middle of that makes the call script force
+            # the resolution, and the house then describes a stranger the
+            # sensing never actually confirmed.
+            #
+            # Short, and scaled with sim speed, so the endpoint stays responsive.
+            await asyncio.sleep(4.0 * client.speed)
+        incident = await client.raise_incident(incident_type, RaisedBy.USER, None)
         raised_incident_id = incident.incident_id
-        detail += "; simulated human tap raised a fire incident"
+        detail += f"; simulated human tap raised a {incident_type.value} incident"
 
     return DemoRunAck(started=started, detail=detail, raised_incident_id=raised_incident_id)
 

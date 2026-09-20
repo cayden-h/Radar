@@ -124,6 +124,49 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_STORE_BACKEND` | `memory` | `memory` or `mongodb`. See the storage seam below. |
 | `HAWKEYE_MONGODB_URI` | empty | MongoDB Atlas connection string, when that lands. |
 
+## The replay console
+
+A web page at **`/replay`**, served by this service from `app/web/replay/`.
+Open `http://127.0.0.1:8787/replay/` once the hub is up.
+
+It is the surface a detective reads at a desk, and it makes the opposite tradeoffs to the iOS app, which is the surface a resident holds during an emergency.
+Desktop-dense, keyboard-free, and built to be exported rather than glanced at.
+
+One self-contained HTML file plus a stylesheet and a script.
+No build step, no bundler, and no CDN: venue wifi is not a dependency this demo can afford.
+
+Two screens.
+The index lists every recorded incident.
+Opening one shows the floor plan with a frame scrubber, the record itself filterable by entry kind, the radio telemetry time-aligned underneath, and a chain panel.
+
+Four things about it are deliberate.
+
+**It replays recorded frames rather than mirroring live state.**
+During an active incident the map trails the phone by up to a second, because the page polls `?since_seq=N` once a second rather than joining the websocket.
+This is the record, not a second live dashboard, and one channel is one thing to debug.
+
+**The chain is verified in the browser.**
+A server that will lie about a record will also lie about having checked it, so the check that matters is the one the reader can run themselves.
+The page recomputes every hash with WebCrypto over the bytes the server served.
+
+That last point has a trap in it worth knowing, because it bit during the build.
+Parsing the response and re-serializing it does not work: `JSON.stringify` writes the float `1.0` as `1` where Python writes `1.0`, and leaves non-ASCII unescaped where Python writes `\uXXXX`.
+Either difference changes the hash of an entry nobody touched, and the console would then accuse an intact record of having been altered.
+So the console canonicalizes from the raw text, keeping every number literal exactly as it arrived.
+`tests/test_replay_console_js.py` runs that JavaScript under node and asserts it agrees with `replay/chain.py` byte for byte.
+It is the only thing holding three implementations of one hash together, so do not delete it because it needs node.
+
+**The RF strip is derived telemetry, and `raw_csi` is null.**
+There is no raw Channel State Information anywhere in this service, so there is none to plot.
+The strip shows capture rate against the minimum useful rate, and respiration per presence on its own axis, both labelled for what they are.
+The band below the minimum useful capture rate is shaded, which puts the quiet failure named in `sensor/CLAUDE.md` on the record instead of hiding it.
+
+**Discards are given equal weight to acceptances.**
+The index counts them on the card, and the log tints them rather than greying them out.
+What the system refused to repeat to a dispatcher is the interesting number, not the total.
+
+`HAWKEYE_REPLAY_SITE_ENABLED=false` turns the page off without touching code, because serving a human surface is a deployment decision.
+
 ## Notices
 
 An unexpected presence that holds for `HAWKEYE_NOTICE_HOLD_S` seconds raises a notice: a banner in the app, and an SMS if Twilio is configured.
@@ -505,12 +548,63 @@ The discarded ones are the point: the operator could not check us live, an inves
 **That is not a SCITT receipt and is not described as one.**
 `scitt_receipt` is always `null` until the submit path exists. See the TODOs.
 
-In live mode this proxies `agents/replay`.
-In simulated mode the hub assembles the record from its own buffer, in the same shape, so the demo has something real to show.
+`since_seq=N` returns only entries after that sequence, so the replay console tails an open record rather than refetching it.
+
+Three sources answer this route, in order of authority.
+The hub's own recorder holds the record it wrote entry by entry, and that is preferred whenever it exists.
+`agents/replay` owns the record in live mode and is asked next.
+Failing both, the store assembles one after the fact; that is a reconstruction rather than a recording, it proves less, and it stays only so incidents raised before the recorder existed still resolve.
+
+### `GET /v1/replay`
+
+The index of recorded incidents, newest first. One cheap summary row each: type, address, opened at, sealed, duration, entry count, verification count, discard count, root hash.
+
+Only incidents this hub actually recorded appear.
+An incident it saw mid-flight but never saw raised is deliberately absent rather than listed with a partial chain, because a record that silently omits its own beginning has the shape of a doctored one.
+
+### `GET /v1/incident/{id}/replay/verify`
+
+Recomputes the hash chain and returns `{intact, detail, failed_seq, entries, root_hash, sealed}`.
+
+A pass means no entry has been edited, reordered, inserted or removed since it was written.
+It does not mean the system that wrote the record wrote it honestly; that is the transparency log's job and the log is not wired.
+
+### `GET /v1/incident/{id}/replay/export`
+
+A zip, for handing to an investigator:
+
+| Member | What it is |
+|---|---|
+| `record.json` | the full record, canonical JSON |
+| `chain.txt` | one readable line per entry, needs nothing but a text editor |
+| `verify.py` | dependency-free script that recomputes the chain and prints INTACT or names the altered entry |
+| `README.txt` | what this proves, and plainly what it does not |
+
+`verify.py` reimplements the canonical form rather than importing it, on purpose: a verifier that depends on the code that produced the record verifies nothing.
+`tests/test_replay_session.py::test_the_shipped_verifier_agrees_with_the_server` is what keeps the two in step.
+
+An unsealed record exports too, clearly marked as unsealed.
+An investigator asking for the record mid-incident is a real scenario, and refusing would be worse than handing over something honestly labelled.
 
 ### `POST /v1/demo/run`
 
 Drives the scripted detection and then stops. **Simulated mode only; 404s in live mode, deliberately.**
+
+`?scenario=burglary|faint`, defaulting to `burglary`.
+
+**`burglary`** is the frame the project is built around.
+A perturbation appears in the living room with no respiration signature, which makes it `unconfirmed` and at that instant indistinguishable from the curtain over the dryer vent already sitting in that same room.
+Respiration then resolves it into a person, and only then can `agents/intruder` ask its question: two residents on the roster, two phones associated, one body left over.
+It crosses the unit, living room to dining room to the hallway outside the second bedroom, and stops there.
+
+That stopping point is not squeamishness, it is the hardware.
+A 1x1 radio has no spatial diversity, and two people within about a metre resolve as one presence.
+Walking the intruder into the resident's room would draw a separation this link cannot measure, so the script stops at the doorway and the call says the limit out loud as a `CORROBORATION_ONLY` claim.
+
+**`faint`** is the collapse: an adult goes down in the main bedroom, `still_down_s` climbs and does not reset, and the CO reading rises.
+
+`?simulate_human_tap=true` raises the incident type that matches the scenario.
+A person who has just watched a stranger cross their living room does not press Faint, and a demo whose scripted tap disagrees with its scripted detection is showing a house that contradicts itself.
 
 The default is detection only, because that is what the system does on its own.
 The lost signature appears in `state`, `respiration_lost_s` climbs, CO rises, and no `incident` or `transcript` event is emitted at all.
@@ -563,6 +657,11 @@ app/backend/
       verification.py       claims, trust profiles, decisions
       hub.py                hub identity and health
       events.py             the tagged-union stream envelope
+    replay/
+      chain.py              the one canonical SHA-256 shared by every chain here
+      session.py            one incident's record: opened on a tap, sealed at the call's end
+      recorder.py           routes events into sessions; wired into HubRuntime.emit
+      export.py             the zip a detective is handed
     master/
       base.py               MasterClient protocol, EventSink protocol
       simulated.py          the scripted detection, and the scripted call a human tap releases

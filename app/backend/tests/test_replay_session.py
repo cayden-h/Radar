@@ -457,3 +457,218 @@ def test_the_shipped_verifier_agrees_with_the_server(recorder: ReplayRecorder, t
     assert caught.returncode == 1
     assert "ALTERED" in caught.stdout
     assert "entry 3" in caught.stdout
+
+
+# --------------------------------------------------------------- the burglary
+
+"""The scripted burglary: an unexpected presence enters and crosses the unit.
+
+Separate from the recorder tests above because these are about the simulated
+master rather than about the chain. What they hold is the story the map tells,
+and each one guards a way of telling it wrong.
+"""
+
+import asyncio  # noqa: E402
+
+from hawkeye_backend.master.scenario import ZONE_CENTROID  # noqa: E402
+from hawkeye_backend.master.simulated import SimulatedMasterClient, _Walk  # noqa: E402
+
+
+class _Collector:
+    """An EventSink that just keeps everything."""
+
+    def __init__(self) -> None:
+        self.payloads: list[object] = []
+
+    async def emit(self, payload: object, incident_id: str | None = None) -> None:
+        self.payloads.append(payload)
+
+
+def _client(speed: float = 0.02) -> SimulatedMasterClient:
+    return SimulatedMasterClient(site_id=SITE, address=ADDRESS, speed=speed)
+
+
+def test_the_walk_flips_zone_at_the_midpoint_not_at_the_end() -> None:
+    """`zone` is the claim and `x`/`y` are only for drawing.
+
+    A presence reported as still in the living room while its dot is drawn over
+    the dining room table is a map that disagrees with the record it came from.
+    """
+    walk = _Walk(
+        presence_id="p4",
+        route=["living_room", "dining_room", "hallway"],
+        seconds_per_leg=10.0,
+        started_at=0.0,
+    )
+    assert walk.at(0.0)[0] == "living_room"
+    assert walk.at(4.9)[0] == "living_room"
+    assert walk.at(5.1)[0] == "dining_room"
+    assert walk.at(14.9)[0] == "dining_room"
+    assert walk.at(15.1)[0] == "hallway"
+
+    # And it arrives, exactly on the destination centroid, and says so.
+    zone, x, y, moving = walk.at(100.0)
+    assert (zone, moving) == ("hallway", False)
+    assert (x, y) == ZONE_CENTROID["hallway"]
+
+
+def test_the_walk_interpolates_between_the_two_zones() -> None:
+    walk = _Walk("p4", ["living_room", "dining_room"], 10.0, 0.0)
+    ax, _ = ZONE_CENTROID["living_room"]
+    bx, _ = ZONE_CENTROID["dining_room"]
+    _, x, _, _ = walk.at(5.0)
+    assert min(ax, bx) < x < max(ax, bx)
+
+
+def test_the_intruder_is_not_a_person_until_respiration_says_so() -> None:
+    """The order is the argument the burglary view makes.
+
+    A perturbation with no respiration signature is a curtain, and `expected` is
+    a question you can only ask about a person. Asking it early is how a system
+    calls the police on a curtain.
+    """
+    client = _client()
+    client._apply_intrusion()
+    p4 = client._presences["p4"]
+
+    assert p4.state is PresenceState.UNCONFIRMED
+    assert p4.vitals.breathing_bpm is None
+    assert p4.expected is None, "an unconfirmed perturbation is neither expected nor unexpected"
+
+    # And it is indistinguishable from the curtain already in that room, which
+    # is the point rather than an accident.
+    p3 = client._presences["p3"]
+    assert (p3.state, p3.position.zone) == (p4.state, p4.position.zone)
+
+
+def test_the_detection_resolves_it_and_walks_it_to_the_resident() -> None:
+    async def run() -> SimulatedMasterClient:
+        client = _client()
+        client._sink = _Collector()  # type: ignore[assignment]
+        await client.run_detection("burglary")
+        return client
+
+    client = asyncio.run(run())
+    p4 = client._presences["p4"]
+
+    assert p4.state is PresenceState.CONFIRMED_MOVING
+    assert p4.expected is False, "a confirmed person no device accounts for"
+    assert p4.vitals.respiration is RespirationStatus.BREATHING
+    assert p4.class_basis == "respiration_rate", "class comes from rate, never amplitude"
+    assert client.intrusion_detected
+
+    # It is walking toward the hallway outside the second bedroom, where the
+    # resident is. It stops there; see the separation limit below.
+    assert client._walk is not None
+    assert client._walk.route[0] == "living_room"
+    assert client._walk.route[-1] == "hallway"
+    assert "second_bedroom" not in client._walk.route
+
+
+def test_the_intruder_never_takes_the_collapsed_resident_s_state() -> None:
+    """`CONFIRMED_STILL` means still but breathing and not responding.
+
+    It is the loudest thing on screen because it is the case the project exists
+    for. A stationary intruder must not be drawn identically to it.
+    """
+    client = _client()
+    client._apply_intrusion()
+    client._presences["p4"].state = PresenceState.CONFIRMED_MOVING
+    client._walk = _Walk("p4", ["living_room", "hallway"], 0.001, 0.0)
+    client._advance_walk()
+
+    assert client._walk is None, "arrived"
+    assert client._presences["p4"].state is PresenceState.CONFIRMED_MOVING
+    assert client._presences["p4"].position.zone == "hallway"
+
+
+def test_a_walking_presence_is_not_dragged_back_by_jitter() -> None:
+    """Jitter is cosmetic and must not fight the route.
+
+    Nudging a walking presence around its zone centroid pulls it back into the
+    room it is leaving, and the dot stutters instead of crossing.
+    """
+    client = _client()
+    client._apply_intrusion()
+    client._walk = _Walk("p4", ["living_room", "dining_room"], 10.0, 0.0)
+    p4 = client._presences["p4"]
+    p4.position.x = 11.5
+    p4.position.y = 2.5
+
+    client._jitter(p4)
+    assert (p4.position.x, p4.position.y) == (11.5, 2.5)
+
+
+def test_the_burglary_detection_raises_no_incident() -> None:
+    """Hawk Eye never dials on its own, and an intruder is where that bites hardest.
+
+    Detecting a stranger in the house is the case where the pull toward dialing
+    automatically is strongest. A false positive sends armed responders to a
+    real address, so the detection informs and waits.
+    """
+    async def run() -> tuple[SimulatedMasterClient, _Collector]:
+        client = _client()
+        sink = _Collector()
+        client._sink = sink  # type: ignore[assignment]
+        await client.run_detection("burglary")
+        return client, sink
+
+    client, sink = asyncio.run(run())
+    assert client._incident is None
+    assert not any(isinstance(p, IncidentEvent) for p in sink.payloads)
+
+
+def test_a_cold_burglary_tap_still_walks_the_intruder() -> None:
+    """Burglary pressed with no detection having run.
+
+    Without this the record shows a stranger standing motionless at the front of
+    the unit for the length of a 911 call.
+    """
+    from hawkeye_backend.master.simulated import INTRUDER_ROUTE
+
+    async def run() -> SimulatedMasterClient:
+        client = _client(speed=0.01)
+        client._sink = _Collector()  # type: ignore[assignment]
+        await client.raise_incident(IncidentType.BURGLARY, RaisedBy.USER, None)
+        await asyncio.sleep(0.6)
+        return client
+
+    client = asyncio.run(run())
+    p4 = client._presences["p4"]
+    assert p4.expected is False
+    # The route is started here; the state loop is what advances it, and this
+    # test deliberately does not run one so the assertion is about the fix
+    # rather than about a sleep being long enough.
+    assert client._walk is not None, "a cold tap must start the route"
+    assert tuple(client._walk.route) == INTRUDER_ROUTE
+
+    client._walk.started_at -= 1000.0
+    client._advance_walk()
+    assert p4.position.zone == INTRUDER_ROUTE[-1]
+
+
+def test_the_operator_is_never_told_a_room_is_next_to_itself() -> None:
+    """The adjacency clause is derived, never asserted.
+
+    An earlier version hardcoded "next to the second bedroom" and told an
+    operator the intruder was "in the living room, next to the second bedroom".
+    False, and the kind of false a dispatcher acts on.
+    """
+    async def run() -> list[str]:
+        client = _client(speed=0.01)
+        sink = _Collector()
+        client._sink = sink  # type: ignore[assignment]
+        incident = await client.raise_incident(IncidentType.BURGLARY, RaisedBy.USER, None)
+        await client.run_call_script(incident)
+        return [
+            p.line.text
+            for p in sink.payloads
+            if isinstance(p, TranscriptEvent) and p.line.speaker is TranscriptSpeaker.CALLER
+        ]
+
+    spoken = asyncio.run(run())
+    opening = next(t for t in spoken if "automated call" in t)
+    assert "living room, directly outside" not in opening
+    assert "living room, next to" not in opening
+    if "directly outside the second bedroom" in opening:
+        assert "is now in the hallway" in opening

@@ -235,6 +235,10 @@ Notifications must arrive when the app is backgrounded. The resident will not be
 ## What this app is not
 
 - **Not a dashboard.** No settings, no accounts, no onboarding, no history browser. One resident, hardcoded.
+  The history browser exists, and it is deliberately somewhere else: the replay console at **`/replay`**, served by `app/backend` from `app/web/replay/`.
+  Two human surfaces, opposite tradeoffs. This one is held by a frightened person during the worst ten minutes of their year and shows only what they must act on now.
+  That one is read at a desk afterward by a detective, and shows everything, hash-chained, with a scrubber and an export.
+  Do not migrate features from there to here.
 - **Not the operator's view.** There is no console for the 911 operator. The operator is a person on a phone and we cannot ship software into a PSAP.
 - **Not where the architecture is explained.** That is the demo video's job. See `media/CLAUDE.md`.
 
