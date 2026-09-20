@@ -15,6 +15,7 @@ import hmac
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from agents.caller import CallerAgent
 from agents.caller.transport.orchestrator import CallOrchestrator
@@ -25,7 +26,7 @@ AUTH_TOKEN = "test_auth_token"
 PUBLIC_BASE_URL = "https://example.ngrok-free.app"
 
 
-def _app_and_client(mesh):
+def _app_and_client(mesh, *, auth_token: str | None = AUTH_TOKEN):
     orch = CallOrchestrator(
         caller=CallerAgent(mesh),
         transport=SimulatedCallTransport(),
@@ -36,11 +37,24 @@ def _app_and_client(mesh):
     )
     app = build_transport_app(
         orch,
-        auth_token=AUTH_TOKEN,
+        auth_token=auth_token,
         elevenlabs_voice_id="voice123",
         public_base_url=PUBLIC_BASE_URL,
     )
     return orch, TestClient(app)
+
+
+def _mint_relay_token(orch, client) -> str:
+    """Drive the real /twilio/agent-leg webhook so the orchestrator mints the
+    per-call ConversationRelay token exactly the way a real call would.
+    """
+    url = f"{PUBLIC_BASE_URL}/twilio/agent-leg"
+    params = {"CallSid": "CA2"}
+    sig = _sign(url, params)
+    resp = client.post("/twilio/agent-leg", data=params, headers={"X-Twilio-Signature": sig})
+    assert resp.status_code == 200
+    assert orch.relay_ws_token
+    return orch.relay_ws_token
 
 
 def _sign(url: str, params: dict[str, str]) -> str:
@@ -156,15 +170,90 @@ def test_voice_webhook_ignores_a_mock_911_number_supplied_as_a_request_parameter
     assert orch.mock_911_number == "+15550004444"
 
 
+def test_unconfigured_transport_app_rejects_the_voice_webhook_even_when_signed(mesh):
+    """When Twilio voice isn't configured, `auth_token` is `None` rather than
+    falling back to a known constant like "test_auth_token" - a string that is
+    printed in this very test suite and would let anyone who read the repo
+    forge valid-looking signed requests against a publicly reachable but
+    unconfigured instance. An unconfigured app must refuse every request, even
+    one signed against that old fallback constant, rather than accept it.
+    """
+    _, client = _app_and_client(mesh, auth_token=None)
+    url = f"{PUBLIC_BASE_URL}/twilio/voice"
+    params = {"CallSid": "CA1"}
+    sig = _sign(url, params)  # signed with the old fallback constant
+    resp = client.post("/twilio/voice", data=params, headers={"X-Twilio-Signature": sig})
+    assert resp.status_code == 503
+    assert "<Conference>" not in resp.text
+
+
+def test_unconfigured_transport_app_rejects_the_agent_leg_webhook(mesh):
+    """Same fail-closed behaviour on /twilio/agent-leg as on /twilio/voice -
+    guarding one route and not the others would leave the unconfigured case
+    only partially closed.
+    """
+    _, client = _app_and_client(mesh, auth_token=None)
+    resp = client.post("/twilio/agent-leg", data={"CallSid": "CA2"})
+    assert resp.status_code == 503
+
+
 def test_conversation_relay_websocket_round_trips_a_prompt_through_the_orchestrator(mesh):
     """The WS route must actually call orchestrator.handle_relay_message rather
     than being a bare echo - a ConversationRelay `prompt` message must produce
     the same spoken-reply shape the orchestrator's own unit tests expect.
+
+    Connecting with the correct per-call token (minted by /twilio/agent-leg,
+    exactly as a real call would) must still work end to end.
     """
-    _, client = _app_and_client(mesh)
-    with client.websocket_connect("/twilio/conversation-relay") as ws:
+    orch, client = _app_and_client(mesh)
+    token = _mint_relay_token(orch, client)
+    with client.websocket_connect(f"/twilio/conversation-relay?token={token}") as ws:
         ws.send_json({"type": "setup", "callSid": "CA1", "from": "+15551234567"})
         ws.send_json({"type": "prompt", "voicePrompt": "what colour is the front door?"})
         reply = ws.receive_json()
         assert reply["type"] == "text"
         assert reply["token"].startswith("I don't know")
+
+
+def test_conversation_relay_websocket_rejects_a_connection_with_no_token(mesh):
+    """Twilio never sends X-Twilio-Signature on a WS handshake, so this route's
+    only defence against an arbitrary internet connection is the per-call
+    token minted by /twilio/agent-leg. A connection presenting none of it must
+    be refused before a single frame reaches `orchestrator.handle_relay_message`,
+    which mutates the shared transcript and can trigger agent speech.
+    """
+    orch, client = _app_and_client(mesh)
+    _mint_relay_token(orch, client)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/twilio/conversation-relay"):
+            pass
+    # Nothing this connection could have sent was ever handed to the
+    # orchestrator - the transcript, which only handle_relay_message mutates,
+    # is untouched.
+    assert orch.transcript_so_far() == []
+
+
+def test_conversation_relay_websocket_rejects_a_connection_with_the_wrong_token(mesh):
+    """A present-but-incorrect token must be refused identically to a missing
+    one - the same principle the signed-webhook tests above establish for
+    X-Twilio-Signature applies here too.
+    """
+    orch, client = _app_and_client(mesh)
+    _mint_relay_token(orch, client)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/twilio/conversation-relay?token=not-the-real-token"):
+            pass
+    assert orch.transcript_so_far() == []
+
+
+def test_unconfigured_transport_app_rejects_a_conversation_relay_connection(mesh):
+    """When Twilio voice isn't configured (`auth_token=None`), the WS route
+    must fail closed exactly like every HTTP webhook below - there is no
+    per-call token minted (agent-leg itself is unreachable, see the HTTP test
+    below), and even a connection that somehow presents one must still be
+    refused rather than reaching the orchestrator.
+    """
+    _, client = _app_and_client(mesh, auth_token=None)
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/twilio/conversation-relay?token=anything"):
+            pass
