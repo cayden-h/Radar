@@ -1,48 +1,103 @@
 /* Hawk Eye replay console.
-   Desktop-dense on purpose. This is the surface a detective reads at a desk,
-   not the surface a resident holds in an emergency; the iOS app is that one and
-   it makes the opposite tradeoffs. Nothing here is loaded from a CDN, because
-   venue wifi is not a dependency this demo can afford. */
+   One page: a table of the video segments vision/ writes. Desktop-dense on
+   purpose, read at a desk rather than glanced at in a panic; the iOS app makes
+   the opposite tradeoffs. Nothing here is loaded from a CDN, because venue
+   wifi is not a dependency this demo can afford.
+
+   Visual language borrows the iOS app's "Aura" tokens (dusk gradient ground,
+   frosted glass panels, ui-rounded type) for brand consistency, tuned down for
+   a desk tool: one glow instead of two, no ambient motion, and data stays in
+   monospace wherever it's data rather than voice. */
 
 :root {
   color-scheme: dark;
 
-  --bg: #0b0e13;
-  --panel: #12161e;
-  --panel-2: #161b25;
-  --line: #222a37;
-  --line-soft: #1a202b;
+  /* Ground, as a gradient - same three stops as the iOS app's
+     `Palette.groundGradient`, so both surfaces sit on the same dusk. */
+  --dusk-top: #3b2a68;
+  --dusk-mid: #201638;
+  --dusk-base: #0b0813;
 
-  --ink: #e6ebf2;
-  --ink-2: #9aa7b8;
-  --ink-3: #66748a;
+  --panel: #100d19;
+  --line: #282030;
+  --line-soft: #1e1826;
 
-  --accent: #4da3ff;
+  --ink: #f2f5f9;
+  --ink-2: #8d97a6;
+  --ink-3: #525c6b;
+
+  --accent: #5ba8ff;
   --ok: #46d19b;
   --warn: #f2b155;
-  --bad: #ff5f6d;
-  --violet: #a986ff;
+  --bad: #ff3b4e;
+  --violet: #c97bff;
+
+  /* Glass - one frosted recipe, used everywhere a panel used to be a flat fill. */
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-tint: rgba(255, 255, 255, 0.035);
+  --glass-rim: rgba(255, 255, 255, 0.22);
+
+  /* One restrained corner glow. The iOS app runs two; a desk tool wants less
+     ornament competing with the data. */
+  --aura-glow: #9b6bff;
+
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 20px;
 
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  --sans: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
 
+html { background: var(--dusk-base); }
+
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
   color: var(--ink);
   font: 14px/1.5 var(--sans);
   -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(760px 620px at 6% 0%, color-mix(in srgb, var(--aura-glow) 20%, transparent), transparent 65%),
+    linear-gradient(160deg, var(--dusk-top), var(--dusk-mid) 46%, var(--dusk-base) 78%);
+  background-attachment: fixed;
 }
 
-h1, h2 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+h1, h2 { margin: 0; font-weight: 600; letter-spacing: -0.01em; font-family: var(--sans); }
 h1 { font-size: 17px; }
-h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-2); }
 p { margin: 0 0 10px; }
 a { color: var(--accent); }
 code { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+
+/* ------------------------------------------------------------------- glass */
+
+/* The one frosted-panel recipe every surface below shares: a blurred,
+   faintly-tinted fill over the dusk gradient, a brighter hairline along the
+   top edge only (light catching the rim of the glass), then a full border
+   underneath it. Mirrors `View.glassPanel` in the iOS DesignSystem so both
+   apps' surfaces read as the same material. */
+.glass {
+  position: relative;
+  background: var(--glass-tint);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.38);
+}
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, var(--glass-rim), transparent 40%);
+  -webkit-mask: linear-gradient(#000, #000) content-box, linear-gradient(#000, #000);
+  padding: 1px;
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
 
 /* ------------------------------------------------------------------ topbar */
 
@@ -53,7 +108,9 @@ code { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
   gap: 20px;
   padding: 14px 22px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, #131923, #0e131b);
+  background: rgba(16, 13, 25, 0.62);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -63,296 +120,112 @@ code { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
 .sub { margin: 2px 0 0; color: var(--ink-3); font-size: 12px; font-family: var(--mono); }
 
 .mark {
-  width: 26px; height: 26px; border-radius: 7px; flex: none;
-  background: radial-gradient(circle at 34% 34%, #6fb6ff, #1d5fa8 62%, #0d2d4f);
-  box-shadow: 0 0 0 1px #2b4a6b, 0 0 16px rgba(77, 163, 255, 0.28);
+  width: 28px; height: 28px; flex: none;
+  border-radius: 9px;
+  object-fit: cover;
+  filter: drop-shadow(0 0 10px rgba(155, 107, 255, 0.35));
 }
-
-.back {
-  display: grid; place-items: center;
-  width: 30px; height: 30px; flex: none;
-  border: 1px solid var(--line); border-radius: 8px;
-  color: var(--ink-2); text-decoration: none; font-size: 15px;
-}
-.back:hover { border-color: var(--accent); color: var(--accent); }
 
 .topmeta { display: flex; align-items: center; gap: 9px; flex: none; }
-
-.badge {
-  font: 600 10px/1 var(--mono);
-  letter-spacing: 0.12em;
-  padding: 6px 9px;
-  border-radius: 5px;
-  border: 1px solid var(--bad);
-  color: var(--bad);
-  background: rgba(255, 95, 109, 0.1);
-}
-.badge.sealed { border-color: var(--ok); color: var(--ok); background: rgba(70, 209, 155, 0.1); }
-
-.btn {
-  font: 500 12px/1 var(--sans);
-  padding: 8px 12px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  color: var(--ink);
-  text-decoration: none;
-  cursor: pointer;
-}
-.btn:hover { border-color: var(--accent); color: var(--accent); }
-.btn.ghost { background: transparent; color: var(--ink-2); }
+.stamp { font: 11px/1 var(--mono); color: var(--ink-3); }
 
 /* ------------------------------------------------------------------- index */
 
 .wrap { max-width: 1180px; margin: 0 auto; padding: 26px 22px 60px; }
 
-.preamble { max-width: 68ch; margin-bottom: 24px; color: var(--ink-2); }
-.preamble .caution { color: var(--warn); }
+.preamble { max-width: 74ch; margin-bottom: 22px; color: var(--ink-2); }
 
-/* Where sealed records are kept, and whether they are actually getting there.
-   Three states, and the middle one is the one worth drawing loudly: configured
-   and unreachable is silent data loss, and it is indistinguishable from a quiet
-   night unless the page says which it is. */
-.archive {
+/* The banner that keeps this table honest: every row below is sample data,
+   because the backend has no endpoint for segment metadata yet. Louder than
+   the old muted `.caution` text, because it is the load-bearing fact about
+   this whole page, not a footnote. */
+.mockcaution {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
   align-items: baseline;
-  margin-bottom: 20px;
+  gap: 8px;
+  margin-top: 14px;
   padding: 11px 14px;
-  border: 1px solid var(--line);
-  border-left-width: 3px;
-  border-radius: 8px;
-  background: var(--panel);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-sm);
   color: var(--ink-2);
   font-size: 12.5px;
 }
-/* `display: flex` above outranks the UA stylesheet's [hidden] rule, so without
-   this the banner shows as an empty bordered box for the whole of the first
-   load. Specificity, not a layout bug, and invisible until you watch the page
-   come up against a slow backend. */
-.archive[hidden] { display: none; }
-
-.archive .tag {
+.mockcaution .tag {
   flex: none;
   font: 600 10px/1 var(--mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-3);
-}
-.archive.ok { border-left-color: var(--ok); }
-.archive.ok .tag { color: var(--ok); }
-.archive.off { border-left-color: var(--ink-3); }
-.archive.warn { border-left-color: var(--warn); color: var(--warn); }
-.archive.warn .tag { color: var(--warn); }
-
-/* A row read back out of storage was written by a process that is gone. That
-   is not the same claim as a row this hub is holding, so it does not get the
-   same silent treatment. */
-.card .src {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 6px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  font: 600 9px/1.4 var(--mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  vertical-align: 1px;
+  color: var(--warn);
 }
 
-.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
+/* ------------------------------------------------------------------- table */
 
-.card {
-  display: block;
-  padding: 16px 17px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--panel);
-  color: inherit;
-  text-decoration: none;
-  transition: border-color 120ms, transform 120ms;
-}
-.card:hover { border-color: var(--accent); transform: translateY(-1px); }
-
-.card .type {
-  font: 600 11px/1 var(--mono);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-.card .type.burglary { color: var(--violet); }
-.card .type.fire { color: var(--warn); }
-.card .type.faint { color: var(--accent); }
-
-.card .when { margin: 9px 0 2px; font-size: 15px; font-weight: 600; }
-.card .addr { color: var(--ink-3); font-size: 12px; }
-
-.card dl {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin: 15px 0 0;
-  padding-top: 13px;
-  border-top: 1px solid var(--line-soft);
-}
-.card dl > div { min-width: 0; }
-.card dt { font: 500 10px/1 var(--sans); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
-.card dd { margin: 4px 0 0; font: 600 14px/1 var(--mono); }
-.card dd.bad { color: var(--bad); }
-
-.card .root { margin-top: 12px; font: 11px/1 var(--mono); color: var(--ink-3); word-break: break-all; }
-
-.empty { max-width: 60ch; padding: 34px 0; color: var(--ink-2); }
-.empty .hint { margin-top: 16px; color: var(--ink-3); font-size: 12px; }
-.empty code { display: block; margin-top: 7px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; overflow-x: auto; }
-
-/* ------------------------------------------------------------------ record */
-
-.record {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  grid-template-columns: minmax(440px, 1.1fr) minmax(370px, 0.9fr);
-  grid-template-areas:
-    "map   log"
-    "rf    log"
-    "chain log";
-  align-items: start;
+.tablewrap {
+  border-radius: var(--r-lg);
+  overflow: auto;
 }
 
-.panel {
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--panel);
-  padding: 13px 15px 15px;
-  min-width: 0;
-}
-.panel.map { grid-area: map; }
-.panel.log { grid-area: log; display: flex; flex-direction: column; max-height: calc(100vh - 88px); position: sticky; top: 74px; }
-.panel.rf { grid-area: rf; }
-.panel.chain { grid-area: chain; }
-
-.panelhead {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin-bottom: 11px; flex: none;
+.vtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
 }
 
-.stamp { font: 11px/1 var(--mono); color: var(--ink-3); }
-.note { margin: 11px 0 0; font-size: 11px; line-height: 1.5; color: var(--ink-3); }
-
-/* map */
-
-.mapbox { background: #0a0d12; border: 1px solid var(--line-soft); border-radius: 8px; padding: 8px; }
-#plan { width: 100%; height: auto; display: block; }
-
-.room { fill: #141a24; stroke: #2b3547; stroke-width: 0.22; }
-.roomlabel { fill: #59667a; font: 1.5px var(--sans); }
-
-.scrub { display: flex; align-items: center; gap: 11px; margin-top: 11px; }
-.scrub .play { width: 34px; flex: none; }
-#slider { flex: 1; accent-color: var(--accent); }
-
-.legend { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 11px; font-size: 11px; color: var(--ink-3); }
-.legend span { display: inline-flex; align-items: center; gap: 6px; }
-.legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
-
-/* log */
-
-.filters { display: flex; flex-wrap: wrap; gap: 5px; }
-.filters button {
-  font: 500 10px/1 var(--mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 5px 7px;
-  border-radius: 5px;
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--ink-3);
-  cursor: pointer;
-}
-.filters button.on { border-color: var(--accent); color: var(--accent); background: rgba(77, 163, 255, 0.09); }
-
-.entries { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
-
-.entry {
-  display: grid;
-  grid-template-columns: 34px 1fr;
-  gap: 10px;
-  padding: 9px 2px 9px 0;
+.vtable th, .vtable td {
+  padding: 10px 14px;
+  text-align: left;
+  white-space: nowrap;
   border-bottom: 1px solid var(--line-soft);
-  cursor: pointer;
 }
-/* `display: grid` on .entry beats the UA's `[hidden] { display: none }`, so the
-   filter buttons would toggle a flag that changed nothing. */
-.entry[hidden] { display: none !important; }
-.entry:hover { background: rgba(255, 255, 255, 0.017); }
-.entry.on { background: rgba(77, 163, 255, 0.07); }
-.entry .seq { font: 11px/1.6 var(--mono); color: var(--ink-3); text-align: right; }
-.entry .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.entry .kind {
-  font: 600 9px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 3px 5px; border-radius: 4px; border: 1px solid var(--line); color: var(--ink-3);
+
+.vtable thead th {
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: rgba(16, 13, 25, 0.85);
+  backdrop-filter: blur(8px);
 }
-.entry .actor { font: 11px/1 var(--mono); color: var(--ink-3); }
-.entry .time { font: 11px/1 var(--mono); color: var(--ink-3); margin-left: auto; }
-.entry .summary { margin-top: 5px; word-break: break-word; }
-.entry .detail { margin: 8px 0 2px; padding: 9px 11px; background: #0a0d12; border: 1px solid var(--line-soft); border-radius: 7px; font: 11px/1.55 var(--mono); color: var(--ink-2); white-space: pre-wrap; max-height: 320px; overflow: auto; }
 
-.entry[data-kind="verification"] .kind { border-color: #2d6b52; color: var(--ok); }
-.entry[data-discarded="1"] { background: rgba(255, 95, 109, 0.07); }
-.entry[data-discarded="1"] .kind { border-color: var(--bad); color: var(--bad); }
-.entry[data-discarded="1"] .summary { color: #ffb3b9; }
-.entry[data-kind="lifecycle"] .kind { border-color: #3a4a66; color: var(--accent); }
-.entry[data-kind="transcript"] .kind { border-color: #4a3f66; color: var(--violet); }
-.entry[data-kind="frame"] .kind { color: var(--ink-3); }
-.entry.bad { outline: 1px solid var(--bad); }
+.vtable tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
+.vtable tbody tr:last-child td { border-bottom: none; }
 
-/* rf */
+.vtable td.file { font-weight: 600; }
+.vtable td.mono { font-family: var(--mono); color: var(--ink-2); }
+.vtable td.hash { cursor: help; }
 
-.rfstrip { margin-bottom: 9px; }
-.rfstrip h3 { margin: 0 0 4px; font: 500 10px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
-.rfstrip svg { width: 100%; height: 88px; display: block; background: #0a0d12; border: 1px solid var(--line-soft); border-radius: 8px; }
-.rfmeta { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 11px; }
-.rfmeta div { font-size: 11px; }
-.rfmeta dt { color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.07em; font-size: 10px; }
-.rfmeta dd { margin: 3px 0 0; font: 600 13px/1 var(--mono); }
-.rfmeta dd.warn { color: var(--warn); }
-.rfmeta dd.sim { color: var(--warn); }
-
-/* chain */
-
-.verdict { padding: 11px 13px; border-radius: 8px; border: 1px solid var(--line); font: 12px/1.5 var(--mono); }
-.verdict.idle { color: var(--ink-3); }
-.verdict.ok { border-color: var(--ok); color: var(--ok); background: rgba(70, 209, 155, 0.08); }
-.verdict.bad { border-color: var(--bad); color: var(--bad); background: rgba(255, 95, 109, 0.1); }
-
-.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 13px 0 0; }
-.kv dt { color: var(--ink-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; }
-.kv dd { margin: 0; font: 11px/1.4 var(--mono); word-break: break-all; }
+.vtable .status {
+  display: inline-block;
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  color: var(--ink-3);
+}
+.vtable .status.sealed { border-color: var(--ok); color: var(--ok); background: rgba(70, 209, 155, 0.1); }
+.vtable .status.unsealed { border-color: var(--warn); color: var(--warn); background: rgba(242, 177, 85, 0.1); }
 
 /* ----------------------------------------------------------------- narrow */
 
-@media (max-width: 1040px) {
-  .record { grid-template-columns: 1fr; grid-template-areas: "map" "log" "rf" "chain"; }
-  .panel.log { position: static; max-height: 70vh; }
+@media (max-width: 720px) {
+  .wrap { padding: 20px 14px 48px; }
+  .vtable th, .vtable td { padding: 8px 10px; }
 }
 
 /* ------------------------------------------------------------------ print */
 
 @media print {
   :root { color-scheme: light; }
-  body { background: #fff; color: #000; }
-  .topbar { position: static; background: none; border-bottom: 1px solid #999; }
-  .topmeta, .filters, .scrub, .back, #verify { display: none !important; }
-  .record { display: block; padding: 0; }
-  .panel { border: none; background: none; padding: 12px 0; break-inside: avoid; }
-  .panel.log { max-height: none; position: static; display: block; }
-  .entries { overflow: visible; max-height: none; }
-  .entry { break-inside: avoid; border-bottom: 1px solid #ccc; }
-  .entry .detail { display: none; }
-  .room { fill: #f2f4f7; stroke: #999; }
-  .roomlabel { fill: #666; }
-  .note, .stamp, .entry .seq, .entry .actor, .entry .time { color: #555; }
-  h2 { color: #333; }
-  #rfchart { background: #fff; border: 1px solid #ccc; }
+  html, body { background: #fff; color: #000; }
+  .topbar { position: static; background: none; border-bottom: 1px solid #999; backdrop-filter: none; }
+  .glass { border: none; background: none; backdrop-filter: none; box-shadow: none; }
+  .glass::before { display: none; }
+  .vtable thead th { position: static; background: none; color: #333; }
+  .vtable th, .vtable td { border-bottom: 1px solid #ccc; }
 }
