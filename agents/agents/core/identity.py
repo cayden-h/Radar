@@ -456,6 +456,59 @@ ROSTER: tuple[AgentIdentity, ...] = (
         ),
         consumes=("master",),
     ),
+    AgentIdentity(
+        slug="shutter",
+        tier=1,
+        role=Role.COORDINATION,
+        summary=(
+            "Holds an opaque shield in front of the camera lens, and moves it only for a "
+            "grant from `master` it can verify."
+        ),
+        question="Is the lens covered, and who proved it should not be?",
+        # TRANSACTIONAL, not FIDUCIARY. `shutter` asserts one physical fact
+        # about one piece of plastic. It never classifies, never decides an
+        # incident exists, and nothing it says should reach a dispatcher as a
+        # finding about the house.
+        profile=TrustProfile.TRANSACTIONAL,
+        skills=(
+            Skill(
+                id="challenge",
+                name="Grant challenge",
+                description=(
+                    "Issues the single-use nonce a grant must carry, with a ten-second "
+                    "TTL. **The verifier issues the challenge**, in both directions: "
+                    "everywhere else in the mesh `master` asks and holds the nonce, and "
+                    "here `master` is the one asking for something to happen, so the "
+                    "nonce is held by the side doing the verifying."
+                ),
+                fields=("shutter.nonce",),
+            ),
+            Skill(
+                id="open",
+                name="Shield position",
+                description=(
+                    "Verifies a grant against the key `master` publishes in its own trust "
+                    "card, moves ninety degrees, and attests the position it commanded. "
+                    "Seven refusals, each signed, each leaving the servo where it was."
+                ),
+                fields=("shutter.position", "shutter.commanded_angle", "shutter.refusal"),
+            ),
+        ),
+        must_not_claim=(
+            "That the shield is physically where the servo says it is. The SG92R is "
+            "open-loop and has no position feedback, so the attestation reports a "
+            "*commanded* angle. A shield that jammed would attest open while covering the "
+            "lens, and the only thing that catches that is the frame itself being dark.",
+            "That the mount is tamper-resistant. It is demo-grade, and someone standing at "
+            "the camera can hold it shut.",
+            "That the camera is disabled. Nothing stops it at the driver level: the shield "
+            "is an object in front of a lens, which is the point. A software disable is a "
+            "claim and an opaque object is not.",
+            "Anything about who or what is in the room. It has one input, one output, and "
+            "no knowledge of what a camera is for.",
+        ),
+        consumes=("master",),
+    ),
 )
 
 BY_SLUG: dict[str, AgentIdentity] = {a.slug: a for a in ROSTER}
@@ -467,4 +520,4 @@ def identity(slug: str) -> AgentIdentity:
         return BY_SLUG[slug]
     except KeyError:
         known = ", ".join(sorted(BY_SLUG))
-        raise KeyError(f"no agent {slug!r}; the five are: {known}") from None
+        raise KeyError(f"no agent {slug!r}; the roster is: {known}") from None

@@ -9,7 +9,9 @@
     "demo-trigger",
     "user-input",
     "operator-audio",
-    "agent-inference"
+    "agent-inference",
+    "servo-gpio",
+    "servo-stub"
   ],
   "source_class": [
     "measured-live",

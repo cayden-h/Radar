@@ -18,9 +18,15 @@ import asyncio
 import contextlib
 import logging
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 from agents.core.identity import AgentIdentity
 from agents.core.observations import AgentObservation, Assertion, Unknown
+
+if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
+    from agents.core.signing import ClaimSigner
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +62,30 @@ class Agent(ABC):
         returns an unhealthy observation carrying an `Unknown`, because that is
         a fact a dispatcher would want and an exception is not.
         """
+
+    def a2a_methods(self, signer: "ClaimSigner") -> "dict[str, Callable[[dict], dict]]":
+        """Extra JSON-RPC methods this agent answers on `/a2a`.
+
+        Almost always empty, and deliberately so: what differs between agents is
+        `tick`, and an agent that grew its own protocol would be a service with
+        an agent inside it. `shutter` is the exception the hook exists for,
+        because it is the one agent that takes an order rather than answering a
+        question, and `shutter.open` has no shape in the observe protocol.
+
+        They are extra **methods**, not an extra route. There is one `/a2a` per
+        agent because that is the endpoint our card publishes and the one the
+        judge's verifier sends its live message to. A second router claiming the
+        same path would resolve to whichever registered first, and the loser's
+        methods would come back as `unknown method`.
+
+        The signer is handed in rather than held by the agent, because it
+        belongs to the transport: an agent is a `tick` and some state, and one
+        that owned a private key would be a service with an agent inside it.
+        `shutter` needs it because **a refusal is an observation and
+        observations are signed** - an unsigned "I refused" in a log proves
+        nothing to anyone not already trusting us.
+        """
+        return {}
 
     # --------------------------------------------------------------- convenience
 

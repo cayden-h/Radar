@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from hawkeye_backend.models.incident import IncidentType, RaisedBy
+from hawkeye_backend.models.incident import IncidentType
 
 from agents.caller import (
     Bridge,
