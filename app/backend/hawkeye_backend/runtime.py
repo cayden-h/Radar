@@ -16,6 +16,7 @@ import time
 
 from hawkeye_backend.bus import EventBus
 from hawkeye_backend.edge.camera import LiveCamera
+from hawkeye_backend.edge.vouch import VouchLedger
 from hawkeye_backend.config import Settings
 from hawkeye_backend.household import Roster, unaccounted_count
 from hawkeye_backend.master.base import MasterClient
@@ -86,6 +87,12 @@ class HubRuntime:
         # not persisted: a new session reuses presence ids, so a stored approval
         # would silently vouch for a stranger.
         self.approved_presences: set[str] = set()
+        # The same override, pointed at a person on the camera rather than a
+        # presence on the radio. Separate ledger because the two are keyed to
+        # different namespaces and have different lifetimes: a presence id is
+        # held by the hub for the session, a track id is held by BoT-SORT and
+        # dies when the person leaves frame. See `edge/vouch.py`.
+        self.camera_vouches = VouchLedger()
         self.roster = Roster(store)
         self.detector = detector or NoticeDetector(
             hold_s=settings.notice_hold_s,
@@ -196,7 +203,29 @@ class HubRuntime:
             # never that everyone is accounted for.
             people = sum(1 for p in payload.state.presences if p.state in PERSON_STATES)
             known = await self.roster.known_devices_present(payload.state.associated_devices)
-            if unaccounted_count(people=people, known_devices_present=known) == 0:
+            # A person the resident vouched for on the camera is an accounted-for
+            # body, in exactly the sense a resident's associated phone is. So it
+            # is added to the same term rather than given a rule of its own -
+            # one place decides what "accounted for" means, and a vouch cannot
+            # drift away from what a device does.
+            #
+            # Only the *held* vouches count. One inside its grace window is a
+            # person who has left frame, and suppressing a notice on the
+            # strength of somebody who may no longer be in the room is the
+            # direction this must never fail in.
+            #
+            # **Two namespaces meet here and it is worth naming.** `people`
+            # counts radio presences and a vouch is keyed to a camera track id.
+            # One fixed camera sees one room, so a vouched person and a resolved
+            # presence are the same body in the demo geometry - but this is not
+            # a general identity mapping and must not be treated as one if a
+            # second camera ever appears. It can only ever lower an alarm, and
+            # `unaccounted_count` floors at zero, so an over-count here
+            # suppresses a banner and never manufactures one.
+            vouched = sum(1 for v in self.camera_vouches.active() if v.held)
+            if unaccounted_count(
+                people=people, known_devices_present=known + vouched
+            ) == 0:
                 return
 
             try:

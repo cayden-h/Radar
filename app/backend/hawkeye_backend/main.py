@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from hawkeye_backend import __version__, api
 from hawkeye_backend.bus import EventBus
 from hawkeye_backend.config import Settings, get_settings
+from hawkeye_backend.discovery import HubAdvertiser
 from hawkeye_backend.master.base import MasterClient
 from hawkeye_backend.master.live import LiveMasterClient
 from hawkeye_backend.master.simulated import SimulatedMasterClient
@@ -182,9 +183,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:
         logger.warning("replay archive: status could not be read at startup (%s)", exc)
 
+    # Bonjour. The app's Connect screen has no manual address field, so without
+    # this the only way onto a live hub is editing `Config.fallbackBaseURL` and
+    # rebuilding. Never fatal: see hawkeye_backend/discovery.py.
+    advertiser = HubAdvertiser(runtime.settings, runtime.settings.port)
+    await advertiser.start()
+
     try:
         yield
     finally:
+        await advertiser.stop()
         await runtime.stop()
         await runtime.archive.close()
         await runtime.courier.close()

@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Observation
+import os
 
 /// The real client. REST for commands, one WebSocket for everything streaming.
 ///
@@ -48,6 +49,43 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     /// the single most dangerous thing this app can do.
     private(set) var cameraFrame: CameraFrame?
 
+    /// The detector's boxes and their vouch state.
+    ///
+    /// Polled rather than pushed: the hub keeps geometry off `WS /v1/stream`
+    /// on purpose, because boxes arrive at camera rate and would bury an
+    /// incident under several hundred messages a minute.
+    private(set) var tracks: TracksSnapshot = .empty
+
+    private static let log = Logger(subsystem: "ai.hawkeye", category: "tracks")
+
+    /// The poll, alive only while something is drawing the camera panel.
+    private var tracksTask: Task<Void, Never>?
+
+    /// True once `GET /v1/camera/tracks` has answered at least once.
+    ///
+    /// Latches on and never goes back, so the MJPEG stream restarts at most
+    /// once. Until it is set the phone keeps the hub's burned-in boxes, which
+    /// is what makes an older hub degrade instead of going blank. See
+    /// `cameraStreamURL`.
+    private(set) var tracksSupported = false
+
+    /// Why the boxes are missing, when they are. Nil when nothing is wrong.
+    ///
+    /// **This exists because its absence is what made a 405 invisible.** The
+    /// poll used to swallow every failure with `try?`, so a hub too old to
+    /// serve this endpoint produced an app with no boxes, no error, and nothing
+    /// in the log - and "it tells you what it discarded" is the sentence this
+    /// whole project is built on.
+    private(set) var tracksUnavailable: String?
+
+    /// How often the boxes are re-read.
+    ///
+    /// Fast enough that a box under a thumb is where the person is, slow enough
+    /// that a phone on a LAN is not doing this thirty times a second for a
+    /// rectangle that moves a few pixels. The detector itself runs slower than
+    /// this, so polling harder would return the same numbers.
+    static let tracksInterval = Duration.milliseconds(300)
+
     /// What the camera has said, newest first.
     private(set) var narration: [Narration] = []
     private(set) var occupancy: Occupancy?
@@ -58,6 +96,38 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     /// Ceiling on retained narration lines. A long incident produces one a
     /// second and no screen needs an hour of them.
     static let narrationLimit = 200
+
+    /// `GET /v1/camera/live` on the hub this client is connected to.
+    ///
+    /// Gated on `link == .live` rather than merely on having a `baseURL`: the
+    /// fallback URL is a placeholder for a hosted instance, and handing it to
+    /// `MJPEGStream` while disconnected would spend the whole reconnect window
+    /// failing against a host that was never this resident's hub.
+    var cameraStreamURL: URL? {
+        guard link == .live else { return nil }
+        let live = baseURL.appending(path: Config.cameraLivePath)
+
+        // **Only ask for a clean frame once we know we can draw our own boxes.**
+        //
+        // `raw` exists because this surface draws its own: without it the hub
+        // burns them in with `cv2` too and every person gets two rectangles,
+        // slightly out of step, because the burned-in one was measured on an
+        // older frame than the one SwiftUI positions.
+        //
+        // But asking for it unconditionally is a bet that the tracks endpoint
+        // answers, and when it does not the resident gets *fewer* boxes than
+        // before - none at all, silently. That is exactly what happens against
+        // a hub older than this app: `GET /v1/camera/tracks` 405s, the overlay
+        // has nothing to draw, and `raw` has already stripped the boxes the hub
+        // would have drawn itself.
+        //
+        // So the burned-in boxes are the floor. We take the clean frame only
+        // after the tracks endpoint has actually answered once, which costs a
+        // single stream restart and means a stale hub degrades to what it
+        // always did rather than to a blank picture.
+        guard tracksSupported else { return live }
+        return live.appending(queryItems: [URLQueryItem(name: "raw", value: "true")])
+    }
 
     @ObservationIgnored private var baseURL: URL = Config.fallbackBaseURL
     @ObservationIgnored private let session = URLSession(configuration: .default)
@@ -103,6 +173,10 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     func disconnect() {
         pump?.cancel()
         pump = nil
+        // The boxes go with the socket. Leaving them on screen after the hub
+        // is gone would be a confident statement about a room nothing is
+        // watching, which is the same failure as drawing a stale frame.
+        setTracksPolling(false)
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
         sequence.reset()
@@ -156,6 +230,73 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     /// whisper first.
     func takeOver() async throws {
         try await setParticipationMode(.fullVoice)
+    }
+
+    // MARK: The camera's boxes
+
+    /// Start or stop polling `GET /v1/camera/tracks`.
+    ///
+    /// Idempotent in both directions. `CameraFeedView` drives this off
+    /// `onAppear`/`onDisappear`, and SwiftUI will happily call either twice.
+    func setTracksPolling(_ on: Bool) {
+        guard on else {
+            tracksTask?.cancel()
+            tracksTask = nil
+            tracksUnavailable = nil
+            // Cleared rather than frozen. Boxes left on screen after the poll
+            // stops would be a confident statement about a room nothing is
+            // measuring, which is the same failure a stale frame would be.
+            tracks = .empty
+            return
+        }
+        guard tracksTask == nil else { return }
+        tracksTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                // A failed poll leaves the last boxes in place for one cycle
+                // rather than clearing them: one dropped request on a LAN is
+                // not evidence the room emptied, and flickering boxes are worse
+                // than slightly old ones. `LiveCamera.tracks` ages them off
+                // server-side regardless, so this cannot hold them forever.
+                do {
+                    tracks = try await get(TracksSnapshot.self, path: Config.cameraTracksPath)
+                    if !tracksSupported {
+                        Self.log.info("camera tracks are available; switching to the raw stream")
+                    }
+                    tracksSupported = true
+                    tracksUnavailable = nil
+                } catch {
+                    // Logged once per transition rather than three times a
+                    // second, so a genuinely broken endpoint is legible in the
+                    // console instead of being buried by its own repetition.
+                    if tracksUnavailable == nil {
+                        Self.log.warning("camera tracks unavailable: \(error.localizedDescription)")
+                    }
+                    tracksUnavailable = "This hub does not report box positions, so names cannot be added."
+                }
+                try? await Task.sleep(for: Self.tracksInterval)
+            }
+        }
+    }
+
+    /// Vouch for the person in one box, this session only.
+    ///
+    /// The snapshot is updated optimistically so the box turns green under the
+    /// resident's thumb rather than up to 300ms later. The next poll is the
+    /// authority and will correct this if the hub disagreed.
+    func vouchForTrack(_ trackID: Int, name: String) async throws {
+        let data = try await post(
+            path: Config.cameraVouchPath,
+            body: VouchRequest(trackID: trackID, name: name)
+        )
+        guard let vouch = try? HawkEyeCoding.decoder.decode(PersonVouch.self, from: data) else { return }
+        tracks.vouches.removeAll { $0.trackID == trackID }
+        tracks.vouches.append(vouch)
+    }
+
+    func revokeTrackVouch(_ trackID: Int) async throws {
+        try await delete(path: "\(Config.cameraVouchPath)/\(trackID)")
+        tracks.vouches.removeAll { $0.trackID == trackID }
     }
 
     // MARK: Household
@@ -436,6 +577,20 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     /// can be used directly as a host. That avoids hand-rolling an address
     /// resolution that would break on IPv6-only networks, and Bonjour names are
     /// what survive a DHCP lease change.
+    /// The address to dial, taken from what the hub advertised.
+    ///
+    /// **This used to build `http://<instance>._hawkeye._tcp.local.:8787` and
+    /// hand it to `URLSession`, which could never have worked.** That is a
+    /// Bonjour *service instance name*, not a hostname, and `URLSession` does
+    /// not resolve one - so every live connection failed at DNS with an error
+    /// that read like the hub being down. The hub now publishes the address it
+    /// actually bound in its TXT record and this uses that. See
+    /// `app/backend/hawkeye_backend/discovery.py`.
+    ///
+    /// A hub with no `host` in its TXT record is one running a build older than
+    /// this contract. That is reported rather than guessed at, because the
+    /// guess - assuming the instance name resolves - is precisely the bug this
+    /// replaced.
     private static func resolveBaseURL(for hub: Hub) throws -> URL {
         // A configured direct URL wins over Bonjour resolution: the hub's
         // address is known, so there is nothing to discover. See
@@ -443,8 +598,9 @@ final class LiveHawkEyeClient: HawkEyeClienting {
         if let direct = Config.directHubURL {
             return direct
         }
-        let host = "\(hub.id).\(Config.bonjourServiceType).\(Config.bonjourDomain)"
-            .replacingOccurrences(of: " ", with: "\\032")
+        guard let host = hub.host, !host.isEmpty else {
+            throw HawkEyeClientError.badEndpoint
+        }
         let port = hub.port ?? Config.defaultHubPort
         guard let url = URL(string: "http://\(host):\(port)") else {
             throw HawkEyeClientError.badEndpoint

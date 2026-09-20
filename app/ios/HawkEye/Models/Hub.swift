@@ -26,6 +26,19 @@ struct Hub: Sendable, Hashable, Identifiable {
     var signal: Double?
     /// True when this device has paired with this hub before.
     var paired: Bool
+    /// The hub's address on this network, published in its TXT record as
+    /// `host`.
+    ///
+    /// **This is carried rather than resolved, deliberately.** The obvious
+    /// design is to let `URLSession` resolve the Bonjour service instance, but
+    /// `Hub Name._hawkeye._tcp.local.` is a service instance name and not a
+    /// hostname, and `URLSession` cannot resolve one. The hub publishes the
+    /// address it actually bound and the app dials that. See
+    /// `app/backend/hawkeye_backend/discovery.py`.
+    ///
+    /// Nil for a hub advertising an older TXT record, which cannot be connected
+    /// to and is reported as such rather than silently failing to resolve.
+    var host: String?
     /// The port the hub serves its API on, from the Bonjour service record.
     /// Nil means fall back to `Config.defaultHubPort`.
     var port: Int?

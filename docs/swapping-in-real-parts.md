@@ -76,17 +76,29 @@ This switch is mock-only and has no effect when `useMocks = false`, where the hu
 
 **With `useMocks = false`** the identical UI runs against a real hub: `NWBrowser` over `_hawkeye._tcp`, then REST and one websocket.
 
-**To flip:**
+**`useMocks` is `false` as of 2026-09-20**, so this is the default rather than the flip.
+The mock path is kept rather than deleted: the root `CLAUDE.md` requires a recorded fallback for anything demoed live, and a venue network that refuses to carry traffic between its own clients is a failure no amount of correct code survives.
 
-1. Set `useMocks = false`.
-2. Start the backend somewhere the phone can reach, on the same network.
-3. Make sure something actually advertises `_hawkeye._tcp`. See the gap below.
+**To go back to mocks:** set `useMocks = true`. Nothing else.
 
-**Verify it flipped:** the Connect screen sits on "Looking for your home" instead of instantly listing "Home" and "Studio". If hubs appear instantly, you are still on mocks.
+**Verify which one you are on:** the Connect screen lists **"Hawk Eye Hub"** on the live path, which is `HAWKEYE_HUB_NAME` from the hub's Bonjour TXT record. The mock advertises **"Home"**. That one word is the whole test.
 
-**The gap that will bite you:** nothing advertises Bonjour yet.
-The backend does not register a `_hawkeye._tcp` service, so with `useMocks = false` the Connect screen will wait forever and show no error, because that is what "no hub found" correctly looks like.
-Until Bonjour advertisement exists, point `Config.fallbackBaseURL` at the hub directly.
+**The gap that used to bite you is closed.** `app/backend/hawkeye_backend/discovery.py` registers `_hawkeye._tcp` on startup and withdraws it on shutdown, so the Connect screen finds real hubs.
+Two things about it are worth knowing before you debug it:
+
+- **The hub's address is published in the TXT record as `host` and `port`, not resolved.** `LiveHawkEyeClient.resolveBaseURL` used to build `http://<instance>._hawkeye._tcp.local.:8787` and hand it to `URLSession`, which could never have worked: that is a service instance name, not a hostname, and `URLSession` does not resolve one. Every live connection would have failed at DNS with an error that read like the hub being down.
+- **Advertising is never fatal.** No `zeroconf` installed, or no non-loopback address, logs a warning and the hub serves every route anyway. `pip install -e ".[discovery]"` is what adds it.
+
+Confirm it from the Mac rather than from the app:
+
+```sh
+dns-sd -L "Hawk Eye Hub" _hawkeye._tcp local.
+#  name=Hawk Eye Hub ans=hub.hawkeye.invalid host=10.0.0.11 port=8787 site=site-demo-01 mode=live
+```
+
+**The camera view is wired as of 2026-09-20.** `CameraFeedView` was a static `video.fill` glyph - "no computer-vision pipeline is wired up, this is the honest placeholder for one" - while `cameraFrame` was already being decoded off the stream and discarded.
+It now takes the full-rate MJPEG at `GET /v1/camera/live`, with the 1 Hz stream thumbnail as the fallback while MJPEG connects or after it drops.
+Frames are badged from their own `Provenance.Source`: `camera-uvc` unmarked, `replay-video` as **RECORDED**, `camera-sim` as **SIMULATED**. So `./scripts/up.sh --fixture` is visibly recorded footage on the phone and cannot be mistaken for a live lens.
 
 **Push notifications on this side: not implemented, and not the plan.**
 `remote-notification` is declared in the Info.plist but **the iOS app** registers nothing with `UNUserNotificationCenter`, and it will not.
@@ -102,6 +114,8 @@ Nothing in this project talks to Apple's push service, and no paid developer acc
 
 The mirror of the phone's `useMocks`, and read in exactly one decision site, `WatchModel.init`, which picks an implementation behind the `WatchFeed` protocol.
 No view knows which it got.
+
+**`useMockLink` is `false` as of 2026-09-20**, matching the phone. The rest of this section describes the flag rather than the current default.
 
 **With `useMockLink = true`** the watch scripts its own snapshots with no phone and no hub at all: shield closed, a grant at six seconds, the servo clearing the lens, and the camera's first sentence about two seconds later.
 

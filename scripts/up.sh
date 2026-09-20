@@ -14,9 +14,16 @@
 #   presence  8101   motion, from the RSSI detector when it is up
 #   vision    8105   personhood, from the camera through the hub's relay
 #   intruder  8102   whether the motion has a device to account for it
+#   caller    8103   the voice to the 911 operator, plus its transport on 8107
 #   master    8900   the trust boundary, and the hub-facing surface
 #   hub       8787   app/backend. The three surfaces talk to this and only this
 #   edge      --     the camera, pushed up the edge link
+#
+# `caller` was missing from this list until 2026-09-20, and so was never
+# started. Start Incident reached master, master had no
+# HAWKEYE_CALLER_TRANSPORT_URL, and the call failed at the last hop with a 500 -
+# after the human had already committed to dialling 911, which is the worst
+# possible place in this system to discover a missing process.
 #
 # HAWKEYE_MODE=live is the point of the whole thing: the hub stops driving the
 # scripted incident in master/simulated.py and starts reading what the mesh
@@ -51,7 +58,22 @@ export HAWKEYE_EDGE_TOKEN="${HAWKEYE_EDGE_TOKEN:-dev-token}"
 # fetched over A2A, verified against the keys in the peers' own published trust
 # cards, and discarded with a reason when they do not verify. Without it the
 # in-process LocalMesh stands in and verifies nothing.
-PEERS="presence=http://127.0.0.1:8101,intruder=http://127.0.0.1:8102,vision=http://127.0.0.1:8105,shutter=http://127.0.0.1:8106"
+PEERS="presence=http://127.0.0.1:8101,intruder=http://127.0.0.1:8102,vision=http://127.0.0.1:8105,shutter=http://127.0.0.1:8106,caller=http://127.0.0.1:8103"
+
+# Where master reaches caller's *transport* server, which is a second port
+# caller serves alongside its A2A surface. Without this master logs a warning at
+# startup and /a2a/start-call fails closed with a 500.
+CALLER_TRANSPORT_URL="http://127.0.0.1:8107"
+
+# The shared secret on the master -> caller trigger route, read by both
+# processes straight from the environment rather than through Settings.
+#
+# Unset, `caller` treats /internal/start-call as unconfigured and answers 503 -
+# "the internal trigger route is not configured on this deployment" - so a human
+# pressing Start Incident gets a failure after they have already decided to call
+# 911. Exported rather than passed per-process because master and caller must
+# agree on it, and two places to set one secret is how they end up differing.
+export HAWKEYE_INTERNAL_TRIGGER_TOKEN="${HAWKEYE_INTERNAL_TRIGGER_TOKEN:-dev-trigger-token}"
 
 # Stop, then *check*, then insist.
 #
@@ -181,9 +203,21 @@ wait_for presence http://127.0.0.1:8101/healthz
 wait_for vision   http://127.0.0.1:8105/healthz
 wait_for intruder http://127.0.0.1:8102/healthz
 
+# caller after the sensing agents, and for the same reason master goes after
+# everything: it builds its trust store once, at startup, from the cards its
+# peers serve. Started in the batch above it wins the race against them and
+# comes up having registered only shutter - then refuses every claim it is
+# asked to repeat, correctly, having never been able to verify the source.
+#
+# That failure is invisible until the worst moment. The agent is healthy, the
+# call connects, and the voice has nothing it is allowed to say.
+HAWKEYE_PEERS="$PEERS" start caller "$ROOT/agents" $PY -m agents caller --port 8103 --host 127.0.0.1 --transport-port 8107
+wait_for caller   http://127.0.0.1:8103/healthz
+
 # master last of the agents, so its trust store is built from cards that are
 # already being served rather than from peers that are still binding a port.
-HAWKEYE_PEERS="$PEERS" start master "$ROOT/agents" $PY -m agents master --port 8900 --host 127.0.0.1
+HAWKEYE_PEERS="$PEERS" HAWKEYE_CALLER_TRANSPORT_URL="$CALLER_TRANSPORT_URL" \
+    start master "$ROOT/agents" $PY -m agents master --port 8900 --host 127.0.0.1
 wait_for master http://127.0.0.1:8900/healthz
 
 echo "starting the hub, live:"

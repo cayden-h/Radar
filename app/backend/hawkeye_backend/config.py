@@ -6,10 +6,23 @@ scripted incident with zero hardware and zero agents up: HAWKEYE_MODE.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: The hub's own `.env`, by absolute path.
+#:
+#: **This used to be the bare string ".env", which resolves against the process
+#: working directory rather than against this file.** `app/backend` is only one
+#: of the places these settings are read from: `scripts/up.sh` starts
+#: `agents/caller` with its cwd in `agents/`, where no `.env` exists, so the
+#: caller silently loaded pure defaults - `mode="simulated"`,
+#: `retell_configured=False` - and wired the simulated call client no matter
+#: what the real `.env` said. Nothing logged, because loading no env file is
+#: indistinguishable from loading an empty one.
+BACKEND_ENV = Path(__file__).resolve().parents[1] / ".env"
 
 Mode = Literal["simulated", "live"]
 
@@ -21,7 +34,11 @@ class Settings(BaseSettings):
     sets `mode`.
     """
 
-    model_config = SettingsConfigDict(env_prefix="HAWKEYE_", env_file=".env", extra="ignore")
+    # Both files are read, and the one later in the tuple wins, so a process
+    # with its own `.env` beside it can still override the hub's.
+    model_config = SettingsConfigDict(
+        env_prefix="HAWKEYE_", env_file=(BACKEND_ENV, ".env"), extra="ignore"
+    )
 
     # The one switch. "simulated" needs nothing but this process.
     mode: Mode = "simulated"

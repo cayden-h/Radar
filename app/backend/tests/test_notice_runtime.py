@@ -149,3 +149,70 @@ async def test_a_broken_detector_does_not_break_the_event_pipeline():
 
     assert not sub.queue.empty()
     assert isinstance(sub.queue.get_nowait().payload, StateEvent)
+
+
+async def test_vouching_on_the_camera_suppresses_the_notice():
+    """The whole point of tapping a box: the banner stops.
+
+    This is the seam that makes a vouch mean something. Without it the resident
+    names the person on screen, the box turns green, and their wrist buzzes
+    anyway - which is worse than not offering the control at all, because it
+    teaches them the control does not work.
+    """
+    rec = Recorder()
+    rt = a_runtime([rec])
+    rt.camera_vouches.vouch(3, "Jordan")
+
+    await rt.emit(StateEvent(state=frame(0)))
+    await rt.emit(StateEvent(state=frame(5)))
+
+    assert rec.seen == []
+
+
+async def test_a_vouch_that_lost_its_track_does_not_suppress_anything():
+    """Only *held* vouches account for a body.
+
+    One inside its grace window is a person who has left frame, and suppressing
+    a notice on the strength of somebody who may no longer be in the room is the
+    direction this must never fail in.
+    """
+    rec = Recorder()
+    rt = a_runtime([rec])
+    rt.camera_vouches.vouch(3, "Jordan")
+    # The detector looked and found nobody, so the vouch is lapsing.
+    rt.camera_vouches.observe(frozenset())
+
+    await rt.emit(StateEvent(state=frame(0)))
+    await rt.emit(StateEvent(state=frame(5)))
+
+    assert len(rec.seen) == 1
+
+
+async def test_revoking_a_vouch_lets_the_notice_through_again():
+    rec = Recorder()
+    rt = a_runtime([rec])
+    rt.camera_vouches.vouch(3, "Jordan")
+    rt.camera_vouches.revoke(3)
+
+    await rt.emit(StateEvent(state=frame(0)))
+    await rt.emit(StateEvent(state=frame(5)))
+
+    assert len(rec.seen) == 1
+
+
+async def test_vouching_for_more_people_than_are_there_cannot_raise_an_alarm():
+    """Two namespaces meet in that sum, so it must only ever lower one.
+
+    A vouch is keyed to a camera track and the headcount comes from the radio.
+    An over-count suppresses a banner; it must never be able to manufacture one,
+    which is what `unaccounted_count` flooring at zero buys.
+    """
+    rec = Recorder()
+    rt = a_runtime([rec])
+    for track_id in range(5):
+        rt.camera_vouches.vouch(track_id, f"Guest {track_id}")
+
+    await rt.emit(StateEvent(state=frame(0)))
+    await rt.emit(StateEvent(state=frame(5)))
+
+    assert rec.seen == []

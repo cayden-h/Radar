@@ -16,9 +16,11 @@ import asyncio
 import logging
 import time
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
+from hawkeye_backend.models.camera import TrackBox
 from hawkeye_backend.models.common import Source, utc_now
 from hawkeye_backend.models.hub import CameraStatus
 
@@ -28,6 +30,17 @@ logger = logging.getLogger(__name__)
 #: any real capture rate, so this fires on a genuinely stalled camera rather
 #: than on one slow frame.
 DEFAULT_STALE_AFTER_S = 3.0
+
+#: How long the newest set of boxes may be drawn for.
+#:
+#: Much tighter than frame staleness, and for a different reason. A stale frame
+#: is still a true statement about the last thing the camera saw. A stale *box*
+#: is not: it is a claim that somebody is standing in a particular place right
+#: now, drawn over a picture that has moved on. `agents/vision` publishes on
+#: every pass of the detector, so anything past this means the detector stopped,
+#: and the honest response is to take the boxes off rather than leave them
+#: hovering over a room nobody is measuring.
+TRACK_STALE_AFTER_S = 2.0
 
 #: Window the reported frame rate is measured over.
 FPS_WINDOW_S = 10.0
@@ -69,8 +82,15 @@ class FrameSubscription:
 class LiveCamera:
     """Holds the newest frame and tells the truth about how old it is."""
 
-    def __init__(self, stale_after_s: float = DEFAULT_STALE_AFTER_S) -> None:
+    def __init__(
+        self,
+        stale_after_s: float = DEFAULT_STALE_AFTER_S,
+        track_stale_after_s: float = TRACK_STALE_AFTER_S,
+    ) -> None:
         self._stale_after_s = stale_after_s
+        self._track_stale_after_s = track_stale_after_s
+        self._tracks: tuple[TrackBox, ...] = ()
+        self._tracks_at: float | None = None
         self._latest: CapturedFrame | None = None
         self._subscribers: set[FrameSubscription] = set()
         self._linked = False
@@ -128,6 +148,31 @@ class LiveCamera:
                 sub.queue.put_nowait(frame)
             except asyncio.QueueFull:
                 sub.dropped += 1
+
+    # ----------------------------------------------------------- the overlay
+
+    def set_tracks(self, tracks: Sequence[TrackBox]) -> None:
+        """Take the newest boxes from `agents/vision`.
+
+        An empty sequence is accepted and meaningful: it is how the detector
+        says it looked and found nobody, and it is what clears the last person's
+        box off every screen.
+        """
+        self._tracks = tuple(tracks)
+        self._tracks_at = time.monotonic()
+
+    @property
+    def tracks(self) -> tuple[TrackBox, ...]:
+        """The boxes, or nothing at all if they are too old to draw.
+
+        See `TRACK_STALE_AFTER_S`. This returning empty does not mean the room
+        is empty - it means nobody has measured it recently enough to say.
+        """
+        if self._tracks_at is None:
+            return ()
+        if time.monotonic() - self._tracks_at > self._track_stale_after_s:
+            return ()
+        return self._tracks
 
     @property
     def latest(self) -> CapturedFrame | None:

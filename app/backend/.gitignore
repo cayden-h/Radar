@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 .env
+# Timestamped backups made before editing .env. Same secrets, same rule, and
+# `.env` alone does not match them - an unignored `.env.backup-HHMMSS` is one
+# `git add -A` away from a public repo.
+.env.backup-*
+.env.bak

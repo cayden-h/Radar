@@ -50,6 +50,122 @@ final class MockHawkEyeClient: HawkEyeClienting {
     private(set) var hello: HubHello?
     private(set) var link: LinkState = .offline
     private(set) var missedFrames = false
+
+    /// The mock's camera thumbnail.
+    ///
+    /// Rebuilt from `SimulatedCameraFrame` rather than stored, so it tracks the
+    /// shield: closed lens, no frame, which is the honest answer rather than a
+    /// grey rectangle. `source` is `.ruviewSim`, so `Provenance.simulated` is
+    /// true and every view draws the SIMULATED marker off the data rather than
+    /// off a branch on `Config.useMocks`.
+    var cameraFrame: CameraFrame? {
+        guard shieldStatus().state == .open,
+              let jpeg = SimulatedCameraFrame.jpeg(room: Config.cameraRoom)
+        else { return nil }
+        return CameraFrame(
+            jpeg: jpeg,
+            capturedAt: Date(),
+            source: .ruviewSim,
+            live: true,
+            room: Config.cameraRoom
+        )
+    }
+
+    /// Nil, always. There is no socket to stream from on the mock path, and the
+    /// view falls back to `cameraFrame` above.
+    var cameraStreamURL: URL? { nil }
+
+    // MARK: The camera's boxes
+
+    /// Two boxes that drift across the frame, so the tap-to-vouch path is a
+    /// first-class implementation on the mock rather than a branch inside a
+    /// view. The demo must never depend on hardware being alive.
+    ///
+    /// Empty while the shield is closed, because a box implies a lens that can
+    /// see and the whole privacy argument is that it cannot.
+    private(set) var tracks: TracksSnapshot = .empty
+
+    /// Always nil. The mock is its own hub and is never out of step with itself.
+    var tracksUnavailable: String? { nil }
+
+    private var tracksTask: Task<Void, Never>?
+
+    /// Set by `vouchForTrack`. Kept separately from `tracks` so the drift loop
+    /// can rebuild the boxes every tick without dropping what the resident said.
+    private var mockVouches: [Int: PersonVouch] = [:]
+
+    func setTracksPolling(_ on: Bool) {
+        guard on else {
+            tracksTask?.cancel()
+            tracksTask = nil
+            tracks = .empty
+            return
+        }
+        guard tracksTask == nil else { return }
+        tracksTask = Task { [weak self] in
+            var phase = 0.0
+            while !Task.isCancelled {
+                guard let self else { return }
+                tracks = Self.driftedTracks(
+                    phase: phase,
+                    vouches: mockVouches,
+                    lensIsOpen: shieldStatus().state == .open
+                )
+                phase += 0.02
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+        }
+    }
+
+    /// Two people walking, one slower than the other, both inside the frame.
+    private static func driftedTracks(
+        phase: Double,
+        vouches: [Int: PersonVouch],
+        lensIsOpen: Bool
+    ) -> TracksSnapshot {
+        guard lensIsOpen else { return .empty }
+        func box(_ id: Int, offset: Double, speed: Double, width: Double) -> TrackBox {
+            // Bounded well inside 0..1 so a box never clips the frame edge and
+            // never violates the backend's own corner ordering rule.
+            let centre = 0.5 + 0.28 * sin(phase * speed + offset)
+            return TrackBox(
+                trackID: id,
+                x1: max(0, centre - width / 2),
+                y1: 0.18,
+                x2: min(1, centre + width / 2),
+                y2: 0.94,
+                confidence: 0.91
+            )
+        }
+        let boxes = [box(3, offset: 0, speed: 1.0, width: 0.18),
+                     box(7, offset: 2.1, speed: 0.6, width: 0.16)]
+        return TracksSnapshot(
+            tracks: boxes,
+            vouches: boxes.compactMap { vouches[$0.trackID] },
+            at: Date()
+        )
+    }
+
+    /// Vouches for the person in one box. Session-only, exactly as the hub does:
+    /// nothing reaches `household`, because vouching and remembering are
+    /// deliberately different actions.
+    func vouchForTrack(_ trackID: Int, name: String) async throws {
+        let vouch = PersonVouch(
+            trackID: trackID,
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            vouchedAt: Date(),
+            lastSeenAt: Date(),
+            held: true
+        )
+        mockVouches[trackID] = vouch
+        tracks.vouches.removeAll { $0.trackID == trackID }
+        tracks.vouches.append(vouch)
+    }
+
+    func revokeTrackVouch(_ trackID: Int) async throws {
+        mockVouches[trackID] = nil
+        tracks.vouches.removeAll { $0.trackID == trackID }
+    }
     private(set) var household: [HouseholdMember] = []
     private(set) var unclaimedDevices: [ObservedDevice] = [MockHawkEyeClient.seededVisitorDevice]
 

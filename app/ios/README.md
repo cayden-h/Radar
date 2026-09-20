@@ -17,6 +17,49 @@ open HawkEye.xcodeproj
 
 Then pick any iPhone simulator running iOS 18 or later and press Run.
 
+### Running on a real iPhone
+
+Signing is in `project.yml`, not in Xcode's Signing & Capabilities pane.
+Setting it in the UI works until the next `xcodegen generate`, which rewrites the
+project and silently drops it.
+
+```yaml
+settings:
+  base:
+    DEVELOPMENT_TEAM: 5BR3P3LMAM
+```
+
+**The bundle IDs are `tech.cayden.hawkeye.*`, and they are not going back.**
+`ai.hawkeye.app` is registered to another team on Apple's developer portal. App
+IDs are globally unique, so no other team can ever claim it, and the build fails
+with `Failed Registering Bundle Identifier: ... cannot be registered to your
+development team because it is not available`. `tech.cayden.hawkeye` is a
+reverse-DNS prefix we own.
+
+The watch app rides inside the phone bundle at `Watch/`, so installing the phone
+app carries it; install it on the wrist from the Watch app on the iPhone.
+
+**Developer Mode does not appear until you try.** It is hidden under Settings,
+Privacy & Security until a Mac attempts a development install, so connect, trust,
+press Run, let it fail once, and the toggle is there.
+
+Two failures that look like code problems and are not:
+
+- **`invalid archive returned from ... TwilioVoice.xcframework.zip`, then
+  `Missing package product 'TwilioVoice'`.** A corrupt SPM download, usually from
+  Xcode and a command-line build racing on the same DerivedData. It is cached in
+  **two** places and clearing one lets it restore from the other:
+
+  ```sh
+  rm -rf ~/Library/Caches/org.swift.swiftpm
+  rm -rf ~/Library/Developer/Xcode/DerivedData/HawkEye-*/SourcePackages
+  xcodebuild -project HawkEye.xcodeproj -resolvePackageDependencies
+  ```
+
+- **Xcode 27 has no standalone Simulator.app.** The simulator lives inside
+  Xcode's window, and `simctl` has no `tap`, so a simulator can be installed and
+  launched from a script but not driven.
+
 Re-run `xcodegen generate` after adding, removing, or moving a Swift file.
 Nothing else needs doing: the target globs `HawkEye/`, so new files are picked up automatically.
 
@@ -28,6 +71,14 @@ This is an iOS application target, not a Swift package, and making it an SPM exe
 There are no third-party dependencies at all, so there is nothing a package manifest would buy.
 
 ## Mock mode
+
+**Off by default as of 2026-09-20.** `Config.useMocks` and
+`WatchConfig.useMockLink` are both `false`, so the app runs against a real hub
+discovered over Bonjour. The mock path is kept rather than deleted, because the
+root `CLAUDE.md` requires a recorded fallback for anything demoed live.
+
+The one-word test for which path you are on: the Connect screen lists
+**"Hawk Eye Hub"** live, from the hub's TXT record, and **"Home"** on mocks.
 
 `HawkEye/Config.swift` holds one flag:
 

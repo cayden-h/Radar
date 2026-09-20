@@ -15,6 +15,15 @@ enum Config {
     ///
     /// This exists because the demo cannot depend on hardware being alive.
     /// Flip it to `false` and the identical UI runs against the real hub.
+    /// Live by default as of 2026-09-20. The hub advertises itself over
+    /// Bonjour now (`app/backend/hawkeye_backend/discovery.py`), so the Connect
+    /// screen finds real hubs and the app runs against real endpoints.
+    ///
+    /// The mock path is kept rather than deleted, and that is a rule rather
+    /// than laziness: the root `CLAUDE.md` says anything demoed live needs a
+    /// recorded fallback, and a venue network that refuses to carry traffic
+    /// between its own clients is a failure no amount of correct code survives.
+    /// Flip this back to `true` and the identical UI runs with nothing up.
     static let useMocks = false
 
     // MARK: Live backend
@@ -79,6 +88,11 @@ enum Config {
     /// `POST /v1/incident`. The resident raises an incident.
     static let incidentPath = "/v1/incident"
 
+    /// `GET /v1/camera/live`. The full-rate MJPEG, for the phone and the
+    /// browser. The watch gets a 1 Hz thumbnail on the event stream instead,
+    /// because it is a wrist and not a monitor.
+    static let cameraLivePath = "v1/camera/live"
+
     /// `GET /v1/household`. The roster.
     static let householdPath = "/v1/household"
 
@@ -92,6 +106,14 @@ enum Config {
     static let householdMembersPath = "/v1/household/members"
 
     /// `POST /v1/presences/{id}/approve`. Base path; the presence id is appended.
+    /// The detector's boxes plus their vouch state. Polled, never pushed: the
+    /// hub keeps geometry off the event stream so an incident is not buried
+    /// under several hundred messages a minute.
+    static let cameraTracksPath = "/v1/camera/tracks"
+
+    /// Vouch for the person in one box. `DELETE {path}/{track_id}` takes it back.
+    static let cameraVouchPath = "/v1/camera/vouch"
+
     static let presencesPath = "/v1/presences"
 
     // MARK: Behaviour
@@ -205,6 +227,11 @@ enum Config {
     static let scribeEndpoint = URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!
 
     // MARK: Site
+
+    /// The room the one fixed camera covers. Mirrors `HAWKEYE_CAMERA_ROOM` on
+    /// the hub, whose default is the same. One camera sees one room, and every
+    /// vision claim carries that scope rather than implying it has none.
+    static let cameraRoom = "Living room"
 
     /// One resident, hardcoded. No accounts, no onboarding. See `app/CLAUDE.md`.
     static let siteID = "hawkeye-demo-home"
