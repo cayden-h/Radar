@@ -14,6 +14,7 @@ in the way.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
 
 import cv2
@@ -23,9 +24,9 @@ from hawkeye_vision.enhance import to_detection_input
 from hawkeye_vision.frames import Frame, FrameSource
 from hawkeye_vision.lighting import LightingClassifier, mean_luminance
 from hawkeye_vision.overlay import draw
-from hawkeye_vision.profiles import for_mode
+from hawkeye_vision.profiles import CaptureProfile, for_mode
 from hawkeye_vision.record import SegmentWriter
-from hawkeye_vision.track import TrackBook
+from hawkeye_vision.track import Detection, TrackBook
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,80 @@ def _source(args: argparse.Namespace) -> FrameSource:
     from hawkeye_vision.webcam import MacCamera
 
     return MacCamera(index=args.camera)
+
+
+def detect_for_frame(
+    tracker, frame: Frame, profile: CaptureProfile
+) -> list[Detection]:
+    """Detections for one frame, or none. Never raises.
+
+    `build_tracker` covers a detector that fails to LOAD. This covers one that
+    fails mid-incident, which is the case that actually costs footage: an
+    exception out of `tracker.update` propagates through the frame loop and
+    ends capture, taking the recording with it.
+
+    The recording is the artifact that gets hashed into the chain and emailed
+    to a police department. The tracker is only a corroborating view. Losing
+    the second must never cost the first, so the except here is deliberately
+    broad: no failure from a detector is worth stopping a recording for.
+    """
+    if not (profile.detect and tracker.available):
+        return []
+
+    try:
+        if hasattr(tracker, "set_confidence"):
+            tracker.set_confidence(profile.confidence)
+        detection_input = to_detection_input(frame.image, enhance=profile.enhance)
+        return list(
+            tracker.update(
+                Frame(
+                    image=detection_input,
+                    index=frame.index,
+                    captured_at=frame.captured_at,
+                )
+            )
+        )
+    except Exception:
+        logger.exception(
+            "tracker failed on frame %d; continuing without a measured count",
+            frame.index,
+        )
+        return []
+
+
+def _run(
+    args: argparse.Namespace,
+    config: VisionConfig,
+    source: FrameSource,
+    writer: SegmentWriter | None,
+    classifier: LightingClassifier,
+    book: TrackBook,
+    tracker,
+) -> None:
+    """The frame loop. Everything it touches is already open, and will be closed."""
+    for frame in source.frames():
+        luminance = mean_luminance(frame.image)
+        mode = classifier.update(luminance)
+        profile = for_mode(mode, config)
+
+        # The recorder gets the frame exactly as it came off the sensor,
+        # before any enhancement and before any overlay.
+        if writer is not None:
+            writer.write(frame)
+
+        book.ingest(detect_for_frame(tracker, frame, profile), frame_index=frame.index)
+
+        if args.headless:
+            if frame.index % 15 == 0:
+                logger.info(
+                    "frame %d  %s  luma %.1f  people %d",
+                    frame.index, mode.value, luminance, book.people_visible,
+                )
+            continue
+
+        cv2.imshow("Hawk Eye vision", draw(frame.image, book, mode, luminance))
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            return
 
 
 def main() -> None:
@@ -63,57 +138,30 @@ def main() -> None:
     if not tracker.available:
         logger.error("running without measured counts: %s", tracker.reason)
 
-    source = _source(args)
-    writer = (
-        SegmentWriter(args.record, fps=config.day_fps, segment_frames=config.day_fps * 10)
-        if args.record
-        else None
-    )
+    # One ExitStack, entered before anything is opened. The camera is opened
+    # first and the writer second, so a writer that fails to construct, for
+    # instance an unwritable --record path, would otherwise leak the camera
+    # handle. That is the device-busy failure that then blocks the next run.
+    with contextlib.ExitStack() as closing:
+        closing.callback(cv2.destroyAllWindows)
 
-    try:
-        for frame in source.frames():
-            luminance = mean_luminance(frame.image)
-            mode = classifier.update(luminance)
-            profile = for_mode(mode, config)
+        source = _source(args)
+        closing.callback(source.close)
 
-            # The recorder gets the frame exactly as it came off the sensor,
-            # before any enhancement and before any overlay.
-            if writer is not None:
-                writer.write(frame)
+        writer: SegmentWriter | None = None
+        if args.record:
+            writer = SegmentWriter(
+                args.record, fps=config.day_fps, segment_frames=config.day_fps * 10
+            )
+            closing.callback(_report_sealed, writer)
+            closing.callback(writer.close)
 
-            if profile.detect and tracker.available:
-                if hasattr(tracker, "set_confidence"):
-                    tracker.set_confidence(profile.confidence)
-                detection_input = to_detection_input(frame.image, enhance=profile.enhance)
-                detections = tracker.update(
-                    Frame(
-                        image=detection_input,
-                        index=frame.index,
-                        captured_at=frame.captured_at,
-                    )
-                )
-            else:
-                detections = []
+        _run(args, config, source, writer, classifier, book, tracker)
 
-            book.ingest(detections, frame_index=frame.index)
 
-            if args.headless:
-                if frame.index % 15 == 0:
-                    logger.info(
-                        "frame %d  %s  luma %.1f  people %d",
-                        frame.index, mode.value, luminance, book.people_visible,
-                    )
-                continue
-
-            cv2.imshow("Hawk Eye vision", draw(frame.image, book, mode, luminance))
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
-    finally:
-        source.close()
-        if writer is not None:
-            writer.close()
-            logger.info("sealed %d segments", len(writer.sealed))
-        cv2.destroyAllWindows()
+def _report_sealed(writer: SegmentWriter) -> None:
+    """Said after the writer has closed, so the final segment is counted."""
+    logger.info("sealed %d segments", len(writer.sealed))
 
 
 if __name__ == "__main__":

@@ -69,6 +69,10 @@ class SegmentWriter:
 
         self._writer: cv2.VideoWriter | None = None
         self._current_path: Path | None = None
+        #: (height, width) the open writer was sized for. A frame of any other
+        #: size cannot go into it, so it forces a rotation rather than being
+        #: dropped on the floor.
+        self._segment_shape: tuple[int, int] | None = None
         self._frames_in_segment = 0
         self._segment_index = 0
         self._closed = False
@@ -82,6 +86,20 @@ class SegmentWriter:
         if self._writer is None:
             self._open_segment(frame)
         elif self._frames_in_segment >= self._segment_frames:
+            self._seal_segment()
+            self._open_segment(frame)
+        elif frame.image.shape[:2] != self._segment_shape:
+            # OpenCV silently discards a frame whose size does not match the
+            # open writer: a warning on stderr, no exception. Counting it
+            # anyway would seal a segment claiming frames the file does not
+            # contain, and that file is hashed into the chain and emailed to a
+            # police department. Rotate instead, so the recording continues and
+            # every sealed count stays true.
+            logger.error(
+                "frame size changed from %s to %s; rotating segment",
+                self._segment_shape,
+                frame.image.shape[:2],
+            )
             self._seal_segment()
             self._open_segment(frame)
 
@@ -103,6 +121,7 @@ class SegmentWriter:
             # worse than a visible failure.
             raise OSError(f"could not open a video writer at {self._current_path}")
         self._writer = writer
+        self._segment_shape = (height, width)
         self._frames_in_segment = 0
 
     def _seal_segment(self) -> None:
@@ -120,6 +139,7 @@ class SegmentWriter:
         logger.info("sealed %s (%d frames)", self._current_path.name, self._frames_in_segment)
         self._writer = None
         self._current_path = None
+        self._segment_shape = None
         self._segment_index += 1
 
     def close(self) -> None:

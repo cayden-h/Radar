@@ -116,3 +116,28 @@ def test_the_recorder_does_not_alter_the_frame_it_is_given(tmp_path):
         writer.write(frame)
 
     assert np.array_equal(frame.image, before)
+
+
+def test_a_frame_of_a_different_size_starts_a_new_segment_rather_than_vanishing(tmp_path):
+    """OpenCV silently drops a frame whose size does not match the open writer.
+
+    Silently is the problem. The old behaviour still counted the frame and
+    sealed a segment claiming to hold it, so the hash covered a file that lied
+    about its own contents. Rotating keeps the recording going and keeps every
+    sealed count honest.
+    """
+    writer = SegmentWriter(tmp_path / "inc-1", fps=15, segment_frames=10)
+    writer.write(_frame(0))
+    writer.write(
+        Frame(
+            image=np.full((240, 320, 3), 200, dtype=np.uint8),
+            index=1,
+            captured_at=utc_now(),
+        )
+    )
+    writer.close()
+
+    assert [s.frames for s in writer.sealed] == [1, 1]
+    for segment in writer.sealed:
+        with open(segment.path, "rb") as handle:
+            assert hashlib.sha256(handle.read()).hexdigest() == segment.sha256
