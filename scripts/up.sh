@@ -53,28 +53,86 @@ export HAWKEYE_EDGE_TOKEN="${HAWKEYE_EDGE_TOKEN:-dev-token}"
 # in-process LocalMesh stands in and verifies nothing.
 PEERS="presence=http://127.0.0.1:8101,intruder=http://127.0.0.1:8102,vision=http://127.0.0.1:8105,shutter=http://127.0.0.1:8106"
 
+# Stop, then *check*, then insist.
+#
+# A stop that reports success without confirming the process is gone is worse
+# than no stop at all: the next `up.sh` fails to bind a port and blames itself.
+# So every process gets SIGTERM, a grace period to close its sockets, and
+# SIGKILL if it is still there - and anything that survives all three is named
+# on stdout rather than left for someone to find with `lsof` at a judging table.
 stop_all() {
     if [ ! -d "$RUN" ]; then
         echo "nothing to stop: no $RUN"
         return 0
     fi
+
+    local pids=() names=()
     for pidfile in "$RUN"/*.pid; do
         [ -e "$pidfile" ] || continue
+        local name pid
         name="$(basename "$pidfile" .pid)"
-        pid="$(cat "$pidfile")"
+        pid="$(cat "$pidfile" 2>/dev/null || true)"
+        rm -f "$pidfile"
+        [ -n "$pid" ] || continue
         if kill -0 "$pid" 2>/dev/null; then
             echo "stopping $name ($pid)"
             kill "$pid" 2>/dev/null || true
+            pids+=("$pid")
+            names+=("$name")
         fi
-        rm -f "$pidfile"
+    done
+    [ ${#pids[@]} -gt 0 ] || return 0
+
+    # uvicorn closes its listener on SIGTERM well within this; the wait is for
+    # the edge link, which is mid-frame more often than not.
+    local waited=0
+    while [ $waited -lt 50 ]; do
+        local alive=0
+        for pid in "${pids[@]}"; do
+            kill -0 "$pid" 2>/dev/null && alive=1
+        done
+        [ $alive -eq 0 ] && return 0
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+
+    local i=0
+    for pid in "${pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "  ${names[$i]} ($pid) ignored SIGTERM; killing"
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        i=$((i + 1))
+    done
+    sleep 0.5
+
+    i=0
+    for pid in "${pids[@]}"; do
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "!! ${names[$i]} ($pid) is still running. Its port is still held." >&2
+        fi
+        i=$((i + 1))
     done
 }
 
+# `exec` is the whole point of this function's shape, and it was missing.
+#
+# The obvious spelling - `( cd "$dir" && "$@" & echo $! > pidfile )` - backgrounds
+# the *compound* command, so `$!` is the pid of a subshell that then forks the
+# real process as a child. Stopping that pid reaps the wrapper and leaves the
+# server running, still holding its port. The restart that follows then fails to
+# bind and says "address already in use", which reads as a stale process nobody
+# can find rather than as a bug in this script.
+#
+# Backgrounding the subshell and having it `exec` means the subshell is
+# *replaced* by the target process: same pid, no wrapper, and the pidfile names
+# the thing that holds the port.
 start() {
     local name="$1"; shift
     local dir="$1"; shift
     echo "  $name"
-    ( cd "$dir" && "$@" > "$RUN/$name.log" 2>&1 & echo $! > "$RUN/$name.pid" )
+    ( cd "$dir" && exec "$@" > "$RUN/$name.log" 2>&1 ) &
+    echo $! > "$RUN/$name.pid"
 }
 
 # Wait for a port rather than sleeping a guessed number of seconds. The failure
