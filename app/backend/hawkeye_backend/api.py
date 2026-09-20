@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import secrets
+import uuid
 from datetime import datetime
 from typing import Literal
 
@@ -46,13 +47,14 @@ from hawkeye_backend.master.base import (
     ParticipationModeRefused,
 )
 from hawkeye_backend.master.simulated import SimulatedMasterClient
-from hawkeye_backend.models.common import utc_now
+from hawkeye_backend.models.common import Provenance, Source, utc_now
 from hawkeye_backend.models.events import (
     Envelope,
     HelloEvent,
     NarrationEvent,
     OccupancyEvent,
     ShieldEvent,
+    TranscriptEvent,
 )
 from hawkeye_backend.models.household import HouseholdMember, ObservedDevice, RememberRequest
 from hawkeye_backend.models.hub import HubStatus
@@ -65,6 +67,8 @@ from hawkeye_backend.models.incident import (
     RaiseIncidentRequest,
     RaisedBy,
     ReplayRecord,
+    TranscriptLine,
+    TranscriptSpeaker,
 )
 from hawkeye_backend.models.events import NoticeEvent
 from hawkeye_backend.models.notice import Notice
@@ -976,6 +980,14 @@ class NarrationRequest(BaseModel):
     window_s: float = Field(default=1.0, gt=0)
 
 
+class TranscriptRequest(BaseModel):
+    """What `agents/caller` posts for each line spoken on the call, operator or
+    caller side."""
+
+    speaker: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+
+
 class OccupancyRequest(BaseModel):
     person_present: bool
     people: int = Field(ge=0)
@@ -1012,6 +1024,46 @@ async def post_narration(request: Request, body: NarrationRequest) -> NarrationE
     active = await runtime.store.get_active_incident()
     event = NarrationEvent(text=body.text.strip(), room=body.room, window_s=body.window_s)
     await runtime.emit(event, active.incident_id if active else None)
+    return event
+
+
+@router.post(
+    "/incident/{incident_id}/transcript",
+    status_code=202,
+    summary="One line from the live operator <-> agent 911 call",
+)
+async def post_transcript(
+    incident_id: str, request: Request, body: TranscriptRequest
+) -> TranscriptEvent:
+    """`agents/caller`'s Retell orchestrator posts here for every line it
+    appends to its own transcript, operator or caller side; every app sees it.
+
+    202 rather than 201: this creates nothing addressable, it publishes. The
+    line is on the stream by the time this returns. Best-effort by contract on
+    the caller's side: a failed POST here must never break a live 911 call.
+    """
+    runtime = _runtime(request)
+    try:
+        speaker = TranscriptSpeaker(body.speaker)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"unknown speaker {body.speaker!r}")
+    if speaker is TranscriptSpeaker.CALLER:
+        provenance = Provenance(
+            source=Source.AGENT_INFERENCE,
+            producer="agents/caller",
+            ansname=runtime.settings.caller_ansname,
+        )
+    else:
+        provenance = Provenance(source=Source.OPERATOR_AUDIO, producer="911 PSAP operator")
+    line = TranscriptLine(
+        line_id=str(uuid.uuid4()),
+        incident_id=incident_id,
+        speaker=speaker,
+        text=body.text,
+        provenance=provenance,
+    )
+    event = TranscriptEvent(line=line)
+    await runtime.emit(event, incident_id)
     return event
 
 
