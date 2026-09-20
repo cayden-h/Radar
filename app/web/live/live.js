@@ -39,14 +39,18 @@ function attachCamera() {
   const img = $("camera");
   img.src = api(`/v1/camera/live?t=${Date.now()}`);
   img.hidden = false;
-  // If the stream ends, the backend stopped sending parts, which means frames
-  // stopped arriving. Detach so the next status poll can re-attach rather than
-  // leaving the last part painted forever.
-  img.addEventListener("error", () => {
-    cameraAttached = false;
-    img.hidden = true;
-  });
 }
+
+/* Registered once, not per attach.
+ *
+ * The stream ending means the backend stopped sending parts, which means
+ * frames stopped arriving. Mark it detached so the next poll can re-attach,
+ * but **leave the frame on screen**: it is still the last thing the camera
+ * saw, the overlay already says so, and hiding it produced a flicker on
+ * exactly the screen that is supposed to communicate a failure calmly. */
+$("camera").addEventListener("error", () => {
+  cameraAttached = false;
+});
 
 function renderCamera(status) {
   const img = $("camera");
@@ -84,6 +88,7 @@ function renderCamera(status) {
 function renderShield(payload) {
   const el = $("shield");
   el.className = "shield";
+
   if (payload.refused) {
     el.classList.add("refused");
     el.textContent =
@@ -91,6 +96,20 @@ function renderShield(payload) {
       `prove it was allowed to (${payload.refusal_reason}).`;
     return;
   }
+
+  /* Not a refusal, and not a status update either. Nobody refused anything;
+   * the shutter went quiet, so whether the camera is covered is genuinely not
+   * known. That is the one shield state a reader must not skim past, so it
+   * gets the same weight as a refusal and keeps its reason. */
+  if (payload.position === "unknown") {
+    el.classList.add("refused");
+    el.textContent =
+      "Shield: position unknown. The shutter did not answer" +
+      (payload.refusal_reason ? ` (${payload.refusal_reason})` : "") +
+      ", so whether the camera is covered is not known.";
+    return;
+  }
+
   if (payload.position === "open") el.classList.add("open");
   el.textContent =
     `Shield: ${payload.position} (${payload.position_basis}, ` +
@@ -150,8 +169,10 @@ function connectStream() {
           "shield",
           payload.refused
             ? `REFUSED: ${payload.refusal_reason}`
-            : `${payload.position} (${payload.position_basis})`,
-          payload.refused
+            : payload.position === "unknown"
+              ? `POSITION UNKNOWN: ${payload.refusal_reason || "the shutter did not answer"}`
+              : `${payload.position} (${payload.position_basis})`,
+          payload.refused || payload.position === "unknown"
         );
         break;
       case "verification":
@@ -201,7 +222,58 @@ async function post(path, body) {
   return res.json();
 }
 
-$("startIncident").addEventListener("click", async () => {
+/* Hold to confirm, 1.5s, same as the phone and the watch.
+ *
+ * `app/CLAUDE.md` singles this control out: "An accidental tap calls 911. A
+ * pocket-dial to emergency services is a real harm, not an inconvenience." A
+ * browser left open on a desk is the surface most likely to be clicked by
+ * somebody walking past, so it gets the same gesture rather than less.
+ *
+ * Hold rather than a confirm dialog, for the reason the phone uses: a dialog
+ * makes you find a second target, and it can be dismissed by accident too. A
+ * hold gives continuous feedback and release-to-cancel. */
+const HOLD_MS = 1500;
+
+function holdToConfirm(button, action) {
+  let timer = null;
+  let started = 0;
+
+  const paint = () => {
+    if (!timer) return;
+    const progress = Math.min(1, (performance.now() - started) / HOLD_MS);
+    button.style.setProperty("--hold", `${progress * 100}%`);
+    requestAnimationFrame(paint);
+  };
+
+  const begin = (event) => {
+    event.preventDefault();
+    if (timer) return;
+    started = performance.now();
+    button.classList.add("holding");
+    timer = setTimeout(() => {
+      cancel();
+      action();
+    }, HOLD_MS);
+    requestAnimationFrame(paint);
+  };
+
+  const cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    button.classList.remove("holding");
+    button.style.setProperty("--hold", "0%");
+  };
+
+  button.addEventListener("pointerdown", begin);
+  button.addEventListener("pointerup", cancel);
+  button.addEventListener("pointerleave", cancel);
+  button.addEventListener("pointercancel", cancel);
+  // Keyboard reach: space or enter on a focused button fires click, which
+  // would bypass the hold entirely. Swallow it and say why.
+  button.addEventListener("click", (event) => event.preventDefault());
+}
+
+holdToConfirm($("startIncident"), async () => {
   const ack = await post("/v1/incident", { incident_type: "burglary" });
   if (ack) activeIncidentId = ack.incident_id;
 });

@@ -25,7 +25,9 @@
           "simulated": false
         },
         "narration": null,
-        "still_frame": null
+        "still_frame": null,
+        "dismissed": false,
+        "dismissed_at": null
       }
     }
   }

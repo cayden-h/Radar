@@ -948,7 +948,18 @@ async def post_shutter(request: Request, body: ShutterRequest) -> ShieldEvent:
         )
     except MasterUnavailable as exc:
         runtime.cancel_attestation(request_id)
-        raise HTTPException(status_code=503, detail=f"agent mesh unavailable: {exc}") from exc
+        raise HTTPException(status_code=503, detail=f"cannot issue a grant: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001
+        # Broad on purpose. Anything escaping here leaves a future registered in
+        # `_pending_attestations` that nothing will ever resolve, and a process
+        # that runs for days leaks one per failure. The shield also stays where
+        # it is, which is the correct outcome when no grant could be signed, so
+        # this answers 503 rather than 500.
+        runtime.cancel_attestation(request_id)
+        logger.exception("shutter: could not issue a grant")
+        raise HTTPException(
+            status_code=503, detail=f"cannot issue a grant: {exc}"
+        ) from exc
 
     try:
         await runtime.send_grant(grant_json, request_id)
@@ -960,6 +971,11 @@ async def post_shutter(request: Request, body: ShutterRequest) -> ShieldEvent:
         attestation = await asyncio.wait_for(waiter, timeout=timeout)
     except asyncio.TimeoutError:
         runtime.cancel_attestation(request_id)
+        # `refused` stays false: nothing refused anything, the shutter went
+        # quiet. They are different facts and the record keeps them apart.
+        # `position` unknown is what every surface must render loudly, because
+        # it is the one case where whether the camera is covered is genuinely
+        # not known.
         event = ShieldEvent(
             position="unknown",
             requested_action=body.action,

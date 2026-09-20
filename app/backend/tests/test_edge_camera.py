@@ -43,16 +43,45 @@ def test_status_reports_the_source_the_edge_claimed():
     assert camera.status().source is Source.REPLAY_VIDEO
 
 
-def test_a_frame_older_than_the_stale_window_reads_as_stale():
+def test_a_feed_that_stopped_arriving_reads_as_stale(monkeypatch):
+    """Staleness is about arrival on this machine, not about the frame's own
+    timestamp. See the skew test below for why."""
     camera = LiveCamera(stale_after_s=2.0)
     camera.link_opened(edge_id="pi-01", source=Source.CAMERA_UVC)
-    camera.accept(JPEG, index=0, captured_at=utc_now() - timedelta(seconds=30))
+    camera.accept(JPEG, index=0, captured_at=utc_now())
+
+    # Nothing has arrived for thirty seconds.
+    import hawkeye_backend.edge.camera as camera_module
+
+    real = camera_module.time.monotonic()
+    monkeypatch.setattr(camera_module.time, "monotonic", lambda: real + 30.0)
 
     status = camera.status()
     assert status.live is False
     assert status.last_frame_age_s is not None
     assert status.last_frame_age_s > 2.0
     assert "stale" in status.detail.lower()
+
+
+def test_a_pi_whose_clock_is_wrong_does_not_read_as_a_dead_camera():
+    """**The failure this exists to prevent.** A Pi 4B has no battery-backed
+    real-time clock, so before NTP settles its timestamps are routinely minutes
+    out. Judging freshness on them would mark every frame stale while frames
+    poured in at full rate, which reads on every surface as a camera that has
+    stopped - a total, silent failure that looks exactly like a bug in our code.
+    """
+    camera = LiveCamera(stale_after_s=2.0)
+    camera.link_opened(edge_id="pi-01", source=Source.CAMERA_UVC)
+
+    # The Pi thinks it is ten minutes ago. The frame still just arrived.
+    camera.accept(JPEG, index=0, captured_at=utc_now() - timedelta(minutes=10))
+    assert camera.status().live is True
+
+    # And ten minutes in the future, which would otherwise give a negative age.
+    camera.accept(JPEG, index=1, captured_at=utc_now() + timedelta(minutes=10))
+    status = camera.status()
+    assert status.live is True
+    assert status.last_frame_age_s >= 0.0
 
 
 def test_a_fresh_frame_reads_as_live():

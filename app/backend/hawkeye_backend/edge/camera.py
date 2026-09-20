@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
@@ -38,11 +39,23 @@ DEFAULT_SUBSCRIBER_BUFFER = 4
 
 @dataclass(frozen=True, slots=True)
 class CapturedFrame:
-    """One JPEG, and when the camera took it."""
+    """One JPEG, when the camera took it, and when it got here.
+
+    **Two timestamps, and the difference is load-bearing.** `captured_at` is
+    stamped on the Pi and is what a claim quotes. `arrived_at` is this machine's
+    own monotonic clock and is the only thing staleness is measured against.
+
+    A Pi 4B has no battery-backed real-time clock. Before NTP settles it is
+    routinely minutes out, and judging freshness on its timestamp would mark
+    every frame stale while frames poured in at full rate - which would read, on
+    every surface, as a camera that had stopped. That failure is silent, total,
+    and looks exactly like a bug in this code.
+    """
 
     jpeg: bytes
     index: int
     captured_at: datetime
+    arrived_at: float
 
 
 class FrameSubscription:
@@ -100,7 +113,9 @@ class LiveCamera:
         self._next_index = index + 1
         self._frames_received += 1
 
-        frame = CapturedFrame(jpeg=jpeg, index=index, captured_at=captured_at)
+        frame = CapturedFrame(
+            jpeg=jpeg, index=index, captured_at=captured_at, arrived_at=time.monotonic()
+        )
         self._latest = frame
 
         now = utc_now()
@@ -141,22 +156,25 @@ class LiveCamera:
     # ----------------------------------------------------------------- status
 
     def status(self) -> CameraStatus:
+        # Measured against arrival on this machine, never against the Pi's
+        # timestamp. See `CapturedFrame`: an unsynchronised Pi clock would
+        # otherwise mark a perfectly healthy feed permanently stale.
         age: float | None = None
         if self._latest is not None:
-            age = (utc_now() - self._latest.captured_at).total_seconds()
+            age = max(0.0, time.monotonic() - self._latest.arrived_at)
 
         live = self._linked and age is not None and age <= self._stale_after_s
 
         detail = self._detail
         if self._linked and age is not None and age > self._stale_after_s:
             detail = (
-                f"Edge camera {self._edge_id} is connected but its newest frame is "
-                f"{age:.1f}s old, which is stale. Not presentable as current."
+                f"Edge camera {self._edge_id} is connected but nothing has arrived "
+                f"for {age:.1f}s, which is stale. Not presentable as current."
             )
         elif live:
             detail = (
                 f"Edge camera {self._edge_id} live at {self._fps():.1f} fps, "
-                f"newest frame {age:.1f}s old."
+                f"newest frame arrived {age:.1f}s ago."
             )
 
         return CameraStatus(

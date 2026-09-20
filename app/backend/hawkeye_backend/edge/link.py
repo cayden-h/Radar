@@ -22,6 +22,7 @@ connection closes, so the Pi's log says what happened rather than just
 from __future__ import annotations
 
 import logging
+import secrets
 
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -57,12 +58,19 @@ async def run_edge_link(websocket: WebSocket, runtime, token: str | None) -> Non
         )
         await websocket.close(code=CLOSE_UNAUTHORIZED, reason="edge token not configured")
         return
-    if token != configured:
+    if token is None or not secrets.compare_digest(token, configured):
+        # Constant-time, like every other credential comparison in this project.
         logger.warning("edge link: refused a connection presenting a bad token")
         await websocket.close(code=CLOSE_UNAUTHORIZED, reason="bad token")
         return
 
     await websocket.accept()
+    # Claim the slot, and remember that we are the one holding it. A second Pi,
+    # or a restarted one whose old socket has not been reaped yet, overwrites
+    # this - and when the *older* loop then exits, its `finally` must not clear
+    # a slot that now belongs to somebody else. Without this the live link goes
+    # invisible: grants 503 and the camera reports unlinked while its frames
+    # keep arriving.
     runtime.edge = websocket
     hello: EdgeHello | None = None
     pending: EdgeFrameHeader | None = None
@@ -151,8 +159,15 @@ async def run_edge_link(websocket: WebSocket, runtime, token: str | None) -> Non
         logger.exception("edge link: unexpected failure")
         reason = "internal error"
     finally:
-        runtime.edge = None
-        runtime.camera.link_closed(reason)
+        if runtime.edge is websocket:
+            runtime.edge = None
+            runtime.camera.link_closed(reason)
+        else:
+            logger.info(
+                "edge link: an older connection closed (%s) after a newer one took "
+                "over. Leaving the live link alone.",
+                reason,
+            )
 
 
 async def _refuse(websocket: WebSocket, code: str, message: str) -> None:

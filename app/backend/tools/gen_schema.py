@@ -19,6 +19,10 @@ from hawkeye_backend.master.scenario import ANSNAME, build_floorplan
 from hawkeye_backend.models.common import Provenance, Source
 from hawkeye_backend.models.events import (
     ContextEvent,
+    FrameEvent,
+    NarrationEvent,
+    OccupancyEvent,
+    ShieldEvent,
     Envelope,
     ErrorEvent,
     HelloEvent,
@@ -644,6 +648,88 @@ def main() -> None:
                 ),
             ),
             "A notice: something the resident should know about. Does not create an incident.",
+        ),
+        (
+            "event-frame.json",
+            Envelope(
+                seq=49,
+                at=at(10.2),
+                incident_id=None,
+                payload=FrameEvent(
+                    # Two pixels, so the example stays readable. A real one is a
+                    # few kilobytes.
+                    jpeg_base64="/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQ==",
+                    captured_at=at(10.1),
+                    source=Source.CAMERA_UVC,
+                    live=True,
+                    room="Living room",
+                ),
+            ),
+            "A camera thumbnail for the watch, which has no MJPEG decoder. `live` false "
+            "means the client must label it as the last thing seen, never as the room now.",
+        ),
+        (
+            "event-narration.json",
+            Envelope(
+                seq=50,
+                at=at(11.0),
+                incident_id=None,
+                payload=NarrationEvent(
+                    text="A person in a dark jacket is standing by the front door.",
+                    room="Living room",
+                    window_s=1.0,
+                ),
+            ),
+            "One line the camera produced. NOT a transcript line: that type means one line "
+            "of the caller-to-911 conversation. `window_s` carries the sampling limit.",
+        ),
+        (
+            "event-occupancy.json",
+            Envelope(
+                seq=51,
+                at=at(11.2),
+                incident_id=None,
+                payload=OccupancyEvent(person_present=True, people=1, room="Living room"),
+            ),
+            "Whether the camera can see anybody. Personhood only; it never says who.",
+        ),
+        (
+            "event-shield.json",
+            Envelope(
+                seq=52,
+                at=at(11.4),
+                incident_id=None,
+                payload=ShieldEvent(
+                    position="open",
+                    commanded_angle=90,
+                    requested_action="open",
+                    reason="unaccounted motion in the living room",
+                ),
+            ),
+            "Where the shield is. `position_basis` is always `commanded`: the SG92R is "
+            "open-loop, so this is the angle it was told to reach, never the one it got to.",
+        ),
+        (
+            "event-shield-refused.json",
+            Envelope(
+                seq=53,
+                at=at(11.5),
+                incident_id=None,
+                payload=ShieldEvent(
+                    position="closed",
+                    commanded_angle=0,
+                    requested_action="open",
+                    refused=True,
+                    refusal_reason=(
+                        "unregistered_issuer: 'ans://v0.1.0.master.batradar.club' is not "
+                        "in the trust store, or its discovery is suppressed"
+                    ),
+                    reason="unaccounted motion in the living room",
+                ),
+            ),
+            "The submission. A refusal is not an error: it is the shutter declining to "
+            "uncover a camera for something that could not prove it was allowed to. The "
+            "position is the real, unchanged one rather than `unknown`.",
         ),
     ]
     for name, env, note in envelopes:

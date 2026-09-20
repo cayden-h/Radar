@@ -83,7 +83,27 @@ button {
   cursor: pointer;
 }
 button:hover { border-color: var(--muted); }
-button.danger { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+  font-weight: 600;
+  /* The hold fill. Progress is legible and release-to-cancel is discoverable
+     without instructions, which is the whole reason this is a hold and not a
+     confirm dialog. */
+  position: relative;
+  overflow: hidden;
+  --hold: 0%;
+}
+button.danger::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--hold);
+  background: var(--danger);
+  opacity: 0.18;
+  pointer-events: none;
+}
+button.danger.holding { border-width: 2px; }
 textarea {
   width: 100%; font: inherit; padding: 8px; border-radius: 8px;
   border: 1px solid var(--hairline); background: var(--ground); color: var(--ink);

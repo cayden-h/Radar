@@ -31,10 +31,17 @@ def test_the_still_endpoint_503s_with_a_reason_when_no_frame_has_arrived(client:
     assert "edge camera" in response.json()["detail"].lower()
 
 
-def test_the_still_endpoint_labels_a_stale_frame_as_not_live(client: TestClient):
+def test_the_still_endpoint_labels_a_stale_frame_as_not_live(client, monkeypatch):
+    """Stale is measured by arrival on this machine, not by the Pi's clock.
+    See test_edge_camera.py for why that distinction is load-bearing."""
+    import hawkeye_backend.edge.camera as camera_module
+
     runtime = client.app.state.runtime
     runtime.camera.link_opened(edge_id="pi-01", source=Source.CAMERA_UVC)
-    runtime.camera.accept(JPEG, index=0, captured_at=utc_now() - timedelta(seconds=60))
+    runtime.camera.accept(JPEG, index=0, captured_at=utc_now())
+
+    real = camera_module.time.monotonic()
+    monkeypatch.setattr(camera_module.time, "monotonic", lambda: real + 60.0)
 
     response = client.get("/v1/camera/still")
     assert response.status_code == 200

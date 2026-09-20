@@ -117,3 +117,33 @@ def test_an_unconfigured_token_refuses_every_connection():
         with pytest.raises(Exception):
             with c.websocket_connect("/v1/edge/link?token=anything"):
                 pass
+
+
+def test_an_older_link_closing_does_not_blind_a_newer_one(client: TestClient):
+    """A restarted Pi whose old socket has not been reaped yet overwrites the
+    slot. When the older loop then exits, it must not clear a slot that now
+    belongs to the live connection: that would leave grants 503ing and the
+    camera reporting unlinked while its frames kept arriving."""
+    runtime = client.app.state.runtime
+
+    first = client.websocket_connect(f"/v1/edge/link?token={TOKEN}")
+    first.__enter__()
+    first.send_text(EdgeHello(edge_id="pi-old", source=Source.CAMERA_UVC).model_dump_json())
+
+    second = client.websocket_connect(f"/v1/edge/link?token={TOKEN}")
+    second.__enter__()
+    second.send_text(EdgeHello(edge_id="pi-new", source=Source.CAMERA_UVC).model_dump_json())
+    # Let the second hello be processed before the first link goes away.
+    second.send_text(
+        EdgeFrameHeader(index=0, captured_at=utc_now(), bytes=len(JPEG)).model_dump_json()
+    )
+    second.send_bytes(JPEG)
+
+    first.__exit__(None, None, None)
+
+    # The live link still owns the slot.
+    assert runtime.edge is not None
+    assert client.get("/v1/hub").json()["camera"]["linked"] is True
+
+    second.__exit__(None, None, None)
+    assert runtime.edge is None

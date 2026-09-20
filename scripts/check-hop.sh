@@ -64,4 +64,9 @@ fi
 
 echo
 echo "The hop works. Start the edge:"
-echo "  python -m hawkeye_vision.edge --hub ws://${HUB}:${PORT} --token \"$HAWKEYE_EDGE_TOKEN\""
+# Single-quoted so the token is never expanded and never printed. Under `set -u`
+# expanding it would also abort the script with "unbound variable" on a Pi where
+# it is not exported - which is the normal case, since this script's whole job
+# is to run before anything else is set up. Reporting failure after four passing
+# checks would be the worst possible outcome for a pre-flight tool.
+echo '  python -m hawkeye_vision.edge --hub ws://'"${HUB}:${PORT}"' --token "$HAWKEYE_EDGE_TOKEN"'

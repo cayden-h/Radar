@@ -146,9 +146,14 @@ class RelayFrameSource(FrameSource):
                 self._sleep()
                 continue
 
-            last_good = time.monotonic()
             yield Frame(image=image, index=self._index, captured_at=utc_now())
             self._index += 1
+            # Stamped *after* the consumer resumes, so its processing time is
+            # not charged against the give-up window. The first YOLO11m
+            # inference includes a 40MB weight download and a model load, which
+            # routinely exceeds ten seconds; stamping before the yield would
+            # raise RelayUnavailable about a camera that never stopped.
+            last_good = time.monotonic()
             self._sleep()
 
     def _sleep(self) -> None:

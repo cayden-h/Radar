@@ -22,8 +22,10 @@ from collections.abc import Callable
 import logging
 import os
 import sys
+from urllib.parse import quote
 
 from hawkeye_backend.edge.wire import EdgeFrameHeader, EdgeHello
+from hawkeye_backend.models.common import Source
 
 from hawkeye_vision.frames import FrameSource
 from hawkeye_vision.narrate import encode_jpeg
@@ -50,6 +52,10 @@ DEFAULT_SHUTTER_URL = "http://127.0.0.1:8106"
 METHOD_CHALLENGE = "shutter.challenge"
 METHOD_OPEN = "shutter.open"
 CLAIM_TARGET_PATH = "/a2a"
+
+#: Sources that represent a physical camera. A file can legitimately end; a
+#: camera cannot, so the two are handled differently when `frames()` returns.
+LIVE_CAMERA_SOURCES = frozenset({Source.CAMERA_UVC})
 
 
 def open_source(kind: str, index: int, path: str | None) -> FrameSource:
@@ -268,7 +274,9 @@ async def pump(
 
     while not exhausted:
         try:
-            async with websockets.connect(f"{url}/v1/edge/link?token={token}") as socket:
+            async with websockets.connect(
+                f"{url}/v1/edge/link?token={quote(token, safe='')}"
+            ) as socket:
                 logger.info("edge: connected to %s", url)
                 backoff = BACKOFF_START_S
 
@@ -282,6 +290,23 @@ async def pump(
                 try:
                     while True:
                         pushed = await _push_all(socket, source, interval)
+
+                        # A camera is never "exhausted". `MacCamera.frames()`
+                        # returns rather than raises on a failed read, so a
+                        # single transient USB hiccup would otherwise stop the
+                        # feed for good, with exit code 0 and a log line about
+                        # replaying a fixture - the wrong diagnosis entirely.
+                        if source.source in LIVE_CAMERA_SOURCES:
+                            logger.warning(
+                                "edge: the camera stopped producing frames after %d. "
+                                "Reopening it; a camera does not run out.",
+                                pushed,
+                            )
+                            source.close()
+                            source = (reopen or (lambda: source))()
+                            await asyncio.sleep(BACKOFF_START_S)
+                            continue
+
                         if reopen is None:
                             logger.info(
                                 "edge: source exhausted after %d frames. Stopping "

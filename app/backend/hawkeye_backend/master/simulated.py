@@ -41,9 +41,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 
-from datetime import timedelta
 
-from hawkeye_backend.master.base import EventSink, assert_human_released
+from hawkeye_backend.master.base import EventSink, MasterUnavailable, assert_human_released
 from hawkeye_backend.master.scenario import (
     ANSNAME,
     PROFILE,
@@ -1477,8 +1476,28 @@ class SimulatedMasterClient:
         produces a signature mismatch indistinguishable from an attack, which is
         battery probe #13.
         """
-        from agents.core.identity import identity
-        from agents.shutter.grant import GrantEnvelope, sign_grant
+        try:
+            from agents.core.identity import identity
+            from agents.shutter.grant import GrantEnvelope, sign_grant
+        except ImportError as exc:
+            # **Deliberately not a declared dependency.** `agents` already
+            # path-depends on `hawkeye-backend` for the verification package and
+            # `Provenance`, so declaring the reverse would be a cycle. What this
+            # process needs is the grant envelope, and the only honest options
+            # were to copy it - which is exactly the drift that breaks
+            # signatures, battery probe #13 - or to import it when present and
+            # say so clearly when it is not.
+            #
+            # Raised as MasterUnavailable so the endpoint answers 503 with this
+            # sentence rather than a 500 with a traceback. The shield does not
+            # move, which is the correct outcome when no grant can be signed.
+            raise MasterUnavailable(
+                "cannot sign a shutter grant: the `agents` package is not importable "
+                "in this environment. Simulated mode signs grants with master's "
+                "envelope, so install it alongside the hub: "
+                "`uv pip install -e ../../agents`. In live mode this is never "
+                "reached, because the real master signs."
+            ) from exc
 
         now = utc_now()
         envelope = GrantEnvelope(
@@ -1502,7 +1521,13 @@ class SimulatedMasterClient:
         incident path for no benefit.
         """
         if self._master_key is None:
-            from agents.core.keys import load_or_create
+            try:
+                from agents.core.keys import load_or_create
+            except ImportError as exc:
+                raise MasterUnavailable(
+                    "cannot load master's signing key: the `agents` package is not "
+                    "importable. See issue_shutter_grant."
+                ) from exc
 
             self._master_key = load_or_create("master")
             logger.warning(

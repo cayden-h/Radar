@@ -27,6 +27,28 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     private(set) var household: [HouseholdMember] = []
     private(set) var unclaimedDevices: [ObservedDevice] = []
 
+    // The camera path, added 2026-09-20. The views for these are T32 and T33;
+    // the state is carried here now so the hub's events are not dropped on the
+    // floor in the meantime.
+
+    /// The newest camera thumbnail off the stream.
+    ///
+    /// Check `cameraFrame?.live` before drawing it. False means it is the last
+    /// thing the camera saw and not the room now, and drawing it as current is
+    /// the single most dangerous thing this app can do.
+    private(set) var cameraFrame: CameraFrame?
+
+    /// What the camera has said, newest first.
+    private(set) var narration: [Narration] = []
+    private(set) var occupancy: Occupancy?
+
+    /// Where the lens shield is, including when it refused to move.
+    private(set) var shield: ShieldReport?
+
+    /// Ceiling on retained narration lines. A long incident produces one a
+    /// second and no screen needs an hour of them.
+    static let narrationLimit = 200
+
     @ObservationIgnored private var baseURL: URL = Config.fallbackBaseURL
     @ObservationIgnored private let session = URLSession(configuration: .default)
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
@@ -245,6 +267,32 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             // Never a silently dropped frame.
             missedFrames = true
             NSLog("hub error %@: %@", code, message)
+
+        // ------------------------------------------------ the camera path
+
+        case .frame(let value):
+            // Kept whatever its `live` flag says, because the last frame seen is
+            // a true statement. Every view reads `cameraFrame?.live` before
+            // drawing it as the room now.
+            cameraFrame = value
+        case .narration(let value):
+            // Newest first, and bounded. A long incident produces a line a
+            // second and a wrist does not need an hour of them.
+            narration.insert(value, at: 0)
+            if narration.count > Self.narrationLimit {
+                narration.removeLast(narration.count - Self.narrationLimit)
+            }
+        case .occupancy(let value):
+            occupancy = value
+        case .shield(let value):
+            shield = value
+
+        case .unrecognised(let kind):
+            // The hub knows an event this build does not, which happens when
+            // the two move at different speeds. Deliberately **not**
+            // `missedFrames`: that flag means the view may be behind on state
+            // it should have, and a new event type is not that.
+            NSLog("hub sent an event this build does not know: %@", kind)
         }
     }
 

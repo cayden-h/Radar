@@ -166,6 +166,13 @@ class Settings(BaseSettings):
     # condition on `mode`.
     replay_site_enabled: bool = True
 
+    # Serve the live console at /live. Same kind of decision as the replay
+    # console, and a sharper one: this page carries Start Incident, which is the
+    # only control that releases `caller` to dial 911, plus shutter open and
+    # close. It is served unauthenticated to whatever LAN the hub is on, so
+    # being able to turn it off is not optional.
+    live_site_enabled: bool = True
+
     # Used to render the local time in an SMS. The demo home is in Blacksburg.
     site_timezone: str = "America/New_York"
 

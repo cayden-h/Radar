@@ -174,9 +174,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # The live console. Mounted before /replay and after the API router, so
     # it cannot shadow an API route either.
-    if LIVE_SITE.is_dir():
+    if settings.live_site_enabled and LIVE_SITE.is_dir():
         app.mount("/live", StaticFiles(directory=LIVE_SITE, html=True), name="live-console")
-        logger.info("live console served at /live from %s", LIVE_SITE)
+        logger.warning(
+            "live console served at /live from %s. It carries Start Incident and "
+            "the shutter controls and has no authentication, so it is as trusted "
+            "as the network it is on. HAWKEYE_LIVE_SITE_ENABLED=false turns it off.",
+            LIVE_SITE,
+        )
+    elif not settings.live_site_enabled:
+        logger.info("live console disabled by configuration")
 
     # The replay console. Mounted last so it cannot shadow an API route, and
     # behind a flag because serving a human surface is a deployment decision.
