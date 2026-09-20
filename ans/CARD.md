@@ -172,7 +172,7 @@ Never: resident names, the street address in plaintext, room labels that identif
 - `transparencyReceipt` stapled into the trust card, so verification reaches Gold offline.
 - `_ans` and `_ans-badge` TXT records present and matching what the TL sealed. The AIM checks both and a content mismatch is a `Mismatch` finding.
 - **DNSSEC on.** Chain validity is a scored integrity signal, and `verify_agent` checks DNSSEC signatures by name.
-- DANE TLSA where we can get it, for Silver.
+- DANE TLSA where we can get it, for Silver. **Blocked, deliberately, as of 2026-09-20.** The RA requires TLSA to be its own `3 0 1` over a certificate we do not serve, and refuses any other record - including a correct `3 1 1` published alongside it. DANE-correct and ANS-registered are mutually exclusive; registration wins. Full reasoning in `docs/deploy.md`
 
 ### 9. Harden the endpoint that serves the card
 
@@ -236,15 +236,15 @@ Per agent, all five:
 - [ ] One JCS implementation across all five agents
 - [ ] Card is a build artifact, byte-stable, sorted keys, no dynamic fields
 - [ ] ansName carries the version; certificate SAN carries the ansName
-- [ ] SCITT receipt stapled
-- [ ] `_ans` and `_ans-badge` TXT published and matching the TL
-- [ ] DNSSEC enabled
+- [ ] SCITT receipt stapled. **Outstanding** - all seven are ANS ACTIVE with badges as of 2026-09-20, but `transparencyReceipt` is still `null` in every trust card, so verification needs a network round trip and cannot reach Gold offline
+- [x] `_ans` and `_ans-badge` TXT published and matching the TL. Done 2026-09-20, all seven. A fourth record, `<host>` HTTPS `1 . alpn=h2`, is also required by `verify-dns`; see `docs/deploy.md`
+- [x] DNSSEC enabled
 - [ ] `securitySchemes` and `securityRequirements` match what is enforced
 - [ ] `x-security-note` present and honest
 - [ ] `dataEgressPolicy: LOCAL_ONLY` declared
 - [ ] `dispatchAddressCommitment` present; plaintext never served
 - [ ] No names, no plaintext address, no person-identifying zone labels
-- [ ] Security headers set, including an explicit empty `permissions-policy` for camera and microphone
+- [x] Security headers set, including an explicit empty `permissions-policy` for camera and microphone. Done 2026-09-20, all seven, in the Caddyfile's `(agent)` snippet; see `docs/deploy.md`
 - [ ] Self-drift check running on a timer
 
 Before judging:
