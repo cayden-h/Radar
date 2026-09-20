@@ -70,7 +70,15 @@ protocol HawkEyeClienting: AnyObject {
 
     /// Sends free-text context to `master`, which makes it available to
     /// `caller` for the rest of the call.
-    func sendContext(_ text: String) async throws
+    ///
+    /// `speakOnCall` mirrors the backend's `ContextRequest.speak_on_call`:
+    /// when true, `master` also routes the note to `agents/caller` so it is
+    /// spoken on an already-running call, attributed to the resident rather
+    /// than asserted as a sensed fact. This is still **context, never
+    /// instruction** — it can add a fact for the dispatcher to hear, it
+    /// cannot change what `caller` is willing to say or where the incident is
+    /// directed. See the untrusted-input rules in `app/CLAUDE.md`.
+    func injectContext(text: String, speakOnCall: Bool) async throws
 
     /// Forgets the open incident on this phone. **Front-end only** — the
     /// backend has no stand-down route (see `app/CLAUDE.md`), so this does

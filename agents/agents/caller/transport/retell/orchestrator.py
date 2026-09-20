@@ -31,6 +31,7 @@ from .protocol import (
     latest_user_utterance,
     parse_retell_message,
 )
+from .transcript_sink import TranscriptSink
 
 #: Cue intents that mark the operator winding the call down. When one of these
 #: trips, the caller asks for the department email before the line closes.
@@ -84,10 +85,30 @@ class RetellCallOrchestrator:
     #: The integrator constructs this with a base_url at caller startup - e.g.
     #: `HttpBackendCourierClient(base_url)` - and injects it here.
     courier: BackendCourierClient | None = None
+    #: Best-effort fan-out of each transcript line to the hub, so the resident's
+    #: app can render the live operator <-> agent conversation. Optional for the
+    #: same reason `courier` is: the orchestrator runs unchanged where nothing
+    #: is wired to receive lines, and never raises into the call loop when it is.
+    transcript_sink: TranscriptSink | None = None
     call_id: str | None = field(default=None, init=False)
     incident_id: str | None = field(default=None, init=False)
     transcript: list[tuple[str, str]] = field(default_factory=list, init=False)
     _email_capture: _EmailCapture = field(default=_EmailCapture.NORMAL, init=False)
+    #: Notes the resident's app has injected, queued for the next operator
+    #: turn. Context, never instruction: they are spoken attributed and never
+    #: widen what claims `answer_operator` will trust or touch the dispatch
+    #: address. See `enqueue_resident_note` and the front-run in
+    #: `_respond_to_operator`.
+    _pending_resident_notes: list[str] = field(default_factory=list, init=False)
+    #: Every note actually spoken so far, in order. Read by Task 5.
+    _context_resident_notes: list[str] = field(default_factory=list, init=False)
+
+    def enqueue_resident_note(self, text: str) -> None:
+        """Queue a resident-supplied note to be spoken, attributed, on the
+        next operator turn. Front-run only: it never bypasses or alters
+        `answer_operator`'s verified-claims path, and it never touches the
+        dispatch address."""
+        self._pending_resident_notes.append(text)
 
     async def start_call(
         self, incident_id: str, incident_type: IncidentType, address_spoken: str
@@ -119,10 +140,16 @@ class RetellCallOrchestrator:
             if operator_line is None:
                 text = self._opening_text()
                 self.transcript.append(("caller", text))
+                if self.transcript_sink:
+                    await self.transcript_sink.line(self.incident_id or "", "caller", text)
                 return build_response_message(message.response_id, text)
             self.transcript.append(("operator", operator_line))
+            if self.transcript_sink:
+                await self.transcript_sink.line(self.incident_id or "", "operator", operator_line)
             text = await self._respond_to_operator(operator_line)
             self.transcript.append(("caller", text))
+            if self.transcript_sink:
+                await self.transcript_sink.line(self.incident_id or "", "caller", text)
             return build_response_message(message.response_id, text)
         return None
 
@@ -136,7 +163,18 @@ class RetellCallOrchestrator:
         courier records with `operator_supplied` provenance and never treats as a
         grant. Everything outside those two moments still routes through the
         verified-claims path unchanged.
+
+        A queued resident note front-runs everything below: it is spoken,
+        attributed, on this turn only, and the operator's line is still
+        recorded and answered on the following turn. It is context, never
+        instruction - it never widens what `answer_operator` trusts and never
+        touches the dispatch address.
         """
+        if self._pending_resident_notes:
+            note = self._pending_resident_notes.pop(0)
+            self._context_resident_notes.append(note)  # see Task 5
+            return f"The resident reports: {note}"
+
         if self._email_capture is _EmailCapture.ASKED_EMAIL:
             email = find_email(operator_line)
             if email is not None:
@@ -166,7 +204,19 @@ class RetellCallOrchestrator:
 
     def _opening_text(self) -> str:
         utterances = self.caller.opening_report(self._incident_type, self._address_spoken)
-        return " ".join(u.text for u in utterances)
+        tail = " ".join(u.text for u in utterances)
+        return (
+            f"This is Radar's agent, and there is an incident in progress at "
+            f"{self._address_spoken}. {tail}"
+        )
 
     def transcript_so_far(self) -> list[tuple[str, str]]:
         return list(self.transcript)
+
+    def context_so_far(self) -> dict:
+        """The running context for this call: transcript plus every resident
+        note actually spoken so far. Read-only - reviewing this never mutates
+        anything a claim is built from. Resident notes are context, never
+        instruction: they are carried here for review/sealing and never feed
+        back into what `answer_operator` verifies or trusts."""
+        return {"transcript": list(self.transcript), "resident_notes": list(self._context_resident_notes)}

@@ -230,3 +230,54 @@ def test_set_mode_toward_quieter_needs_no_human_hand(agent, mesh):
 
     assert resp.status_code == 200
     assert len(transport.requests) == 1
+
+
+def test_inject_context_forwards_to_caller(agent, mesh):
+    """A pass-through side channel: the resident's typed note reaches caller.
+
+    Unlike start-call and set-mode, this route carries no dial guard - it
+    forwards context for an already-running call rather than authorizing
+    anything new. One POST in, one POST out, same body.
+    """
+    transport = _RecordingTransport()
+    client = _app_and_client(agent, transport)
+
+    resp = client.post(
+        "/a2a/inject-context",
+        json={"incident_id": "inc-1", "text": "he has a knife"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"queued": True}
+    assert len(transport.requests) == 1
+    triggered = transport.requests[0]
+    assert triggered.url.path == "/internal/inject-context"
+    import json
+
+    body = json.loads(triggered.content)
+    assert body == {"incident_id": "inc-1", "text": "he has a knife"}
+
+
+def test_inject_context_fails_closed_with_500_when_caller_transport_is_not_configured(agent):
+    client = _app_and_client(agent, transport=None)
+
+    resp = client.post(
+        "/a2a/inject-context",
+        json={"incident_id": "inc-1", "text": "he has a knife"},
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "caller_transport_not_configured"
+
+
+def test_inject_context_translates_caller_failure_to_502(agent):
+    transport = _RecordingTransport(status_code=500)
+    client = _app_and_client(agent, transport)
+
+    resp = client.post(
+        "/a2a/inject-context",
+        json={"incident_id": "inc-1", "text": "he has a knife"},
+    )
+
+    assert resp.status_code == 502
+    assert resp.json()["error"] == "caller_unreachable"

@@ -272,8 +272,23 @@ struct IncidentAck: Codable, Sendable, Hashable {
 }
 
 /// `POST /v1/incident/{id}/context` request body.
+///
+/// `speakOnCall` matches the backend's `ContextRequest.speak_on_call`
+/// (`app/backend/hawkeye_backend/models/incident.py`): when true, `master`
+/// also routes the note to `agents/caller` so it is spoken on an
+/// already-running call, attributed to the resident. Best-effort on the
+/// backend — a failure to speak it never fails storing the note. This is
+/// still context, never instruction: it cannot change what `caller` trusts
+/// or where the incident is directed, per the untrusted-input rules in
+/// `app/CLAUDE.md`.
 struct ContextRequest: Codable, Sendable, Hashable {
     var text: String
+    var speakOnCall: Bool = false
+
+    enum CodingKeys: String, CodingKey {
+        case text
+        case speakOnCall = "speak_on_call"
+    }
 }
 
 /// `POST /v1/incident/{id}/mode` request body.

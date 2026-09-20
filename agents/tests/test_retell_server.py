@@ -45,6 +45,29 @@ def test_start_call_with_token_returns_call_id(mesh):
     assert orch.call_id is not None
 
 
+def test_inject_context_requires_bearer_token(mesh):
+    app, _ = _build(mesh)
+    client = TestClient(app)
+    resp = client.post(
+        "/internal/inject-context",
+        json={"incident_id": "i1", "text": "he has a knife"},
+    )
+    assert resp.status_code == 403
+
+
+def test_inject_context_with_token_queues_note(mesh):
+    app, orch = _build(mesh)
+    client = TestClient(app)
+    resp = client.post(
+        "/internal/inject-context",
+        headers={"Authorization": "Bearer tok"},
+        json={"incident_id": "i1", "text": "he has a knife"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"queued": True}
+    assert orch._pending_resident_notes == ["he has a knife"]
+
+
 def test_ws_rejects_wrong_secret(mesh):
     app, orch = _build(mesh)
     client = TestClient(app)

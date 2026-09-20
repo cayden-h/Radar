@@ -185,6 +185,25 @@ enum Config {
     /// Seconds spent in transit between two zones on that route.
     static let mockIntruderTravelSeconds: Double = 4.5
 
+    // MARK: Voice context (ElevenLabs Scribe)
+
+    /// ElevenLabs API key for the mic button on the "what is happening" box —
+    /// `Services/ScribeClient.swift`'s speech-to-text path.
+    ///
+    /// **Supplied at runtime. Never hardcoded.** This app has no existing
+    /// secret-delivery mechanism (no keychain config, no bundled secrets
+    /// file — every other credential in this project lives server-side in
+    /// `app/backend`), so this is the one new seam. It reads
+    /// `ELEVENLABS_API_KEY` from the process environment, settable from the
+    /// Xcode scheme's "Arguments > Environment Variables" for local runs.
+    /// Empty by default, which `ScribeClient` treats as "voice input
+    /// unavailable" rather than crashing — the typed path is the must-have
+    /// and does not depend on this being set.
+    static let elevenLabsScribeAPIKey = ProcessInfo.processInfo.environment["ELEVENLABS_API_KEY"] ?? ""
+
+    /// ElevenLabs Scribe speech-to-text endpoint.
+    static let scribeEndpoint = URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!
+
     // MARK: Site
 
     /// One resident, hardcoded. No accounts, no onboarding. See `app/CLAUDE.md`.

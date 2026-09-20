@@ -217,6 +217,10 @@ class SimulatedMasterClient:
         self._incident: Incident | None = None
         self._call_started_for: str | None = None
         self._participation_mode: str | None = None
+        # Recorded rather than acted on: there is no real caller in simulated
+        # mode to speak these, so this is a test/inspection seam mirroring
+        # what LiveMasterClient.inject_context actually POSTs.
+        self._injected_context: list[tuple[str, str]] = []
         self._script_running = False
         self._detection_running = False
         self._signature_lost = False
@@ -1473,6 +1477,20 @@ class SimulatedMasterClient:
     def elapsed_hint(self) -> timedelta:
         """Roughly how long the script takes at the configured speed."""
         return timedelta(seconds=38.0 * self._speed)
+
+    async def inject_context(self, incident_id: str, text: str) -> None:
+        """Record what would have been forwarded to agents/caller.
+
+        Simulated mode has no real caller transport to POST to, so this
+        appends to `injected_context` for a test to inspect rather than
+        speaking anything.
+        """
+        self._injected_context.append((incident_id, text))
+
+    @property
+    def injected_context(self) -> list[tuple[str, str]]:
+        """What `inject_context` has recorded so far, in order."""
+        return list(self._injected_context)
 
     async def issue_shutter_grant(
         self, *, action: str, reason: str, nonce: str, incident_id: str | None = None

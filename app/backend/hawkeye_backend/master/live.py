@@ -60,6 +60,7 @@ PATH_INCIDENT = "/v1/incident"
 PATH_STREAM = "/v1/stream"
 PATH_START_CALL = "/a2a/start-call"
 PATH_SET_MODE = "/a2a/set-mode"
+PATH_INJECT_CONTEXT = "/a2a/inject-context"
 PATH_GRANT = "/v1/shutter/grant"
 
 
@@ -279,6 +280,21 @@ class LiveMasterClient:
         if not isinstance(payload, dict) or not isinstance(payload.get("announcement"), str):
             raise MasterUnavailable(f"POST {PATH_SET_MODE} returned no announcement string")
         return payload["announcement"]
+
+    async def inject_context(self, incident_id: str, text: str) -> None:
+        """POST the resident's note to master's `/a2a/inject-context`.
+
+        Best-effort by contract (see `MasterClient.inject_context`): raises
+        `MasterUnavailable` on failure like every other POST here, and it is
+        the caller's job (`api.post_context`) to catch that and log rather
+        than fail the note store. This method does not swallow the error
+        itself, so a genuine misconfiguration is still visible to whoever is
+        watching logs - fail-loud at this layer, fail-soft one layer up.
+        """
+        await self._post(
+            PATH_INJECT_CONTEXT,
+            {"incident_id": incident_id, "text": text},
+        )
 
     async def issue_shutter_grant(
         self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
