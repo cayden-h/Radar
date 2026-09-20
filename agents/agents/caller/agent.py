@@ -242,6 +242,13 @@ class Utterance:
     summary, and the three are not interchangeable.
     """
 
+    answered: bool = True
+    """False when this is a deliberate non-answer - an "I don't know" the agent
+    reached because it had nothing verified to say. The verified-claims contract
+    is unchanged either way; this flag only lets a transport substitute a demo
+    fallback line for a non-answer without string-matching the text.
+    """
+
 
 class CallerAgent(Agent):
     """Composes what gets said, and refuses what cannot be."""
@@ -399,12 +406,14 @@ class CallerAgent(Agent):
                 text="I don't know - I can't answer that from what I can verify.",
                 claim_fields=(),
                 attributed_to=self.identity.name,
+                answered=False,
             )
         if self._master is None:
             return Utterance(
                 text="I don't know - I have no connection to the sensing agents right now.",
                 claim_fields=(),
                 attributed_to=self.identity.name,
+                answered=False,
             )
 
         value, why = self._master.answer(field)  # type: ignore[attr-defined]
@@ -416,6 +425,7 @@ class CallerAgent(Agent):
                 text=f"I don't know. {_shorten(why)}",
                 claim_fields=(field,),
                 attributed_to=self.identity.name,
+                answered=False,
             )
         return Utterance(
             text=_speak_value(field, value),

@@ -90,6 +90,44 @@ async def test_later_response_required_answers_the_operator(mesh):
     assert ("operator", "what colour is the front door?") in orch.transcript_so_far()
 
 
+@pytest.mark.asyncio
+async def test_demo_operator_line_substitutes_for_a_non_answer(mesh):
+    orch, _ = _orchestrator(mesh)
+    orch.demo_operator_line = "There is an incident as we said earlier."
+    await orch.start_call("i1", IncidentType.BURGLARY, "12 Elm Street")
+    reply = await orch.handle_ws_message(
+        {
+            "interaction_type": "response_required",
+            "response_id": 3,
+            "transcript": [
+                {"role": "agent", "content": "opening"},
+                {"role": "user", "content": "what colour is the front door?"},
+            ],
+        }
+    )
+    # The honest "I don't know" is replaced by the fixed demo line - only ever
+    # on the non-answer path, never over a real verified answer.
+    assert reply["content"] == "There is an incident as we said earlier."
+
+
+@pytest.mark.asyncio
+async def test_no_demo_line_keeps_the_honest_non_answer(mesh):
+    orch, _ = _orchestrator(mesh)
+    assert orch.demo_operator_line == ""
+    await orch.start_call("i1", IncidentType.BURGLARY, "12 Elm Street")
+    reply = await orch.handle_ws_message(
+        {
+            "interaction_type": "response_required",
+            "response_id": 4,
+            "transcript": [
+                {"role": "agent", "content": "opening"},
+                {"role": "user", "content": "what colour is the front door?"},
+            ],
+        }
+    )
+    assert reply["content"].startswith("I don't know")
+
+
 class _FakeSink:
     def __init__(self) -> None:
         self.lines: list[tuple[str, str, str]] = []

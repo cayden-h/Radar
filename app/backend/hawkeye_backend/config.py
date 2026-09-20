@@ -204,6 +204,15 @@ class Settings(BaseSettings):
     # simulated. Default retell; twilio is retained but dormant.
     call_transport: str = "retell"
 
+    # Demo affordance. When non-empty, the caller substitutes this fixed line
+    # for the operator whenever `answer_operator` returns a non-answer (an "I
+    # don't know" it reached because nothing verified was available). Empty in
+    # production, so the honest "I can't verify that" still speaks. It never
+    # overrides a real verified answer - only the non-answer path - so it cannot
+    # dress an unverified claim up as a fact. A benign restatement only, e.g.
+    # "There is an incident as we said earlier."
+    caller_demo_operator_line: str = ""
+
     # Replay recording. The record opens on a human tap and seals when the 911
     # call ends; these bound what goes into it in between.
     #
