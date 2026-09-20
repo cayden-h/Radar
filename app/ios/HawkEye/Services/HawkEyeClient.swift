@@ -59,6 +59,22 @@ protocol HawkEyeClienting: AnyObject {
     /// view may be behind rather than quietly drawing a stale house.
     var missedFrames: Bool { get }
 
+    /// The newest camera thumbnail off the event stream, or nil before one
+    /// arrives.
+    ///
+    /// **Check `live` before drawing it as the room now.** False means it is a
+    /// true statement about the last thing the camera saw and nothing more.
+    /// This is the 1 Hz path; `cameraStreamURL` is the full-rate one, and this
+    /// stays the fallback because one frame a second is still a real picture
+    /// and an empty panel is not.
+    var cameraFrame: CameraFrame? { get }
+
+    /// `GET /v1/camera/live` on the connected hub, for `MJPEGStream`.
+    ///
+    /// Nil when no hub is connected, and nil on the mock client, which has no
+    /// socket to stream from and answers with `cameraFrame` instead.
+    var cameraStreamURL: URL? { get }
+
     /// Opens the connection to a hub. Throws if the hub cannot be reached or
     /// does not answer with the identity it advertised.
     func connect(to hub: Hub) async throws

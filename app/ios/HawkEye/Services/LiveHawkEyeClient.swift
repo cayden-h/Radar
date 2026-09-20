@@ -59,6 +59,17 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     /// second and no screen needs an hour of them.
     static let narrationLimit = 200
 
+    /// `GET /v1/camera/live` on the hub this client is connected to.
+    ///
+    /// Gated on `link == .live` rather than merely on having a `baseURL`: the
+    /// fallback URL is a placeholder for a hosted instance, and handing it to
+    /// `MJPEGStream` while disconnected would spend the whole reconnect window
+    /// failing against a host that was never this resident's hub.
+    var cameraStreamURL: URL? {
+        guard link == .live else { return nil }
+        return baseURL.appending(path: Config.cameraLivePath)
+    }
+
     @ObservationIgnored private var baseURL: URL = Config.fallbackBaseURL
     @ObservationIgnored private let session = URLSession(configuration: .default)
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
@@ -436,9 +447,24 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     /// can be used directly as a host. That avoids hand-rolling an address
     /// resolution that would break on IPv6-only networks, and Bonjour names are
     /// what survive a DHCP lease change.
+    /// The address to dial, taken from what the hub advertised.
+    ///
+    /// **This used to build `http://<instance>._hawkeye._tcp.local.:8787` and
+    /// hand it to `URLSession`, which could never have worked.** That is a
+    /// Bonjour *service instance name*, not a hostname, and `URLSession` does
+    /// not resolve one - so every live connection failed at DNS with an error
+    /// that read like the hub being down. The hub now publishes the address it
+    /// actually bound in its TXT record and this uses that. See
+    /// `app/backend/hawkeye_backend/discovery.py`.
+    ///
+    /// A hub with no `host` in its TXT record is one running a build older than
+    /// this contract. That is reported rather than guessed at, because the
+    /// guess - assuming the instance name resolves - is precisely the bug this
+    /// replaced.
     private static func resolveBaseURL(for hub: Hub) throws -> URL {
-        let host = "\(hub.id).\(Config.bonjourServiceType).\(Config.bonjourDomain)"
-            .replacingOccurrences(of: " ", with: "\\032")
+        guard let host = hub.host, !host.isEmpty else {
+            throw HawkEyeClientError.badEndpoint
+        }
         let port = hub.port ?? Config.defaultHubPort
         guard let url = URL(string: "http://\(host):\(port)") else {
             throw HawkEyeClientError.badEndpoint

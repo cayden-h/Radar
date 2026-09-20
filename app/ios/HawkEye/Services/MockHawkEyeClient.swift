@@ -50,6 +50,30 @@ final class MockHawkEyeClient: HawkEyeClienting {
     private(set) var hello: HubHello?
     private(set) var link: LinkState = .offline
     private(set) var missedFrames = false
+
+    /// The mock's camera thumbnail.
+    ///
+    /// Rebuilt from `SimulatedCameraFrame` rather than stored, so it tracks the
+    /// shield: closed lens, no frame, which is the honest answer rather than a
+    /// grey rectangle. `source` is `.ruviewSim`, so `Provenance.simulated` is
+    /// true and every view draws the SIMULATED marker off the data rather than
+    /// off a branch on `Config.useMocks`.
+    var cameraFrame: CameraFrame? {
+        guard shieldStatus().state == .open,
+              let jpeg = SimulatedCameraFrame.jpeg(room: Config.cameraRoom)
+        else { return nil }
+        return CameraFrame(
+            jpeg: jpeg,
+            capturedAt: Date(),
+            source: .ruviewSim,
+            live: true,
+            room: Config.cameraRoom
+        )
+    }
+
+    /// Nil, always. There is no socket to stream from on the mock path, and the
+    /// view falls back to `cameraFrame` above.
+    var cameraStreamURL: URL? { nil }
     private(set) var household: [HouseholdMember] = []
     private(set) var unclaimedDevices: [ObservedDevice] = [MockHawkEyeClient.seededVisitorDevice]
 

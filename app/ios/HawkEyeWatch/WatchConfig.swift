@@ -11,7 +11,12 @@ import Foundation
 /// `true` runs all three screens off a scripted feed with no phone at all.
 enum WatchConfig {
 
-    static let useMockLink = true
+    /// Live by default as of 2026-09-20, matching the phone's `Config.useMocks`.
+    /// The watch now draws what the phone relays from a real hub.
+    ///
+    /// Kept rather than deleted, for the reason `Config.useMocks` gives: this
+    /// is the fallback when pairing refuses on the day.
+    static let useMockLink = false
 
     /// How long a consequential control is held before it fires. 1.5 seconds,
     /// the same as every other risky control in the project. A wrist is the

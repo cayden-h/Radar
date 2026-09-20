@@ -43,6 +43,47 @@ python3.13 -m venv .venv
 It listens on `0.0.0.0:8787` by default.
 Interactive API docs are at `http://127.0.0.1:8787/docs`.
 
+### Configuration is read from `app/backend/.env`, by absolute path
+
+`Settings.model_config` used to say `env_file=".env"`, which resolves against the
+**process working directory** rather than against the package. That is fine for
+this service, which runs from `app/backend`, and wrong for every other process
+that imports these settings: `scripts/up.sh` starts `agents/caller` with its cwd
+in `agents/`, where no `.env` exists, so the caller silently loaded pure defaults
+- `mode="simulated"`, `retell_configured=False` - and wired the simulated call
+client no matter what the real `.env` said.
+
+Nothing logged, because loading no env file is indistinguishable from loading an
+empty one.
+
+`hawkeye_backend.config.BACKEND_ENV` is now an absolute path to this directory's
+`.env`, and a `.env` beside the running process still overrides it. Check it from
+wherever you are suspicious:
+
+```sh
+.venv/bin/python -c "from hawkeye_backend.config import get_settings; s=get_settings(); print(s.mode, s.retell_configured)"
+```
+
+### Bonjour
+
+The hub advertises itself as `_hawkeye._tcp` on startup so the iOS Connect screen
+can find it, and withdraws the advertisement on shutdown. See
+`hawkeye_backend/discovery.py`, which also explains why the hub's address is
+published in the TXT record rather than left for the phone to resolve.
+
+Optional, and never fatal: with no `zeroconf` installed the hub logs a warning and
+serves every route as usual.
+
+```sh
+uv pip install -e ".[discovery]"
+dns-sd -B _hawkeye._tcp local.          # is anything advertising
+dns-sd -L "Hawk Eye Hub" _hawkeye._tcp local.   # what its TXT record says
+```
+
+A hub with no non-loopback address advertises nothing, deliberately: a phone
+cannot reach `127.0.0.1`, and advertising it would produce a hub that is
+discovered and then refuses every connection.
+
 ## Tests
 
 ```sh

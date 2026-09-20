@@ -15,7 +15,16 @@ enum Config {
     ///
     /// This exists because the demo cannot depend on hardware being alive.
     /// Flip it to `false` and the identical UI runs against the real hub.
-    static let useMocks = true
+    /// Live by default as of 2026-09-20. The hub advertises itself over
+    /// Bonjour now (`app/backend/hawkeye_backend/discovery.py`), so the Connect
+    /// screen finds real hubs and the app runs against real endpoints.
+    ///
+    /// The mock path is kept rather than deleted, and that is a rule rather
+    /// than laziness: the root `CLAUDE.md` says anything demoed live needs a
+    /// recorded fallback, and a venue network that refuses to carry traffic
+    /// between its own clients is a failure no amount of correct code survives.
+    /// Flip this back to `true` and the identical UI runs with nothing up.
+    static let useMocks = false
 
     // MARK: Live backend
 
@@ -56,6 +65,11 @@ enum Config {
 
     /// `POST /v1/incident`. The resident raises an incident.
     static let incidentPath = "/v1/incident"
+
+    /// `GET /v1/camera/live`. The full-rate MJPEG, for the phone and the
+    /// browser. The watch gets a 1 Hz thumbnail on the event stream instead,
+    /// because it is a wrist and not a monitor.
+    static let cameraLivePath = "v1/camera/live"
 
     /// `GET /v1/household`. The roster.
     static let householdPath = "/v1/household"
@@ -164,6 +178,11 @@ enum Config {
     static let mockIntruderTravelSeconds: Double = 4.5
 
     // MARK: Site
+
+    /// The room the one fixed camera covers. Mirrors `HAWKEYE_CAMERA_ROOM` on
+    /// the hub, whose default is the same. One camera sees one room, and every
+    /// vision claim carries that scope rather than implying it has none.
+    static let cameraRoom = "Living room"
 
     /// One resident, hardcoded. No accounts, no onboarding. See `app/CLAUDE.md`.
     static let siteID = "hawkeye-demo-home"

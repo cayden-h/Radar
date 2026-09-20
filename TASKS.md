@@ -406,6 +406,34 @@ Feed, narration beneath it as it arrives, timestamp, and the `generated` label r
 
 **Done when** the mock's narration lines animate in and the panel degrades correctly to the shield-closed state.
 
+**The feed half landed 2026-09-20. The narration half has not.**
+
+`CameraFeedView` was a static `video.fill` glyph - its own comment said "no
+computer-vision pipeline is wired up, this is the honest placeholder for one" -
+while `LiveHawkEyeClient` had been decoding `frame` events into `cameraFrame` and
+discarding them. It now draws the camera:
+
+- Full-rate MJPEG off `GET /v1/camera/live` via `Services/MJPEGStream.swift`, with
+  the 1 Hz stream thumbnail as the fallback while MJPEG connects or after it drops
+- A stale frame is dimmed and banded `NOT LIVE · 12s AGO` rather than hidden,
+  because a frozen picture of an empty room is the most dangerous thing this app
+  can show
+- Frames are badged from their own `Provenance.Source`: `camera-uvc` unmarked,
+  `replay-video` **RECORDED**, `camera-sim` **SIMULATED**. So `up.sh --fixture` is
+  visibly recorded footage on the phone
+
+**Still open on this task:** narration lines under the panel, the timestamp, and
+the `generated` label drawn differently from measured fields. `client.narration`
+is populated and nothing reads it - the same shape of gap this just closed for
+`cameraFrame`.
+
+**A note for whoever takes the narration half.** The panel's size must not depend
+on its contents. The feed first went in as a `ZStack`, which sizes to its largest
+child, and a `resizable()` image has no intrinsic size - so the tile grew and
+pushed Call 911 down and across the screen. It is an `overlay` on a
+self-sizing panel now, which structurally cannot affect the layout around it.
+Narration text under the panel has exactly the same trap.
+
 ### T34 - Watch transcribe mode
 **Lane** C · **Skill** swift · **Needs** T31 · **Who** ___
 

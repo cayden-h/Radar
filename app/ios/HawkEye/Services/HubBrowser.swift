@@ -105,6 +105,8 @@ final class BonjourHubBrowser: HubBrowsing {
         var signal: Double?
         var ansName: String?
         var display = name
+        var host: String?
+        var port: Int?
 
         if case .bonjour(let txt) = result.metadata {
             if let raw = txt["signal"], let value = Double(raw) {
@@ -114,6 +116,16 @@ final class BonjourHubBrowser: HubBrowsing {
             if let friendly = txt["name"], !friendly.isEmpty {
                 display = friendly
             }
+            // The address the hub actually bound, published rather than
+            // resolved. `Hub.host` says why; the short version is that a
+            // service instance name is not a hostname and `URLSession` cannot
+            // resolve one.
+            if let advertised = txt["host"], !advertised.isEmpty {
+                host = advertised
+            }
+            if let raw = txt["port"], let value = Int(raw) {
+                port = value
+            }
         }
 
         return Hub(
@@ -122,6 +134,8 @@ final class BonjourHubBrowser: HubBrowsing {
             endpoint: endpointDescription(result),
             signal: signal,
             paired: false,
+            host: host,
+            port: port,
             ansName: ansName
         )
     }
@@ -171,7 +185,8 @@ final class MockHubBrowser: HubBrowsing {
             guard let self, !Task.isCancelled else { return }
             self.hubs = [
                 Hub(id: "hawkeye-home", name: "Home", endpoint: "Wi-Fi",
-                    signal: 0.92, paired: true, ansName: "home.hub.hawkeye.ai")
+                    signal: 0.92, paired: true, host: "127.0.0.1",
+                    port: Config.defaultHubPort, ansName: "home.hub.hawkeye.ai")
             ]
             self.phase = .found
         }

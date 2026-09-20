@@ -37,6 +37,49 @@ struct CameraFrame: Decodable, Sendable, Hashable {
     }
 }
 
+extension CameraFrame {
+
+    /// What a frame may be presented as, derived from its `source`.
+    ///
+    /// The hub derives `Provenance.sourceClass` server-side and that stays the
+    /// authority, but `CameraFrame` carries only `source` on the wire, so the
+    /// mapping is repeated here for the three camera sources and nothing else.
+    /// It is a closed set of three, and the alternative - widening the frame
+    /// envelope - is a wire change on the morning of judging.
+    enum Origin {
+        /// The Brio over UVC. The only origin that may be drawn unmarked.
+        case liveCamera
+        /// Recorded footage through the same pipeline. Measured, but not live.
+        /// `Provenance.Source.replayVideo` says it "must never be presentable
+        /// as a live camera", so it is marked rather than merely allowed.
+        case recorded
+        /// A synthetic frame. Not measured at all.
+        case simulated
+    }
+
+    var origin: Origin {
+        switch source {
+        case .cameraUVC: .liveCamera
+        case .replayVideo: .recorded
+        case .cameraSim, .ruviewSim: .simulated
+        // Nothing else should ever arrive on a camera frame. Marking an
+        // unexpected source as simulated is the safe direction: it understates
+        // what the picture proves rather than overstating it.
+        default: .simulated
+        }
+    }
+
+    /// The badge drawn over the feed, or nil when the frame is a live camera
+    /// and needs no qualifier.
+    var originBadge: String? {
+        switch origin {
+        case .liveCamera: nil
+        case .recorded: "RECORDED"
+        case .simulated: "SIMULATED"
+        }
+    }
+}
+
 /// One line the camera produced about what it is seeing.
 ///
 /// **Not a `TranscriptLine`.** That type is one line of the caller-to-911

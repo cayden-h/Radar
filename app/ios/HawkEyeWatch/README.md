@@ -107,7 +107,7 @@ Notifications are presented even while the app is open, because watchOS otherwis
 To fire one by hand:
 
 ```sh
-xcrun simctl push <watch-udid> ai.hawkeye.app.watchkitapp notice.apns
+xcrun simctl push <watch-udid> tech.cayden.hawkeye.app.watchkitapp notice.apns
 ```
 
 with `"category": "hawkeye.notice"` in the payload so the custom long look is used, and `"notice_id"` matching a notice the app has already seen if you want the frame to appear.
