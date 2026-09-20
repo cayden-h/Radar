@@ -2,6 +2,7 @@
 # never commit: project.yml is the source of truth.
 HawkEye.xcodeproj/
 HawkEye/Info.plist
+HawkEyeWatch/Info.plist
 
 .DS_Store
 xcuserdata/

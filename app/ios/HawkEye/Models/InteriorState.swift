@@ -433,6 +433,12 @@ struct InteriorState: Codable, Sendable, Hashable {
     /// Null when `agents/master` has not reported.
     var environment: EnvironmentReading?
     var floorplan: Floorplan = .home
+    /// Where the lens shield is, as `agents/shutter` attests it.
+    ///
+    /// Nil means the shutter has not reported yet, which is not the same as
+    /// closed. A view that cannot tell must say so rather than drawing the
+    /// resting state and implying an attestation nobody made.
+    var shield: ShieldStatus?
     var activeIncidentID: String?
 
     var peopleCount: Int { presences.filter(\.state.isPerson).count }
@@ -444,11 +450,15 @@ struct InteriorState: Codable, Sendable, Hashable {
     /// False means the baseline is stale. Escalation is suppressed upstream and
     /// the view says so rather than drawing confident nonsense.
     var calibrationHealthy: Bool { calibration.healthy }
+
+    /// True only when the shutter has attested that the lens is uncovered.
+    /// An unreported shutter is never treated as open.
+    var cameraCanSee: Bool { shield?.state == .open }
     var coPpm: Double? { environment?.coPpm }
     var coSourceIsSimulated: Bool { environment?.isSimulated ?? false }
 
     enum CodingKeys: String, CodingKey {
-        case calibration, presences, environment, floorplan
+        case calibration, presences, environment, floorplan, shield
         case siteID = "site_id"
         case capturedAt = "captured_at"
         case sensorIdentity = "sensor_identity"
@@ -465,6 +475,7 @@ struct InteriorState: Codable, Sendable, Hashable {
         presences: [Presence],
         environment: EnvironmentReading? = nil,
         floorplan: Floorplan = .home,
+        shield: ShieldStatus? = nil,
         activeIncidentID: String? = nil
     ) {
         self.siteID = siteID
@@ -474,6 +485,7 @@ struct InteriorState: Codable, Sendable, Hashable {
         self.presences = presences
         self.environment = environment
         self.floorplan = floorplan
+        self.shield = shield
         self.activeIncidentID = activeIncidentID
     }
 
@@ -486,6 +498,7 @@ struct InteriorState: Codable, Sendable, Hashable {
         presences = try c.decodeIfPresent([Presence].self, forKey: .presences) ?? []
         environment = try c.decodeIfPresent(EnvironmentReading.self, forKey: .environment)
         floorplan = try c.decodeIfPresent(Floorplan.self, forKey: .floorplan) ?? .home
+        shield = try c.decodeIfPresent(ShieldStatus.self, forKey: .shield)
         activeIncidentID = try c.decodeIfPresent(String.self, forKey: .activeIncidentID)
     }
 }

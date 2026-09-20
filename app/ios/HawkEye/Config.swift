@@ -118,6 +118,14 @@ enum Config {
     /// them to be there.
     static let mockDetectionAfter: Duration? = .seconds(14)
 
+    /// Makes `master`'s shutter grant fail verification, so `agents/shutter`
+    /// refuses to move and the camera never opens.
+    ///
+    /// **The refusal path matters more than the happy path.** A dispatch demo
+    /// that works is unremarkable; a shutter that refuses to open for an
+    /// impostor is the submission. Flip this to run that half on stage.
+    static let mockShutterRefuses = false
+
     /// How long the mock waits after a presence's breathing signature goes
     /// missing before it surfaces the loss. The real agent uses the elapsed
     /// time since the last resolvable signature; this is the mock's stand-in.
