@@ -10,22 +10,22 @@ enum TypeScale {
     static let wordmark = Font.system(size: 30, weight: .semibold, design: .rounded)
 
     /// Screen titles.
-    static let title = Font.system(size: 26, weight: .semibold, design: .rounded)
+    static let title = Font.system(size: 26, weight: .semibold, design: .serif)
 
     /// Section headings and the incident banner.
-    static let heading = Font.system(size: 19, weight: .semibold, design: .rounded)
+    static let heading = Font.system(size: 19, weight: .semibold, design: .serif)
 
     /// Body copy. Transcript lines, guidance cards.
-    static let body = Font.system(size: 16, weight: .regular)
+    static let body = Font.system(size: 16, weight: .regular, design: .serif)
 
     /// Emphasised body. Guidance instructions the user must act on.
-    static let bodyStrong = Font.system(size: 16, weight: .semibold)
+    static let bodyStrong = Font.system(size: 16, weight: .semibold, design: .serif)
 
     /// Row subtitles, field labels.
-    static let caption = Font.system(size: 13, weight: .medium)
+    static let caption = Font.system(size: 13, weight: .medium, design: .serif)
 
     /// All-caps eyebrow labels. Always paired with `.tracking(1.4)`.
-    static let eyebrow = Font.system(size: 11, weight: .semibold)
+    static let eyebrow = Font.system(size: 11, weight: .semibold, design: .serif)
 
     /// Any ticking number: call duration, still-down seconds, signal strength.
     static let numeric = Font.system(size: 13, weight: .medium, design: .monospaced)
