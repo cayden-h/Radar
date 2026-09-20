@@ -45,6 +45,34 @@ struct HomeView: View {
         return incident
     }
 
+    /// Set while `RememberVisitorSheet` is up, so the notice card's own sheet
+    /// steps aside rather than trying to present underneath another sheet.
+    /// The notice itself is untouched in `client.notices` while this is true;
+    /// only the card's visibility is suppressed. See `onRemember` below and
+    /// the `onChange(of: rememberingNotice)` that clears this once that sheet
+    /// closes, saved or cancelled.
+    @State private var suppressNoticeCard = false
+
+    /// The newest notice, presented as a modal card. Both clients insert new
+    /// notices at index 0 (see `MockHawkEyeClient.notices` and
+    /// `LiveHawkEyeClient.notices`), so `.first` is the most recent.
+    private var latestNoticeBinding: Binding<Notice?> {
+        Binding(
+            get: { suppressNoticeCard ? nil : client.notices.first },
+            set: { newValue in
+                guard newValue == nil else { return }
+                // This only fires for an interactive (swipe-to-dismiss)
+                // close. The card's own Dismiss/Approve controls call
+                // `client.dismissNotice` directly, and hiding the card for
+                // the "Remember this visitor" flow sets `suppressNoticeCard`
+                // instead of clearing the notice — see `onRemember` below.
+                if let id = client.notices.first?.id {
+                    withAnimation(Motion.standard) { client.dismissNotice(id) }
+                }
+            }
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Group {
@@ -73,21 +101,60 @@ struct HomeView: View {
             .background(Palette.surface.ignoresSafeArea(edges: .bottom))
         }
         .task { await client.refreshHousehold() }
-        .sheet(item: $rememberingNotice) { notice in
-            RememberVisitorSheet(unclaimedDevices: client.unclaimedDevices) { name, kind, deviceID in
-                Task {
-                    try? await client.rememberVisitor(name: name, kind: kind, deviceID: deviceID)
-                    // The resident has just said who this is, which answers the
-                    // question the banner exists to raise. Approving and
-                    // dismissing here, rather than making them also tap
-                    // "This is expected", is the point: remembering someone is
-                    // a stronger fact than merely vouching for them.
-                    if let presenceID = notice.presenceID {
-                        try? await client.approvePresence(presenceID)
-                    }
+        .sheet(item: latestNoticeBinding) { notice in
+            NoticeCard(
+                notice: notice,
+                onDismiss: {
                     withAnimation(Motion.standard) {
                         client.dismissNotice(notice.id)
                     }
+                },
+                onApprove: {
+                    guard let presenceID = notice.presenceID else { return }
+                    Task { try? await client.approvePresence(presenceID) }
+                    withAnimation(Motion.standard) {
+                        client.dismissNotice(notice.id)
+                    }
+                },
+                onRemember: {
+                    guard notice.presenceID != nil else { return }
+                    // Step the notice card's sheet aside rather than stacking
+                    // a second sheet on top of it; `onChange` below restores
+                    // it once `RememberVisitorSheet` closes, if the notice is
+                    // still around.
+                    suppressNoticeCard = true
+                    rememberingNotice = notice
+                }
+            )
+        }
+        .onChange(of: rememberingNotice) { oldValue, newValue in
+            if oldValue != nil && newValue == nil {
+                suppressNoticeCard = false
+            }
+        }
+        .sheet(item: $rememberingNotice) { notice in
+            RememberVisitorSheet(unclaimedDevices: client.unclaimedDevices) { name, kind, deviceID in
+                try? await client.rememberVisitor(name: name, kind: kind, deviceID: deviceID)
+                // The resident has just said who this is, which answers the
+                // question the card exists to raise. Approving and
+                // dismissing here, rather than making them also tap
+                // "This is expected", is the point: remembering someone is
+                // a stronger fact than merely vouching for them.
+                //
+                // Awaiting this directly (rather than firing a detached
+                // `Task`) is what closes the race with the sheet's own
+                // dismiss: `RememberVisitorSheet`'s Save button now awaits
+                // this whole closure before calling `dismiss()`, so
+                // `client.notices` has already dropped this notice by the
+                // time `rememberingNotice` goes to `nil` and the
+                // `onChange` above clears `suppressNoticeCard`. Without
+                // that ordering, `latestNoticeBinding` could briefly hand
+                // the just-answered notice back to `NoticeCard`.
+                if let presenceID = notice.presenceID {
+                    try? await client.approvePresence(presenceID)
+                }
+                withAnimation(Motion.standard) {
+                    client.dismissNotice(notice.id)
                 }
             }
         }
@@ -135,29 +202,6 @@ struct HomeView: View {
     private var cameraPage: some View {
         VStack(spacing: Space.lg) {
             header
-
-            ForEach(client.notices) { notice in
-                NoticeBanner(
-                    notice: notice,
-                    onDismiss: {
-                        withAnimation(Motion.standard) {
-                            client.dismissNotice(notice.id)
-                        }
-                    },
-                    onApprove: {
-                        guard let presenceID = notice.presenceID else { return }
-                        Task { try? await client.approvePresence(presenceID) }
-                        withAnimation(Motion.standard) {
-                            client.dismissNotice(notice.id)
-                        }
-                    },
-                    onRemember: {
-                        guard notice.presenceID != nil else { return }
-                        rememberingNotice = notice
-                    }
-                )
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
 
             VStack(spacing: Space.xs) {
                 CameraFeedView()
