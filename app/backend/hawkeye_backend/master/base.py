@@ -37,6 +37,18 @@ class AutonomousDialRefused(RuntimeError):
     """
 
 
+class ParticipationModeRefused(RuntimeError):
+    """master declined a participation-mode change for an incident's call.
+
+    `app/backend` does not import `agents/`, so this is a local type rather
+    than a shared exception class: the two are separately deployable
+    processes that only ever talk over HTTP/A2A. `LiveMasterClient` raises
+    this when master's A2A endpoint reports the mode change as refused
+    (e.g. the incident has no active call, or the requested mode is not one
+    master will honour for this call state).
+    """
+
+
 def assert_human_released(incident: Incident) -> None:
     """Gate on the dialing path. Only a human tap releases `agents/caller`.
 
@@ -97,4 +109,32 @@ class MasterClient(Protocol):
 
     async def fetch_replay(self, incident_id: str) -> ReplayRecord | None:
         """The sealed post-incident record from agents/replay."""
+        ...
+
+    async def start_call(self, incident: Incident) -> None:
+        """Release agents/caller to dial, for an already human-raised incident.
+
+        Raises `AutonomousDialRefused` (via `assert_human_released`) if
+        `incident.raised_by` is not `RaisedBy.USER`. This is a second,
+        independent copy of the guard `agents/master.release_for_call` holds
+        on the agents side: `app/backend` is a separate deployable process
+        that talks to master only over HTTP/A2A, so it cannot rely on that
+        in-process check reaching across the network boundary. Hawk Eye
+        never calls 911 on its own; settled 2026-09-19.
+        """
+        ...
+
+    async def set_participation_mode(
+        self, incident_id: str, mode: str, *, by_human: bool
+    ) -> str:
+        """Switch the resident's leg of an in-progress call.
+
+        `mode` is one of "watching", "whisper", "full_voice" (see
+        `app/CLAUDE.md`'s mode table). Returns the announcement text spoken
+        on the call/shown in-app for the switch. Raises
+        `ParticipationModeRefused` if master declines the change (e.g. no
+        active call for this incident, or automation tried to move the mode
+        louder without `by_human=True` — automation may only ever move
+        toward quieter).
+        """
         ...
