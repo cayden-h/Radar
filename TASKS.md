@@ -244,6 +244,24 @@ The five-row table in `agents/CLAUDE.md`. The shutter grant on an unaccounted ve
 
 **Done when** the row "unaccounted motion + shutter refused to open" produces a system event and **no incident and no visual claim**, with a test asserting master does not reach for the radio to fill the gap.
 
+### ~~T25 - The edge link: camera and servo on the Pi, compute on the Mac~~ **Done 2026-09-20.**
+**Lane** A/B · **Skill** py · **Blocks** T33, T60 · **Branch** `t20-hub-integration`
+
+New task, added and completed the same day, because nothing connected the four finished parts to a screen.
+
+`WS /v1/edge/link`: the Pi dials the Mac, JPEG frames go up, shutter grants come down.
+`python -m hawkeye_vision.edge` on the Pi captures and pushes and runs no model.
+`RelayFrameSource` lets `vision/` read those frames on the Mac, so YOLO, Gemini and the recorder run unchanged.
+Frames reach the three surfaces at three rates: MJPEG at `/v1/camera/live`, a 1 Hz thumbnail on the event stream for the watch, a still on demand.
+
+Four cross-app controls, all landing on `HubRuntime.emit()` so every surface sees every outcome: start incident, add context, shutter open/close, dismiss notice.
+`app/web/live/` is the third surface and the proof the backend is shared.
+
+**Verified end to end**, not merely tested: 194 frames across the link, MJPEG at 9 fps in a browser, the shield to 90 and back to 0 against the real `agents/shutter` that discovered `master`'s trust card from `master.batradar.club`, and the same grant refused as `unregistered_issuer` by a shutter with an empty trust store.
+Killing the edge flips `camera.live` false within four seconds rather than serving a frozen frame as current.
+
+**What it left for T20:** `master` still does not expose a grant endpoint, so in simulated mode the hub signs with `master`'s own key and says so at startup. `LiveMasterClient.issue_shutter_grant` already posts to `/v1/shutter/grant` and needs the other end.
+
 ## Lane B - The Pi
 
 ### T21 - Servo wired, powered and calibrated
