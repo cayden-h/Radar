@@ -134,19 +134,27 @@ struct HomeView: View {
         }
         .sheet(item: $rememberingNotice) { notice in
             RememberVisitorSheet(unclaimedDevices: client.unclaimedDevices) { name, kind, deviceID in
-                Task {
-                    try? await client.rememberVisitor(name: name, kind: kind, deviceID: deviceID)
-                    // The resident has just said who this is, which answers the
-                    // question the card exists to raise. Approving and
-                    // dismissing here, rather than making them also tap
-                    // "This is expected", is the point: remembering someone is
-                    // a stronger fact than merely vouching for them.
-                    if let presenceID = notice.presenceID {
-                        try? await client.approvePresence(presenceID)
-                    }
-                    withAnimation(Motion.standard) {
-                        client.dismissNotice(notice.id)
-                    }
+                try? await client.rememberVisitor(name: name, kind: kind, deviceID: deviceID)
+                // The resident has just said who this is, which answers the
+                // question the card exists to raise. Approving and
+                // dismissing here, rather than making them also tap
+                // "This is expected", is the point: remembering someone is
+                // a stronger fact than merely vouching for them.
+                //
+                // Awaiting this directly (rather than firing a detached
+                // `Task`) is what closes the race with the sheet's own
+                // dismiss: `RememberVisitorSheet`'s Save button now awaits
+                // this whole closure before calling `dismiss()`, so
+                // `client.notices` has already dropped this notice by the
+                // time `rememberingNotice` goes to `nil` and the
+                // `onChange` above clears `suppressNoticeCard`. Without
+                // that ordering, `latestNoticeBinding` could briefly hand
+                // the just-answered notice back to `NoticeCard`.
+                if let presenceID = notice.presenceID {
+                    try? await client.approvePresence(presenceID)
+                }
+                withAnimation(Motion.standard) {
+                    client.dismissNotice(notice.id)
                 }
             }
         }

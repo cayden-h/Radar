@@ -10,12 +10,17 @@ import SwiftUI
 /// words, what they are about to remember, before they remember it.
 struct RememberVisitorSheet: View {
     let unclaimedDevices: [ObservedDevice]
-    let onSave: (_ name: String, _ kind: HouseholdMember.Kind, _ deviceID: String?) -> Void
+    let onSave: (_ name: String, _ kind: HouseholdMember.Kind, _ deviceID: String?) async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var kind: HouseholdMember.Kind = .guest
     @State private var deviceID: String?
+    /// True while the Save action's `Task` is awaiting `onSave`. Keeps a
+    /// resident from double-tapping Save during the (normally fast, but real
+    /// over `LiveHawkEyeClient`) await, which would otherwise race two
+    /// `rememberVisitor` calls for the same notice.
+    @State private var isSaving = false
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -65,10 +70,13 @@ struct RememberVisitorSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        onSave(trimmedName, kind, deviceID)
-                        dismiss()
+                        isSaving = true
+                        Task {
+                            await onSave(trimmedName, kind, deviceID)
+                            dismiss()
+                        }
                     }
-                    .disabled(trimmedName.isEmpty)
+                    .disabled(trimmedName.isEmpty || isSaving)
                 }
             }
         }
