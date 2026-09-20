@@ -672,3 +672,55 @@ def test_the_operator_is_never_told_a_room_is_next_to_itself() -> None:
     assert "living room, next to" not in opening
     if "directly outside the second bedroom" in opening:
         assert "is now in the hallway" in opening
+
+
+# --------------------------------------------------------------- archive hand-off
+#
+# The recorder is synchronous by design: it runs inside HubRuntime.emit, which
+# is the single path every event takes to a phone, and awaiting a network write
+# in there would put Atlas's latency in front of the resident. So it does not
+# archive anything itself. It names what it sealed, and the runtime - which is
+# already async - does the writing.
+
+
+def test_sealing_a_record_queues_it_for_the_archive(recorder: ReplayRecorder) -> None:
+    inc = incident()
+    raise_it(recorder, inc)
+    assert recorder.drain_sealed() == []
+
+    end_call(recorder, inc)
+
+    assert recorder.drain_sealed() == [inc.incident_id]
+
+
+def test_draining_twice_does_not_archive_the_same_record_twice(
+    recorder: ReplayRecorder,
+) -> None:
+    """The queue is a hand-off, not a log.
+
+    Re-archiving is harmless - the write upserts on the incident id - but a
+    queue that never empties means every emit after a seal does a round trip to
+    Atlas for a record already stored.
+    """
+    inc = incident()
+    raise_it(recorder, inc)
+    end_call(recorder, inc)
+
+    assert recorder.drain_sealed() == [inc.incident_id]
+    assert recorder.drain_sealed() == []
+
+
+def test_a_record_sealed_without_a_call_is_queued_too(recorder: ReplayRecorder) -> None:
+    """Resolved without a call ever being placed still seals, so it still archives.
+
+    This is the path a rehearsal takes most often, and it is the one that would
+    quietly never persist if only the call-ended branch queued.
+    """
+    inc = incident()
+    raise_it(recorder, inc)
+    inc.call_state = CallState.NOT_PLACED
+    inc.status = IncidentStatus.RESOLVED
+    inc.resolved_at = utc_now()
+    recorder.observe(IncidentEvent(phase=IncidentPhase.RESOLVED, incident=inc), inc.incident_id)
+
+    assert recorder.drain_sealed() == [inc.incident_id]

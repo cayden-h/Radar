@@ -19,6 +19,27 @@ Not a config flag. Not a boolean it sets itself. A signed attestation from a sep
 
 Without it, `vision` returns an `Unknown` with reason `shield_closed`, which is a fact a dispatcher would want and which the existing `Agent.blind()` helper already models.
 
+### What the attestation actually is
+
+`shutter` is built, so this is settled rather than pending. `shutter.open` returns it as an opaque JSON string
+alongside the position:
+
+```json
+{"position": "open", "commanded_angle": 90, "position_basis": "commanded",
+ "nonce": "shut-...", "at": "2026-09-19T03:00:00.000000+00:00"}
+```
+
+Three things to build T16 against:
+
+- **`position_basis` is always `"commanded"`.** The SG92R is open-loop and there is no position feedback, so
+  this says what the servo was *told*, never where the shield is. A jammed shield attests `open`. **`vision`
+  is the thing that catches that**, via the luminance guard - a shield still covering the lens produces a dark
+  frame, and `frame_too_dark` is the correct claim, not a description of a dimly lit room
+- **`nonce` identifies the grant that caused the movement.** It is how a claim gets tied back to the specific
+  authorization that uncovered the camera, all the way into the sealed record
+- **`at` is what "current" is measured against.** A stale attestation is `shield_closed`, and the staleness
+  test is one of the three T16 owes
+
 ## The two paths
 
 ```
@@ -78,7 +99,10 @@ Every claim is scoped to the one room the camera sees, and carries that scope as
 
 | Field | Meaning |
 |---|---|
-| `vision.people_visible` | How many distinct people are in frame. Integer, and it is a count of what the camera sees, not of the building |
+| `vision.people_visible` | How many distinct people are in frame. **Measured**, from the local tracker, not from the narration. A count of what the camera sees, not of the building |
+| `vision.tracks` | **Measured.** Per person: `track_id`, normalised `bbox`, `first_seen_frame`, `last_seen_frame`, `frames_held`. Identities are stable within a session only |
+| `vision.lighting` | **Measured.** `day`, `low` or `too_dark`. There is no IR capability; see `docs/swapping-in-real-parts.md` |
+| `vision.mean_luminance` | **Measured.** Mean luma 0..255 of the frame the claim was made from |
 | `vision.description` | The narration sentence. Free text, generated, and labelled as generated |
 | `vision.matches_resident` | `no_match`, `match:<enrolled_id>`, or `undetermined`. See the limits |
 | `vision.carrying` | What the person appears to be holding, when the model says so. Often empty |
@@ -135,3 +159,16 @@ None of these may present as a confident description.
 - Segment writer rotating at the boundary and producing a hashable, closed file
 - Gemini Live dropped mid-incident, and the recording path unaffected
 - Claims carry `source: generated` and the room scope, always
+
+**6. There is no night vision.**
+The Logitech Brio 101 has no IR sensor and no illuminator is owned, so there is no infrared path and there will not be one.
+`vision.lighting: low` means the frame was contrast-stretched before detection and the detection confidence floor was raised, and nothing more.
+Do not write a pitch sentence implying the camera sees in the dark.
+It does not; below `dark_threshold` it says so and stops describing the room.
+
+## Who measures what, after the tracker landed
+
+`people_visible` used to be whatever the narration said. It is now measured by a local YOLO11m plus BoT-SORT tracker running on the same frames, which means every claim carries two independent views of one moment: what an instrument counted, and what a language model said.
+
+That is what makes the safety producer possible.
+A narration describing a person for whom no track ever existed is a corroboration failure, and a corroboration failure is an observation worth posting.

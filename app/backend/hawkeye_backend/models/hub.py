@@ -54,6 +54,47 @@ class SensorLiveness(BaseModel):
     detail: str | None = None
 
 
+class CameraStatus(BaseModel):
+    """Whether there is a camera, and whether what it last sent is current.
+
+    `linked` and `live` are deliberately two fields rather than one. A link that
+    is up while frames have stopped arriving is a real and distinct failure, and
+    collapsing it into one boolean would let a stalled camera read as a
+    disconnected one, which is a different repair.
+
+    `live` false means the app must not present the last frame as current. That
+    is the whole reason this model exists: a frozen picture of an empty room is
+    the most dangerous thing this system can put on a screen.
+    """
+
+    linked: bool = Field(default=False, description="Is an edge box connected right now.")
+    live: bool = Field(
+        default=False,
+        description="Is the newest frame recent enough to present as current.",
+    )
+    edge_id: str | None = None
+    source: Source | None = Field(
+        default=None,
+        description=(
+            "What the edge claims is producing frames. A video file must not read "
+            "as a camera, which is why this is carried rather than assumed."
+        ),
+    )
+    last_frame_age_s: float | None = Field(
+        default=None,
+        description="Seconds since the newest frame was captured. None if none ever has been.",
+    )
+    fps: float = Field(default=0.0, description="Frames per second over the last ten seconds.")
+    frames_received: int = 0
+    frames_dropped: int = Field(
+        default=0, description="Inferred from gaps in the edge's frame index."
+    )
+    detail: str = Field(
+        default="No edge camera has connected yet.",
+        description="One sentence, written to be printed on a console.",
+    )
+
+
 class HubStatus(BaseModel):
     """GET /v1/hub response.
 
@@ -74,3 +115,13 @@ class HubStatus(BaseModel):
     agents: list[AgentReachability]
     active_incident_id: str | None = None
     stream_path: str = "/v1/stream"
+    camera: CameraStatus = Field(
+        default_factory=CameraStatus,
+        description=(
+            "The camera's own health, separate from the radio's. The Connect screen "
+            "and the live view both read it, and an unreachable camera must render "
+            "as unreachable rather than as a still room. Defaulted to the unlinked "
+            "state rather than required, because the honest answer before anything "
+            "connects is that there is no camera."
+        ),
+    )

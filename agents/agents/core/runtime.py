@@ -15,6 +15,8 @@ Surfaces:
     /.well-known/agent-card.json      the A2A card, bytes from disk
     /.well-known/agent.json           the same bytes, the alias the spec allows
     /.well-known/ans/trust-card.json  the ANS card, bytes from disk
+    /a2a                              the mesh transport
+    /mcp                              the same handlers, MCP envelope
     /healthz                          liveness, and honest about tick failures
     /v1/observation                   this agent's latest observation
 
@@ -39,7 +41,7 @@ from typing import TYPE_CHECKING
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Response
+from fastapi import APIRouter, FastAPI, Response
 from fastapi.responses import JSONResponse
 
 from agents.core.base import Agent
@@ -47,6 +49,8 @@ from agents.core.cards import A2A_CARD_ALIAS, A2A_CARD_PATH, TRUST_CARD_PATH
 from agents.core.identity import AgentIdentity
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Awaitable, Callable, Sequence
+
     from agents.core.signing import ClaimSigner
 
 logger = logging.getLogger(__name__)
@@ -104,13 +108,31 @@ class _CardBytes:
 
 
 def build_app(
-    agent: Agent, *, card_dir: Path | None = None, signer: "ClaimSigner | None" = None
+    agent: Agent,
+    *,
+    card_dir: Path | None = None,
+    signer: "ClaimSigner | None" = None,
+    routers: "Sequence[APIRouter]" = (),
+    on_start: "Callable[[], Awaitable[None]] | None" = None,
+    on_stop: "Callable[[], Awaitable[None]] | None" = None,
 ) -> FastAPI:
     """Wrap an agent in the surface all five share.
 
     `signer` is what lets this agent answer on `/a2a`. Without one the endpoint
     is simply absent, which is the honest failure: an agent that served claims
     it could not sign would be advertising an identity it does not hold.
+
+    `routers`, `on_start` and `on_stop` exist for exactly one agent. `master`
+    serves a second surface, the one `app/backend` talks to, and it needs a
+    background publisher started and stopped alongside the agent's own loop.
+    They are parameters rather than a subclass because what differs between
+    agents should be `tick` and nothing else - and a hook the other six pass
+    nothing to keeps that true in the shape of the code.
+
+    The hooks bracket the agent, not the other way round: `on_start` runs after
+    `agent.start()` so a publisher never reads a tick that has not happened, and
+    `on_stop` runs before `agent.stop()` so nothing is still composing state out
+    of an agent that is shutting down.
     """
     identity: AgentIdentity = agent.identity
     cards = card_dir or (CARD_ROOT / identity.slug)
@@ -123,7 +145,11 @@ def build_app(
         # "start on first request": every agent runs continuously, which is what
         # lets the system notice an unidentified person in the house at 3am.
         await agent.start()
+        if on_start is not None:
+            await on_start()
         yield
+        if on_stop is not None:
+            await on_stop()
         await agent.stop()
 
     app = FastAPI(
@@ -135,9 +161,17 @@ def build_app(
     )
 
     if signer is not None:
+        from agents.core.mcp import mcp_router
         from agents.core.transport import a2a_router
 
-        app.include_router(a2a_router(agent, signer))
+        # Two doors, one set of handlers. `/a2a` is what the mesh speaks and
+        # what the card names as preferred; `/mcp` exists because the track
+        # owner's own verifier asked for it by name. Neither authorizes
+        # anything - the signed envelope does - so adding the second door
+        # widens reach without widening trust.
+        methods = agent.a2a_methods(signer)
+        app.include_router(a2a_router(agent, signer, extra=methods))
+        app.include_router(mcp_router(agent, signer, extra=methods))
     else:
         logger.warning(
             "%s has no signer, so it serves no /a2a endpoint. Its card advertises one; "
@@ -145,6 +179,11 @@ def build_app(
             "published, machine-checkable lie.",
             identity.name,
         )
+
+    # After `/a2a`, so a second router can never shadow the endpoint the card
+    # publishes and the judge's verifier sends its live message to.
+    for extra in routers:
+        app.include_router(extra)
 
     @app.get(A2A_CARD_PATH, include_in_schema=False)
     @app.get(A2A_CARD_ALIAS, include_in_schema=False)
@@ -171,7 +210,10 @@ def build_app(
         if latest is None:
             return JSONResponse(
                 status_code=503,
-                content={"error": "no_observation", "detail": "Agent has not completed a tick yet."},
+                content={
+                    "error": "no_observation",
+                    "detail": "Agent has not completed a tick yet.",
+                },
             )
         return JSONResponse(content=latest.model_dump(mode="json"))
 

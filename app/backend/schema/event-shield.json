@@ -1,0 +1,21 @@
+{
+  "$note": "Where the shield is. `position_basis` is always `commanded`: the SG92R is open-loop, so this is the angle it was told to reach, never the one it got to.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 52,
+    "at": "2026-09-20T04:12:44.400000Z",
+    "incident_id": null,
+    "payload": {
+      "kind": "shield",
+      "position": "open",
+      "position_basis": "commanded",
+      "commanded_angle": 90,
+      "requested_action": "open",
+      "refused": false,
+      "refusal_reason": "",
+      "reason": "unaccounted motion in the living room",
+      "at": "2026-09-20T07:10:52.867674Z",
+      "source": "servo-gpio"
+    }
+  }
+}

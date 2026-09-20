@@ -62,6 +62,51 @@ class Settings(BaseSettings):
     mongodb_uri: str = ""
     mongodb_database: str = "hawkeye"
 
+    # The replay archive. Separate from `store_backend` on purpose.
+    #
+    # `store_backend` decides where the hub's whole working state lives, which
+    # is on the incident path: a motion claim has to reach a wrist in about
+    # three seconds and there is no room in that budget for a round trip to
+    # Atlas. This decides only where a *sealed* record goes, which happens once,
+    # when a 911 call ends, and is the one piece whose entire purpose is to be
+    # read after the process that wrote it is gone.
+    #
+    # So the hackathon path is `store_backend=memory` with
+    # `replay_archive=mongodb`, and that combination is deliberate rather than
+    # half-finished.
+    replay_archive: Literal["off", "mongodb"] = "off"
+
+    # The edge link. The Pi holds the camera and the servo and dials this
+    # process; nothing here ever dials the Pi. It is headless and its lease
+    # moves, so the only address in this system is this hub's own.
+    #
+    # The token is not optional theatre. Without it any host on the same WiFi
+    # could inject frames into the camera feed, and the camera feed is the one
+    # surface a human is asked to believe.
+    edge_token: SecretStr = SecretStr("")
+
+    # Frames older than this are not presentable as current. See
+    # hawkeye_backend/edge/camera.py.
+    camera_stale_after_s: float = 3.0
+
+    # How often a thumbnail is pushed onto the event stream for the watch.
+    # Deliberately slow: it is a wrist, not a monitor.
+    camera_thumbnail_interval_s: float = 1.0
+
+    # Long edge of that thumbnail, in pixels.
+    camera_thumbnail_long_edge: int = 320
+
+    # The room this one fixed camera covers. One camera sees one room, and every
+    # vision claim carries that scope rather than implying it has none. Authored,
+    # not sensed: the system does not map walls and cannot, because walls are the
+    # static baseline the radio subtracts to see motion.
+    camera_room: str = "Living room"
+
+    # How long to wait for a shutter to answer a grant before reporting the
+    # position unknown. A grant's own TTL is ten seconds, so waiting longer than
+    # that is waiting for something that has already expired.
+    shutter_timeout_s: float = 8.0
+
     # Notices. A notice is information the resident acts on, never a dispatch.
     # The hold before an unexpected presence becomes one; see
     # hawkeye_backend/notices/detector.py for why it is not zero.
@@ -145,6 +190,44 @@ class Settings(BaseSettings):
     # condition on `mode`.
     replay_site_enabled: bool = True
 
+    # Serve the live console at /live. Same kind of decision as the replay
+    # console, and a sharper one: this page carries Start Incident, which is the
+    # only control that releases `caller` to dial 911, plus shutter open and
+    # close. It is served unauthenticated to whatever LAN the hub is on, so
+    # being able to turn it off is not optional.
+    live_site_enabled: bool = True
+
+    # The courier: who sends a sealed record to the responding department.
+    # Off by default and for the same reason the replay archive is - a hub that
+    # is not part of a live deployment must not mail anybody - but the stakes
+    # here are higher than durability. An accidental send during development
+    # puts an incident record in a stranger's inbox and cannot be recalled.
+    courier: Literal["off", "resend"] = "off"
+
+    # SecretStr so the key cannot reach a log, a traceback, or a repr.
+    resend_api_key: SecretStr = SecretStr("")
+
+    # The From address. Must be on a domain verified in the Resend dashboard.
+    # **An unverified domain accepts the send, returns a message id, and
+    # delivers nothing**, so the chain records a success that did not happen.
+    # Nothing in an API response distinguishes that case; verify by hand, once.
+    courier_from: str = "Hawk Eye <hawkeye@cayden.tech>"
+
+    # Fallback destination for the automatic send on seal. The real path is an
+    # address a 911 operator gives on the call, which arrives on the request
+    # and is recorded as `operator_supplied`; this one is recorded as
+    # `configured`, and the difference is carried into the chain rather than
+    # flattened. Empty means the automatic send is skipped, and the record says
+    # it was skipped for want of an address.
+    courier_to: str = ""
+
+    # Where /motion sends a browser. The RSSI motion detector in
+    # wifi-rssi-motion-template/ is a separate, deliberately self-contained
+    # process with its own server and its own page, so the hub does not embed
+    # it or proxy it - it just knows the address and hands the browser over.
+    # Set it empty to drop the /motion route entirely.
+    motion_console_url: str = "http://localhost:8766/index.html"
+
     # Used to render the local time in an SMS. The demo home is in Blacksburg.
     site_timezone: str = "America/New_York"
 
@@ -160,6 +243,16 @@ class Settings(BaseSettings):
         config is a way to print the wrong identity on a sealed record.
         """
         return self.master_ansname.replace("master.", "caller.", 1)
+
+    @property
+    def edge_configured(self) -> bool:
+        """True when the edge link can actually authenticate anyone.
+
+        An empty token means the link refuses every connection rather than
+        accepting every connection. A camera feed that anyone on the WiFi can
+        write to is worse than no camera feed.
+        """
+        return bool(self.edge_token.get_secret_value())
 
     @property
     def twilio_configured(self) -> bool:

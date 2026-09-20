@@ -92,25 +92,29 @@ class IntruderAgent(Agent):
 
     def tick(self) -> AgentObservation:
         self._tick_count += 1
-        fetched = self._mesh.fetch("people")
-        people = fetched.observation if fetched is not None else None
+        fetched = self._mesh.fetch("vision")
+        vision = fetched.observation if fetched is not None else None
         upstream_verified = bool(fetched and fetched.envelope_verified)
 
-        if people is None:
-            # No personhood verdict means no intruder decision, full stop. This
+        if vision is None:
+            # No camera verdict means no intruder decision, full stop. This
             # agent has no fallback to amplitude and must never grow one.
             return self.blind(
                 "intruder.unexpected_presence",
-                "No verdict from agents/people. An unexpected presence is a body, and what "
-                "makes a perturbation a body is the respiration signature. Without it this "
-                "agent has nothing to reason over.",
+                "No verdict from agents/vision. An unexpected presence is a person, and "
+                "what makes a perturbation a person is the camera seeing one. Absence of "
+                "a verdict is not evidence that the room is empty.",
             )
 
+        # Personhood, from the camera, as of 2026-09-20. The radio lost this job
+        # when respiration sensing was cut: it could not separate a person from
+        # a curtain without four caveats, and an officer can check footage
+        # afterwards in a way they could never check a breathing signature.
         bodies = sorted(
             {
                 a.zone_scope
-                for a in people.assertions
-                if a.field == "people.personhood" and a.value == "living_body"
+                for a in vision.assertions
+                if a.field == "vision.occupancy" and a.value == "person_present"
             }
         )
         residents = self._roster.residents()
@@ -125,7 +129,7 @@ class IntruderAgent(Agent):
             source=Source.AGENT_INFERENCE,
             producer=self.identity.name,
             ansname=self.identity.ansname,
-            detail=f"{len(bodies)} bodies, {len(home)} residents home, {len(associated)} devices",
+            detail=f"{len(bodies)} room(s) with a person, {len(home)} residents home, {len(associated)} devices",
         )
 
         assertions: list[Assertion] = []
@@ -151,7 +155,8 @@ class IntruderAgent(Agent):
 
         holes = (
             "The rule misses a resident who left their phone in the car, a guest, and "
-            "anyone carrying a device that never associates to this router."
+            "anyone carrying a device that never associates to this router. The camera "
+            "says a person is present; it never says which person."
         )
 
         if self._track is None:
@@ -162,7 +167,7 @@ class IntruderAgent(Agent):
                     severity_ceiling=Severity.INFORMATIONAL,
                     confidence=0.7,
                     basis=(
-                        f"{len(bodies)} resolved breathing presence(s) against {len(home)} "
+                        f"{len(bodies)} room(s) with a person in frame against {len(home)} "
                         f"resident(s) with an associated device. Nothing unaccounted. {holes}"
                     ),
                     provenance=provenance,
@@ -188,7 +193,7 @@ class IntruderAgent(Agent):
                 ),
                 confidence=(0.75 if len(home) == 0 else 0.6) if upstream_verified else 0.3,
                 basis=(
-                    f"{len(bodies)} body/bodies resolved by respiration signature against "
+                    f"{len(bodies)} room(s) with a person in frame against "
                     f"{len(home)} resident(s) with a device associated to the router: "
                     f"{self._track.unaccounted} body/bodies with no corresponding device. "
                     f"Held continuously for {held_s:.0f}s. {holes}"
@@ -196,7 +201,7 @@ class IntruderAgent(Agent):
                         ""
                         if upstream_verified
                         else (
-                            " The personhood verdict underneath this did NOT arrive over a "
+                            " The camera verdict underneath this did NOT arrive over a "
                             "verified transport, so this is capped at corroboration and must "
                             "not be the basis for sending anyone."
                         )
@@ -234,8 +239,8 @@ class IntruderAgent(Agent):
                     severity_ceiling=Severity.ACTIONABLE,
                     confidence=0.8,
                     basis=(
-                        "No resident device is associated to the router and exactly one "
-                        "breathing presence is resolved, so this zone is the unaccounted body. "
+                        "No resident device is associated to the router and the camera sees a person "
+                        "in exactly one room, so that room holds the unaccounted person. "
                         "No occupants are known to be at risk."
                     ),
                     provenance=provenance,
@@ -264,7 +269,7 @@ class IntruderAgent(Agent):
                     severity_ceiling=Severity.ACTIONABLE,
                     confidence=0.7,
                     basis=(
-                        f"Breathing presences resolved in: {', '.join(bodies) or 'none'}. One "
+                        f"A person is in frame in: {', '.join(bodies) or 'none'}. One "
                         "of these is unaccounted for by device association. Which one cannot "
                         "be determined and is not guessed."
                     ),
@@ -276,8 +281,18 @@ class IntruderAgent(Agent):
         # that matters: where the intruder is and where the resident is, tracked
         # apart, is the answer responding officers need and the thing no other
         # product gives them.
+        # Separation still comes from the radio, and this is the one place the
+        # two sensors are genuinely complementary: the camera sees one room and
+        # cannot say where anybody else is, while CSI resolves motion in rooms
+        # no camera covers. An unverified or missing presence feed costs the
+        # separation answer and nothing else.
+        presence_fetch = self._mesh.fetch("presence")
         resident_zones = sorted(
-            {a.value for a in people.assertions if a.field == "people.zone"}
+            {
+                a.value
+                for a in (presence_fetch.observation.assertions if presence_fetch else ())
+                if a.field == "presence.zone"
+            }
         )
         if resident_zones:
             assertions.append(
@@ -299,7 +314,7 @@ class IntruderAgent(Agent):
                 Unknown(
                     field="intruder.resident_zones",
                     reason=(
-                        "agents/people has not resolved a zone for any resident, so there "
+                        "agents/presence has not resolved a zone for any motion, so there "
                         "is no room to send officers to. Knowing where the residents are "
                         "not is not the same as knowing where they are."
                     ),

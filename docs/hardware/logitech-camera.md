@@ -110,3 +110,30 @@ ffmpeg -f v4l2 -i /dev/video0 -frames:v 1 -vf "signalstats,metadata=print:key=la
 | Camera vanishes when the shutter moves | Servo brownout. Power, not USB |
 | Recording has gaps | Pi CPU saturated, usually by `libx264`. Use the hardware encoder |
 | Everything works on the bench, nothing works at the house | Extension cable is charge-only, or the camera renumerated to `/dev/video2`. Match by USB path, not by index |
+
+## Which camera index is the Brio, on the Mac
+
+OpenCV addresses cameras by integer index on macOS and exposes no device name, vendor id, or anything else that identifies one.
+The ordering does not match `system_profiler SPCameraDataType`, and it shifts when an iPhone attaches as a Continuity Camera.
+
+**Every index opens happily and reports the same 1280x720.** An index that works is not evidence that it is the right camera, and this is the failure that wastes an hour at 3am because the picture looks fine and is simply the wrong room.
+
+Identified 2026-09-19 on the MacBook by capturing one frame from each index and looking at it:
+
+| Index | Camera |
+|---|---|
+| 0 | **Brio 101.** The wide room view. This is the one |
+| 1 | iPhone, over Continuity Camera |
+| 2 | Built-in FaceTime HD |
+
+Re-check the same way whenever the USB layout changes, because nothing in software will tell you it is wrong:
+
+```sh
+python3 -c "import cv2; from hawkeye_vision.webcam import MacCamera
+for i in (0, 1, 2):
+    with MacCamera(index=i) as c:
+        f = next(c.frames()); cv2.imwrite(f'/tmp/cam_{i}.png', f.image)"
+open /tmp/cam_0.png /tmp/cam_1.png /tmp/cam_2.png
+```
+
+The Pi does not have this problem: `/dev/video0` is stable there, and `v4l2-ctl --list-devices` names the device.

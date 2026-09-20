@@ -25,7 +25,7 @@ from hawkeye_backend.models.incident import (
     ReplayRecord,
 )
 from hawkeye_backend.models.verification import VerificationResult
-from hawkeye_backend.replay.chain import entry_hash
+from hawkeye_backend.replay.chain import entry_hash, verify_entries
 
 
 class RecordSealed(RuntimeError):
@@ -92,6 +92,23 @@ class ReplaySession:
                 f"{self.incident_id} was sealed at {self.sealed_at.isoformat()}; "
                 f"refusing to append a {kind} entry"
             )
+        return self._chain(kind=kind, summary=summary, detail=detail, actor=actor, at=at)
+
+    def _chain(
+        self,
+        *,
+        kind: str,
+        summary: str,
+        detail: dict[str, object] | None = None,
+        actor: str | None = None,
+        at: datetime | None = None,
+    ) -> ReplayEntry:
+        """Hash and link one entry, with no seal check.
+
+        Private, and it stays private. `append` is the seal-checked door every
+        producer uses; the only other caller is `append_courier_receipt`, which
+        documents at length why it is allowed through.
+        """
         prev = self.root_hash
         seq = len(self._entries) + 1
         stamp = at or utc_now()
@@ -163,6 +180,66 @@ class ReplaySession:
         self.seal_reason = reason
         return entry
 
+    def append_courier_receipt(
+        self,
+        *,
+        summary: str,
+        detail: dict[str, object],
+        at: datetime | None = None,
+    ) -> ReplayEntry:
+        """Record what happened when the sealed record was sent out. **The one
+        entry permitted after the seal, and there will not be a second.**
+
+        The rule everywhere else in this file is that a sealed record never
+        grows, and that rule is why the record is worth anything. This is the
+        single exception and it exists because the two requirements are
+        otherwise contradictory: the bundle handed to a police department must
+        be the *sealed* record, so the send cannot happen before sealing - and
+        a send that failed must be visible in the chain rather than silent, so
+        the outcome cannot live outside it.
+
+        What makes the exception safe is that it adds rather than edits. The
+        emailed record is a byte-exact **prefix** of the archived one: every
+        entry up to and including the seal is unchanged, every `prev_hash`
+        still matches, and both copies verify INTACT under the same `verify.py`
+        with no special case in it. A detective holding the email and an
+        investigator reading the archive are looking at the same chain, and the
+        archive simply knows one more fact - whether the email arrived.
+
+        The guard is deliberately narrow, and it is a guard on *kind* rather
+        than on count. A record that could not be delivered may be retried, and
+        each attempt is a real event that belongs in the chain - a first
+        attempt that failed and a second that worked is exactly the history an
+        investigator wants, and collapsing it to the happy ending would be the
+        record editing itself. So attempts accumulate while delivery is
+        outstanding, and the moment one succeeds the record closes for good:
+        nothing further is appended, because there is nothing further to learn.
+
+        This refuses on an unsealed record, because a receipt written before
+        the seal would describe a bundle that is not the bundle sent.
+        """
+        if not self.sealed:
+            raise RecordSealed(
+                f"{self.incident_id} is not sealed; a courier receipt describes "
+                "the sending of a sealed record and there is not one yet"
+            )
+        if self.delivered:
+            raise RecordSealed(
+                f"{self.incident_id} was already delivered; a sealed record stops "
+                "growing once its send succeeded"
+            )
+        return self._chain(kind="courier", actor="hub", summary=summary, detail=detail, at=at)
+
+    @property
+    def delivered(self) -> bool:
+        """Whether a send has already succeeded. Reads the chain rather than a
+        flag, so a record read back out of the archive answers the same way a
+        live one does."""
+        return any(
+            entry.kind == "courier" and entry.detail.get("outcome") == "sent"
+            for entry in self._entries
+        )
+
     # ------------------------------------------------------------------ reading
 
     def verify(self) -> tuple[bool, str, int | None]:
@@ -170,32 +247,11 @@ class ReplaySession:
 
         What an investigator runs, and what the website runs again in the browser
         so the answer does not depend on the server being honest about itself.
+
+        Delegates to `chain.verify_entries` so a record read back out of the
+        archive is checked by the same code as a live one.
         """
-        prev: str | None = None
-        for entry in self._entries:
-            if entry.prev_hash != prev:
-                return (
-                    False,
-                    f"entry {entry.seq} does not follow entry {entry.seq - 1}",
-                    entry.seq,
-                )
-            body: dict[str, object] = {
-                "seq": entry.seq,
-                "kind": entry.kind,
-                "summary": entry.summary,
-                "detail": entry.detail,
-            }
-            if entry.actor is not None:
-                body["actor"] = entry.actor
-            if entry_hash(body, prev) != entry.entry_hash:
-                return (
-                    False,
-                    f"entry {entry.seq} has been altered since it was written",
-                    entry.seq,
-                )
-            prev = entry.entry_hash
-        head = (self.root_hash or "")[:12]
-        return True, f"{len(self._entries)} entries, chain intact to {head}", None
+        return verify_entries(self._entries)
 
     def to_record(self, since_seq: int = 0) -> ReplayRecord:
         """The API shape. `since_seq` trims the head for the website's 1 Hz tail."""

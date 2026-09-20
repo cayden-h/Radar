@@ -19,6 +19,10 @@ import logging
 from datetime import datetime
 
 from hawkeye_backend.models.events import (
+    FrameEvent,
+    NarrationEvent,
+    OccupancyEvent,
+    ShieldEvent,
     ContextEvent,
     EventPayload,
     IncidentEvent,
@@ -168,6 +172,14 @@ class ReplayRecorder:
         #: the first frame, because it is static geometry and repeating it in
         #: every frame would multiply the record's size for nothing.
         self._floorplans: dict[str, dict[str, object]] = {}
+        #: Incident ids sealed since the last drain, waiting to be archived.
+        #:
+        #: The recorder is synchronous on purpose - it runs inside
+        #: `HubRuntime.emit`, the one path every event takes to a phone, and an
+        #: awaited network write in there would put Atlas's latency in front of
+        #: the resident. So it does not archive anything. It names what it
+        #: sealed, and the runtime, which is already async, does the writing.
+        self._sealed_pending: list[str] = []
 
     # ------------------------------------------------------------------ reading
 
@@ -180,6 +192,17 @@ class ReplayRecorder:
 
     def floorplan(self, incident_id: str) -> dict[str, object] | None:
         return self._floorplans.get(incident_id)
+
+    def drain_sealed(self) -> list[str]:
+        """Incident ids sealed since the last call. Empties the queue.
+
+        A hand-off rather than a log. Re-archiving is harmless because the write
+        upserts on the incident id, but a queue that never emptied would mean
+        every event after a seal did a round trip to Atlas for a record that is
+        already stored.
+        """
+        pending, self._sealed_pending = self._sealed_pending, []
+        return pending
 
     # ------------------------------------------------------------------ writing
 
@@ -252,6 +275,57 @@ class ReplayRecorder:
                     summary=getattr(notice, "headline", None) or str(notice),
                     detail=notice.model_dump(mode="json"),
                 )
+            case NarrationEvent():
+                # What the camera said, sealed alongside what the operator was
+                # told. An investigator comparing the two is the whole point of
+                # this record, and it cannot be done if only one half is in it.
+                session.append(
+                    kind="narration",
+                    actor="agents/vision",
+                    summary=f"{payload.room}: {payload.text}",
+                    detail=payload.model_dump(mode="json"),
+                    at=payload.at,
+                )
+            case OccupancyEvent():
+                session.append(
+                    kind="occupancy",
+                    actor="agents/vision",
+                    summary=(
+                        f"{payload.people} person(s) visible in {payload.room}"
+                        if payload.person_present
+                        else f"nobody visible in {payload.room}"
+                    ),
+                    detail=payload.model_dump(mode="json"),
+                    at=payload.at,
+                )
+            case ShieldEvent():
+                # **The refusal is the submission, so it is in the record.**
+                # `ShutterRequest.reason` promises exactly this: recorded so an
+                # investigator can follow the chain backwards. A sealed bundle
+                # that omitted the moment the camera was uncovered, or the
+                # moment something was refused permission to uncover it, would
+                # be missing the only part a reader could not reconstruct.
+                if payload.refused:
+                    summary = f"shutter REFUSED {payload.requested_action}: {payload.refusal_reason}"
+                else:
+                    summary = (
+                        f"shield {payload.position} "
+                        f"({payload.position_basis}, not measured)"
+                    )
+                session.append(
+                    kind="shield",
+                    actor="agents/shutter",
+                    summary=summary,
+                    detail=payload.model_dump(mode="json"),
+                    at=payload.at,
+                )
+            case FrameEvent():
+                # **Deliberately not recorded.** A frame a second for the length
+                # of a call is megabytes of base64 in a document whose value is
+                # that a human can read it, and the frames are already on disk
+                # as mp4 segments hashed as they close. The record references
+                # that footage; it does not duplicate it.
+                pass
             case _:
                 pass
 
@@ -290,6 +364,7 @@ class ReplayRecorder:
 
         if incident.call_state is CallState.ENDED:
             session.seal(f"911 call ended, incident {incident.status.value}")
+            self._sealed_pending.append(session.incident_id)
             logger.info(
                 "replay: sealed %s, %d entries, root %s",
                 session.incident_id,
@@ -300,6 +375,7 @@ class ReplayRecorder:
             # Resolved without a call ever being placed. There is no call end to
             # wait for, and leaving the record open forever would be worse.
             session.seal("incident resolved without a call being placed")
+            self._sealed_pending.append(session.incident_id)
 
     def _open(self, incident: Incident) -> ReplaySession:
         session = ReplaySession(incident, self.caller_ansname)

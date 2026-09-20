@@ -105,7 +105,21 @@ Three probes in `app/backend/tests/test_battery.py` cover it, alongside the thir
 
 Our cards declare `preferredTransport: JSONRPC` at `https://<host>/a2a`, and `agent.webmesh.ai verify_agent` sends a **live A2A message** and reports the credential we actually required. An agent whose card advertises an endpoint that is not there fails the judge's own verifier on the surface we called our best demo beat.
 
-**MCP is deliberately not implemented.** All the webmesh.ai agents speak both and ours should eventually; it is a second adapter over the same handlers and it buys presentation rather than capability. Roadmap, not this weekend.
+**MCP is implemented, in `agents/core/mcp.py`, and the deferral it replaces is worth keeping visible.**
+
+It was skipped as "a second adapter over the same handlers that buys presentation rather than capability". That judgement stood until `agent.webmesh.ai verify_agent` was actually pointed at us on 2026-09-20 - the first time, having been on the plan since the briefing. It returned `identity: pass`, `auth: pass`, and exactly one warning:
+
+```
+protocol  warning  speaks A2A v0.3.0; cross-talk needs the v0.3.0 compat adapter or MCP
+mcp_capable: false
+can_traveler_transact: "with-adapter"
+```
+
+MCP was named in his own remedy line, and it was the only thing between us and a clean verdict from the tool the judge wrote. Adding it moved `can_traveler_transact` to **`yes`** on all seven.
+
+**The lesson is not about MCP.** We had deferred it on a guess about what mattered, and a thirty-second call to a live endpoint we had known about for two days settled it. Run the verifier before ranking the work, not after.
+
+The cheaper fix - claiming `protocolVersion: 1.0` - was available and was refused. We implement JSON-RPC with our own methods, not the A2A 1.0 surface, and the card is the one artifact where an overclaim is signed, published and machine-checkable. `protocolVersion` stays `0.3.0`, which is true, and the warning stays with it.
 
 ### The trap the transport is built around
 
@@ -270,18 +284,23 @@ The verdict is **sticky**: once declared it is held through clear ticks rather t
 
 ### Actuation tier
 
-#### agents/shutter **[tier 1]**
+#### agents/shutter **[tier 1]** - built
 
-**New with the pivot, and the best ANS beat in the project.**
+**New with the pivot, and the best ANS beat in the project.** Written and tested 2026-09-19:
+`agents/agents/shutter/`, 22 tests in `tests/test_shutter.py`, no hardware required.
 
 One GPIO pin, one TowerPro SG92R, one opaque shield in front of a camera lens.
 It moves that shield for exactly one reason: a grant from `master`, signed, bound to a nonce `shutter` itself issued, verified against the key `master` publishes in its own trust card.
 
 Everything else is a refusal, and a refusal is an observation rather than an error: **the lens stays covered and the agent says why**, signed, into the sealed record.
 
-Refusals it owes tests for: `unregistered_issuer`, `lookalike_ansname`, `stale_nonce`, `replayed_grant`, `expired_grant`, `unknown_action`, `untrusted_profile`.
+Refusals, all tested: `unregistered_issuer`, `lookalike_ansname`, `stale_nonce`, `replayed_grant`, `expired_grant`, `unknown_action`, `untrusted_profile`, and `malformed_grant` as the floor beneath them.
 
-There must be **no code path from a failed verification to a GPIO write.** Enforce it structurally: the write lives behind a function taking a `VerifiedGrant` type that only the verifier can construct.
+A refusal comes back as a **result carrying a signed observation**, not as a JSON-RPC error, and the observation is bound to the nonce of the grant it refused. It verifies as ATTRIBUTED rather than ASSERTED, which is this agent's TRANSACTIONAL profile working: it asserts one physical fact about one piece of plastic.
+
+There is **no code path from a failed verification to a GPIO write**, enforced structurally rather than by discipline: the write takes a `VerifiedGrant`, and `VerifiedGrant` rejects any construction not carrying a module-private sentinel only the verifier holds.
+
+**It is the one agent that takes an order rather than answering a question**, so it is the only one with methods beyond `hawkeye.observe`. They live on the same `/a2a` - one endpoint per agent, because that is what the card publishes and what `agent.webmesh.ai verify_agent` sends its live message to. The hook is `Agent.a2a_methods(signer)`; every other agent returns an empty dict.
 
 Full contract, grant fields, wiring and limits: `shutter/CLAUDE.md`.
 
@@ -702,9 +721,9 @@ Seven is more to deploy than five, and that is a real cost rather than a footnot
 
 Two of the seven are cheap, though, and it is worth knowing which.
 `shutter` has one method and one refusal table. `vision` is the only one with an external API dependency.
-If the deploy runs short, the five that existed before the pivot are already built and card-stable; add `shutter` next, because it is small and it is the demo.
+If the deploy runs short, six are built and card-stable - the five that existed before the pivot, plus `shutter` - and only `vision` is outstanding.
 
-All seven support A2A. **MCP is deliberately not implemented**; it is a second adapter over the same handlers and it buys presentation rather than capability. Roadmap, not this weekend.
+All seven support A2A **and MCP**, on `/a2a` and `/mcp`, over one set of handlers. `tests/test_mcp.py` asserts the sharing rather than trusting it: the same forged grant is refused by both doors with the same stated reason, and a nonce issued over one is spent over the other.
 Each publishes an agent card, and the cards must be kept current. Public agents surface on GoDaddy's Trust Index, which the judge maintains, so a stale card is a visible defect on the most-inspected surface.
 
 ## The demo
@@ -754,9 +773,10 @@ This is the summary, in dependency order rather than severity order.
 
 1. **Deploy.** Agents reachable at public names. The hard track requirement,
    and nothing below it is cheap until it is done
-2. **`shutter`, end to end**, with a stub GPIO backend and the full refusal
-   table. It is small, it is the demo, and it has no hardware dependency until
-   the last step
+2. ~~**`shutter`, end to end**, with a stub GPIO backend and the full refusal
+   table.~~ **Done 2026-09-19.** The gate, the eight refusals, the signed
+   refusal observation and the attestation all run on a laptop. What is left of
+   it is hardware (T21) and `master` issuing the grant (T20)
 3. **Register the domain, then the agents.** DNSSEC on
 4. **`vision` against a fixture video file**, no camera required. The claim
    shape, the shutter gate, and the segment writer are all testable on a laptop

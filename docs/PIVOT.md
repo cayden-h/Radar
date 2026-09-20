@@ -82,3 +82,63 @@ Do not re-propose these.
 - **Folding `shutter` into `vision`.** It makes the authorization gate internal, which means it stops being demonstrable, which was the entire reason for adding it
 - **Auto-dialing on an unaccounted person.** Same objection as before the pivot, now with a camera's worth of false-positive surface
 - **Keeping Fire as a second scenario.** One scenario done properly beats two done thinly, and the second one rested on a sensor we do not own
+
+---
+
+# The 2026-09-20 trigger change
+
+A follow-on to the pivot above, recorded here for the same reason: so nobody re-proposes what it rejected.
+
+## What changed
+
+The trigger chain was `motion -> roster check -> shutter opens`.
+It is now two independent decisions.
+
+**Motion alone opens the lens.** `presence` reports a perturbation, `master` issues a signed `open` grant, `shutter` verifies it and the shield clears.
+No roster in that path.
+
+**The camera's own verdict closes it again.** `vision` reports `no_person`, `master` issues a `close` grant, and the shield drops.
+`person_present` holds it open and hands the verdict to `intruder`, which does the roster arithmetic that used to gate the open.
+
+## Why
+
+The stated problem was that CSI motion has no direction: it cannot say whether somebody entered, left, or stood up.
+
+The real problem was underneath it. `intruder` never needed direction, because it never asked for an event - it did standing arithmetic over a **body count**, and the pivot above had already deleted the thing that produced one.
+`IntruderAgent.tick` still hard-failed without `people.personhood`, which came from the respiration signature that was cut on 2026-09-19.
+The gate was standing on a signal that no longer existed.
+
+So the fix was not to add direction to the radio. It was to stop asking the radio a question it cannot answer.
+
+**Each sensor now answers only the question it can answer.** The camera answers personhood, which is what the radio used to answer with a respiration signature and could never support without four caveats. The roster answers identity. Neither is asked to do the other's job, which was the original fault the pivot was diagnosing.
+
+## What this costs, and it gets said on stage
+
+The privacy claim changes wording.
+It was "the lens only opens for an unaccounted person".
+It is now "the lens opens on any motion and physically closes itself within seconds unless it finds a person it cannot account for".
+
+A resident walking through their own living room keeps the lens open until they leave frame, because the roster alibi is checked one hop later in `intruder`.
+That is the honest price of not doing face recognition.
+
+What it buys is a better demo beat: the shield moves twice, and the second movement is the system deciding it had no reason to look and physically stopping.
+
+## Rejected during this change
+
+Do not re-propose these.
+
+- **The camera as the authenticator.** For the camera to identify a body type and decide whether to open, it must be watching before the decision is made - but the decision is what opens the shutter. Resolving that circularity means the camera runs continuously, which the pivot above already rejected, and which deletes the shutter grant that is the GoDaddy track submission.
+- **Camera-side identity matching.** An `enrolled_resident` verdict was proposed and dropped during design. `vision/hawkeye_vision/track.py` states that track identities are stable within a session only, and that a track id says "the same person as a moment ago", never "this particular person". Producing that verdict needs enrolment and cross-session re-identification. We have no database and no lawful basis for one.
+- **Closing the shutter on a timer.** Bounds the exposure without answering the privacy question, and a silence timeout is exactly what an attacker who can kill `vision` wants.
+
+## What this deleted
+
+`agents/people` became `agents/presence` and `respiration.py` was deleted outright: personhood, respiration, the responsiveness clock, breathing rate and heart rate.
+The pivot above cut them on paper on 2026-09-19; the code went on 2026-09-20.
+
+`people.headcount` and `people.presence_class` went with it. The first never came from the radio, and the second had no input left once respiration was gone.
+
+Three tests in `agents/tests/test_trust.py` that drove Fire classification from a CO reading plus a breathing signature went too. Both inputs were already cut.
+
+`caller`'s operator-question router kept its routes for breathing, respiration and responsiveness, and **points them at an explicit refusal**.
+Deleting the routes would let "is she still breathing?" fall through to whatever matched next, and a dispatcher getting a confident answer to a different question is worse than getting none.

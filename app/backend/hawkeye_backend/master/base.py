@@ -138,3 +138,19 @@ class MasterClient(Protocol):
         toward quieter).
         """
         ...
+
+    async def issue_shutter_grant(
+        self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
+    ) -> str:
+        """Return a signed grant as the opaque JSON string it crosses the wire as.
+
+        A string, never an object. The bytes that were signed must be the bytes
+        that are verified, and any layer that parses and re-serializes breaks
+        every signature in a way indistinguishable from tampering. See
+        `agents/shutter/grant.py`, which states the same rule from the other end.
+
+        `nonce` comes from the shutter itself, via `shutter.challenge`, and is
+        never generated here. Binding a grant to a nonce the verifier issued is
+        what makes a replayed grant detectable.
+        """
+        ...

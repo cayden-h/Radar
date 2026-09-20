@@ -11,13 +11,19 @@ What exists right now:
 
 - **`agents/`** - the ANS agent mesh, its identities, its two cards each, **the A2A transport between them**, and a test suite. `cd agents && python -m pytest -q`.
   The trust layer is complete and is the part of this project with the most work already banked. The roster is being reshaped by the pivot; see `agents/CLAUDE.md`.
-- **`app/backend/`** - the app-facing edge service. Holds `hawkeye_backend/verification/`, the claim-envelope defence, all thirteen `fraud.webmesh.ai` shapes implemented and passing. Also records incidents as they happen into a hash-chained replay record.
+- **`app/backend/`** - the app-facing edge service. Holds `hawkeye_backend/verification/`, the claim-envelope defence, all thirteen `fraud.webmesh.ai` shapes implemented and passing. Also records incidents as they happen into a hash-chained replay record, and **persists each sealed record to MongoDB Atlas** so it survives a restart.
+  **The courier is written as of 2026-09-20**: a sealed record is emailed to the responding department through Resend, and the send - success or failure - is chained onto the record itself. Off by default. Never sent for real yet; `docs/swapping-in-real-parts.md` says what that leaves.
 - **`app/ios/`** - the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. `cd app/ios && xcodegen generate`. Builds and runs on an iPhone 17 simulator against Xcode 27.0.
 - **`app/watch/`** - the watchOS app. **Written.** Three screens - Idle, Notice, Saved - on a phone-paired WatchConnectivity relay, plus the notification that carries the camera's first sentence to a wrist. A mock feed runs all three screens with no phone and no hub. It lives as a second XcodeGen target in `app/ios/` so it can share `Models/`, `Shared/` and `DesignSystem/` by source path; see `app/ios/HawkEyeWatch/README.md`. This is where a human starts an incident.
 - **`app/web/replay/`** - the replay console at `/replay`. Gains video playback with the pivot.
+- **`app/web/live/`** - the live console at `/live`. **New 2026-09-20.** The third surface: the camera as MJPEG, narration and shield state off the event stream, and the four cross-app controls. It exists so "any app, same backend" is something a judge can watch rather than a claim they take on trust.
 - **`sensor/`** - the Pi 4B CSI capture path. Real, varying, non-zero CSI confirmed flowing end to end via `nexmon_csi`. Its output contract shrinks with the pivot.
-- **`vision/`** - the camera capture path. **New, not yet written.**
-- **`shutter/`** - the servo control path. **New, not yet written.**
+- **`vision/`** - the camera capture path. **Written, and verified against real footage of real people.**
+  A `FrameSource` seam with fixture, webcam and future-Pi implementations; three-state lighting detection with hysteresis and a dwell; measured person tracking on YOLO11m plus BoT-SORT with ReID; and rotating mp4 segments hashed as they close.
+  `cd vision && python3 -m pytest -q`, and `python3 -m hawkeye_vision` runs the whole path live with boxes and a lighting readout.
+  Narration lives beside it in `hawkeye_vision/narrate.py`. **The shutter attestation gate and claim emission to `master` are not written yet**, so it produces no claims: that is T16.
+- **`shutter/`** - the servo control path. The contract; the agent is `agents/agents/shutter/`. **Gate written and tested, 22 tests, no hardware needed. The servo itself is unrun.**
+  Reachable end to end from all three apps as of 2026-09-20: `POST /v1/shutter` asks the shutter for a nonce, has `master` sign a grant bound to it, and publishes the attestation or the refusal to every surface.
 - **`docs/hardware/`** - one guide per hardware item, plus a linear bring-up checklist.
 - **`TASKS.md`** - the work board. Dependency-ordered, claimable, not assigned by person. Start there.
 
@@ -67,45 +73,51 @@ That asymmetry is the whole architecture.
                                                      │
                                                      ▼
                                                   presence
-                                        something moved, which room,
-                                        which registered devices are attached
-                                                     │
-                                                 ANS │
-                                                     ▼
-       roster + device association ──────────►   intruder
-                                            motion no device accounts for
+                                          something moved, which room
                                                      │
                                                  ANS │
                                                      ▼
                                               master (coordinator)
                                        verifies every claim, discards what it
                                        cannot, and issues the shutter grant
-                                              │                    │
-                                          ANS │                ANS │
-                                              ▼                    │
-                                          shutter                  │
-                                    SG92R, 90°, shield clears      │
-                                    the lens, position attested    │
-                                              │                    │
-                                          ANS │ open               │
-                                              ▼                    ▼
-                                           vision  ◄───────────────┘
-                                  Gemini Live: continuous narration
-                                  local mp4 segments: the record
-                                              │
-                                          ANS │
-                                              ▼
-                                            master
-                                              │
-                                    ┌─────────┴─────────┐
-                                ANS │                   │ ANS
-                                    ▼                   ▼
-                                 caller               replay
-                                  │   │                 │
-                     ElevenLabs   │   │ watchOS + iOS   │ sealed log + video
-                        voice     ▼   ▼                 ▼
-                           911 operator   the user   Resend ──► police email
+                                                     │              ▲
+                                                 ANS │              │ ANS
+                                                     ▼              │ close
+                                                  shutter           │ on no_person
+                                            SG92R, 90°, shield      │
+                                            clears the lens,        │
+                                            position attested       │
+                                                     │              │
+                                                 ANS │ open         │
+                                                     ▼              │
+                                                   vision ──────────┘
+                                          Gemini Live: continuous narration
+                                          local mp4 segments: the record
+                                          `vision.occupancy`: is anyone there
+                                                     │
+                                                 ANS │ person_present
+                                                     ▼
+       roster + device association ──────────►   intruder
+                                            a person no device accounts for
+                                                     │
+                                                 ANS │
+                                                     ▼
+                                                   master
+                                                     │
+                                           ┌─────────┴─────────┐
+                                       ANS │                   │ ANS
+                                           ▼                   ▼
+                                        caller               replay
+                                         │   │                 │
+                            ElevenLabs   │   │ watchOS + iOS   │ sealed log + video
+                               voice     ▼   ▼                 ▼
+                                  911 operator   the user   Resend ──► police email
 ```
+
+**Motion opens the lens; the camera decides whether to keep it open.**
+Changed 2026-09-20, and `docs/PIVOT.md` records why and what it rejected.
+The two decisions are independent: neither reads the other's input, which is what let the body count the pivot deleted stop being load-bearing.
+`intruder` moved downstream of the camera as a result - it now corroborates a camera against a router rather than a radio against itself.
 
 **The boundary is the point.**
 Human to agent is plain English, both directions, at both ends. There is no ANS there and there cannot be, because the far ends are people.
@@ -119,11 +131,11 @@ Tiered by priority in `agents/CLAUDE.md`.
 
 | Agent | Job |
 |---|---|
-| `presence` | Motion, which room, which registered devices are attached to it |
-| `intruder` | Which motion no registered device accounts for |
+| `presence` | Motion, and which room. Nothing else: it cannot tell a person from a curtain and does not try |
+| `intruder` | Which person the camera found that no registered device accounts for |
 | `master` | Trust boundary, coordinator, classifier. Issues the shutter grant |
 | `shutter` | One GPIO pin. Verifies a grant, moves 90 degrees, attests the position, refuses everything else |
-| `vision` | The camera. Gemini Live narration and continuous mp4 to disk |
+| `vision` | The camera. Personhood, which is what closes the shutter again. Gemini Live narration and continuous mp4 to disk |
 | `caller` | ElevenLabs to the operator, guidance to the resident, asks for the police email |
 | `replay` | Seals the record, ships it to the police via Resend |
 
@@ -142,10 +154,13 @@ The demo lives or dies on this. Every number is a target with a test behind it.
 |---|---|
 | 0.0s | CSI perturbation crosses the motion threshold |
 | 0.3s | `presence` emits the motion claim on `master`'s next pull |
-| 0.6s | `intruder` returns the unaccounted verdict |
-| 0.8s | `master` issues the shutter grant; `shutter` verifies it and begins moving |
-| 1.2s | Shutter attests open. `vision` opens its Gemini Live session and starts recording |
+| 0.4s | `master` issues the shutter grant; `shutter` verifies it and begins moving |
+| 0.8s | Shutter attests open. `vision` opens its Gemini Live session and starts recording |
 | ~3.0s | First narration returns. Push lands on the watch and the phone carrying it |
+| ~3.0s | `vision.occupancy` returns. `no_person` closes the lens again; `person_present` sends it to `intruder` |
+| ~3.3s | `intruder` returns the unaccounted verdict, now corroborated by a camera |
+
+**The intruder verdict moved after the camera, not before it.** That is what removed a full hop from the critical path: the grant now issues at roughly 0.4s instead of 0.8s, because nothing has to decide whether the motion was a person before the lens may open.
 
 **The notification carries the first sentence the camera produced**, not a generic "motion detected".
 That difference is the demo.
@@ -210,6 +225,30 @@ A malicious agent can still place a 911 call in a convincing synthesized voice a
 Closing that needs the PSAP side to participate, and no dispatch center runs software we can ship to.
 
 It is also the right closing line: the moment a dispatch center can resolve an ANSName, live verification falls out of what is already built here.
+
+## The edge link
+
+Added 2026-09-20. The camera and the servo are on the Pi; everything that is only compute is on the Mac.
+
+```
+Pi 4B (WiFi)                            MacBook M2 Pro (WiFi)
+  Brio      ──┐                     ┌── app/backend :8787
+  SG92R     ──┤   hawkeye-edge  ════╡     vision/ (YOLO, Gemini, mp4)
+              │   (the Pi dials)    │
+              └─                    └── MJPEG · WS · REST
+                                             │
+                               phone · watch · browser
+```
+
+`python -m hawkeye_vision.edge` on the Pi captures, encodes and pushes, and holds no model and no Gemini session.
+A Pi 4B takes about a second per frame on YOLO11m and the budget is three seconds motion to wrist, so the tracker never goes there.
+
+**The Pi dials the Mac, never the reverse.** One websocket carries frames up and shutter grants down, so nothing has to discover the Pi's address - which matters because its lease moves every time the network changes.
+Relaying a signed grant over that link costs nothing in trust: `shutter` verifies the signature over exactly the bytes it receives, whatever carried them. The link is a pipe, not a participant.
+
+Frames reach the three surfaces at three rates: full-rate MJPEG at `/v1/camera/live` for the phone and the browser, a 1 Hz thumbnail on the existing event stream for the watch, and a single still on demand.
+
+**`scripts/check-hop.sh` proves the network before anything depends on it.** The failure it exists for is client isolation, where an access point refuses to carry traffic between two of its own clients: everything gets internet, nothing can reach anything else, and it looks exactly like broken code.
 
 ## Hardware
 
@@ -347,13 +386,16 @@ It also unlocks a better demo beat than the refusal alone: point the judge's own
 
 MLH tracks are stackable and published: Gemini API, ElevenLabs, Solana, TigerData, Presage, Vultr, MongoDB Atlas, and Best Domain Name from GoDaddy Registry.
 
-The pivot improves three of these:
+Where each of these stands:
 
 - **Gemini API** - `vision` is now a first-class Gemini Live consumer, not a bolt-on. This went from "not claimed" to "a core agent"
 - **ElevenLabs** - the 911 operator side is voice, and the narration driving it is now worth listening to
 - **Best Domain Name (GoDaddy Registry)** - free, required anyway
 - **Vultr** - the agents must be internet-reachable regardless, so host them there
-- **MongoDB Atlas / TigerData** - the event timeline and the video index have to persist somewhere
+- **Resend** - **wired, not yet fired.** `app/backend/hawkeye_backend/replay/courier.py` mails the sealed bundle to a police department and records the outcome in the chain. A domain, `cayden.tech`, is verified on the account. What is missing is one real send to a real inbox, which is the remaining half of T44
+- **MongoDB Atlas** - **claimed, and done.** Sealed replay records persist to Atlas via `HAWKEYE_REPLAY_ARCHIVE=mongodb`; verified against the real cluster on 2026-09-19, including a hub restart with the chain still verifying. `app/backend/hawkeye_backend/replay/archive.py`, and the archive section of `app/backend/README.md`.
+  Note the shape of the claim: `HAWKEYE_STORE_BACKEND` stays `memory` and `MongoStore` stays unimplemented, deliberately. The store is on the incident path and the timing budget has no room for a round trip to Atlas; what needed to outlive the process was the sealed record, and that is what persists
+- **TigerData** - not claimed. `DATABASE_URL` points at a real Timescale cloud instance and nothing reads it
 
 VTHacks-branded tracks: 1st/2nd/3rd, Best First-Time Hack, Best Hack That Didn't Work, Best DEI Hack, Best UI/UX Hack, Best Ut Prosim Hack.
 Ut Prosim is "That I May Serve," and a public safety project is squarely on theme.

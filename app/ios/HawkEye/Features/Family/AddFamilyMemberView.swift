@@ -9,11 +9,10 @@ import SwiftUI
 /// Wiring this to a real device-discovery source (or `MockHawkEyeClient`)
 /// is future work; see `docs/superpowers/specs/2026-09-19-add-family-member-discovery-design.md`.
 ///
-/// The device list below is simulated, not a real WiFi scan — hence the
-/// `SIM` tag on every row, the same honesty-rule tag already used by
-/// `CoAlertRow` in `HomeView.swift` for the simulated CO reading. It starts
-/// empty and fills in one device at a time via `joinSimulatedDevices()`, to
-/// read as devices joining the network rather than a static pre-filled list.
+/// The device list below is simulated, not a real WiFi scan — see the honesty
+/// note on `joinSimulatedDevices()`. It starts empty and fills in one device
+/// at a time via that function, to read as devices joining the network
+/// rather than a static pre-filled list.
 ///
 /// Reached from `RadarTabBar`'s People tab, not a modal — there is no close
 /// button here on purpose; switching tabs is how you leave.
@@ -31,6 +30,14 @@ struct AddFamilyMemberView: View {
         var deviceLabel: String
     }
 
+    /// A person with no device to bind — CSI recognises a phone on the WiFi,
+    /// not a face, so someone who never joins the network can only ever be
+    /// named manually here, not auto-recognised.
+    private struct Guest: Identifiable {
+        var id: String
+        var name: String
+    }
+
     /// The full simulated pool, revealed gradually by `joinSimulatedDevices()`
     /// rather than shown all at once — mirrors a phone actually joining the
     /// WiFi network at its own pace instead of a static pre-filled list.
@@ -45,6 +52,9 @@ struct AddFamilyMemberView: View {
     @State private var namingDeviceID: String?
     @State private var draftName: String = ""
 
+    @State private var guests: [Guest] = []
+    @State private var guestName: String = ""
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.lg) {
@@ -53,6 +63,8 @@ struct AddFamilyMemberView: View {
                     .foregroundStyle(Palette.ink)
 
                 deviceSection
+
+                guestSection
 
                 if !members.isEmpty {
                     memberSection
@@ -87,16 +99,16 @@ struct AddFamilyMemberView: View {
     private var deviceSection: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
             Text("Devices on your network")
-                .eyebrowStyle(Palette.inkFaint)
+                .eyebrowStyle(Palette.ink)
 
             Text(devices.isEmpty ? "No devices connected" : "\(devices.count) device\(devices.count == 1 ? "" : "s") connected")
                 .font(TypeScale.caption)
-                .foregroundStyle(devices.isEmpty ? Palette.inkFaint : Palette.inkMuted)
+                .foregroundStyle(Palette.ink)
 
             if devices.isEmpty {
                 Text("No other device to connect")
                     .font(TypeScale.body)
-                    .foregroundStyle(Palette.inkMuted)
+                    .foregroundStyle(Palette.ink)
                     .padding(.vertical, Space.sm)
             } else {
                 VStack(spacing: Space.sm) {
@@ -119,12 +131,6 @@ struct AddFamilyMemberView: View {
                     .font(TypeScale.body)
                     .foregroundStyle(Palette.ink)
 
-                Text("SIM")
-                    .font(.system(size: 9, weight: .bold))
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(Capsule().fill(Palette.inkFaint.opacity(0.3)))
-                    .foregroundStyle(Palette.inkFaint)
-
                 Spacer()
 
                 if namingDeviceID != device.id {
@@ -144,28 +150,22 @@ struct AddFamilyMemberView: View {
                         .foregroundStyle(Palette.ink)
                         .padding(.horizontal, Space.md)
                         .padding(.vertical, 11)
-                        .background(
-                            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                                .fill(Palette.surfaceRaised)
-                        )
+                        .glassPanel(cornerRadius: Radius.md)
 
                     Button("Save", action: { confirmName(for: device) })
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(canSave ? Palette.ground : Palette.inkFaint)
+                        .foregroundStyle(canSave ? Palette.ground : Palette.ink.opacity(0.6))
                         .padding(.horizontal, Space.lg)
                         .frame(height: Hit.min - 8)
-                        .background(
-                            Capsule().fill(canSave ? Palette.calm : Palette.surfaceRaised)
-                        )
+                        .background(canSave ? AnyShapeStyle(Palette.calm) : AnyShapeStyle(.ultraThinMaterial))
+                        .overlay(Capsule().strokeBorder(canSave ? Color.clear : Palette.glassBorder, lineWidth: 1))
+                        .clipShape(Capsule())
                         .disabled(!canSave)
                 }
             }
         }
         .padding(Space.md)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(Palette.surface)
-        )
+        .glassPanel(cornerRadius: Radius.md)
     }
 
     private var canSave: Bool {
@@ -215,9 +215,79 @@ struct AddFamilyMemberView: View {
         }
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.md)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(Palette.surface)
-        )
+        .glassPanel(cornerRadius: Radius.md)
+    }
+
+    // MARK: Guests
+
+    /// A guest has no device to bind, so this is a manual naming path
+    /// separate from the device-discovery flow above — not a lesser version
+    /// of it.
+    private var guestSection: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            Text("Guests")
+                .font(TypeScale.title)
+                .foregroundStyle(Palette.ink)
+
+            HStack(spacing: Space.sm) {
+                TextField("Name", text: $guestName)
+                    .font(TypeScale.body)
+                    .foregroundStyle(Palette.ink)
+                    .padding(.horizontal, Space.md)
+                    .padding(.vertical, 11)
+                    .glassPanel(cornerRadius: Radius.md)
+
+                Button("Add", action: confirmGuest)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(canSaveGuest ? Palette.calm : Palette.calm.opacity(0.45))
+                    .padding(.horizontal, Space.lg)
+                    .frame(height: Hit.min - 8)
+                    .background(.ultraThinMaterial)
+                    .overlay(Capsule().strokeBorder(Palette.glassBorder, lineWidth: 1))
+                    .clipShape(Capsule())
+                    .disabled(!canSaveGuest)
+            }
+
+            if !guests.isEmpty {
+                VStack(spacing: Space.sm) {
+                    ForEach(guests) { guest in
+                        guestRow(guest)
+                    }
+                }
+            }
+        }
+    }
+
+    private var canSaveGuest: Bool {
+        !guestName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func confirmGuest() {
+        let trimmed = guestName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guests.append(Guest(id: UUID().uuidString, name: trimmed))
+        guestName = ""
+    }
+
+    private func guestRow(_ guest: Guest) -> some View {
+        HStack(spacing: Space.sm) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(guest.name)
+                    .font(TypeScale.body)
+                    .foregroundStyle(Palette.ink)
+                Text("Guest — no device")
+                    .font(TypeScale.caption)
+                    .foregroundStyle(Palette.inkMuted)
+            }
+
+            Spacer()
+
+            Button("Remove") { guests.removeAll { $0.id == guest.id } }
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Palette.inkMuted)
+        }
+        .padding(.horizontal, Space.lg)
+        .padding(.vertical, Space.md)
+        .glassPanel(cornerRadius: Radius.md)
     }
 }

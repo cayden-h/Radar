@@ -60,6 +60,7 @@ PATH_INCIDENT = "/v1/incident"
 PATH_STREAM = "/v1/stream"
 PATH_START_CALL = "/a2a/start-call"
 PATH_SET_MODE = "/a2a/set-mode"
+PATH_GRANT = "/v1/shutter/grant"
 
 
 class LiveMasterClient:
@@ -278,3 +279,25 @@ class LiveMasterClient:
         if not isinstance(payload, dict) or not isinstance(payload.get("announcement"), str):
             raise MasterUnavailable(f"POST {PATH_SET_MODE} returned no announcement string")
         return payload["announcement"]
+
+    async def issue_shutter_grant(
+        self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
+    ) -> str:
+        """Ask the real master to sign a grant.
+
+        Returned opaque and never re-parsed on the way to `shutter`, which
+        verifies the signature over exactly these bytes.
+        """
+        payload = await self._post(
+            PATH_GRANT,
+            {
+                "action": action,
+                "reason": reason,
+                "nonce": nonce,
+                "incident_id": incident_id,
+            },
+        )
+        grant = payload.get("grant_json")
+        if not isinstance(grant, str) or not grant:
+            raise MasterUnavailable("master returned no grant_json")
+        return grant

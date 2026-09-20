@@ -47,6 +47,26 @@ class Source(StrEnum):
     OPERATOR_AUDIO = "operator-audio"
     # An agent derived it from other readings rather than sensing it.
     AGENT_INFERENCE = "agent-inference"
+    # A real SG92R on the Pi's GPIO, driven through pigpio. DERIVED rather than
+    # MEASURED, and that is not a technicality: the SG92R is open-loop and has
+    # no position feedback, so a shutter position is the angle we *commanded*
+    # and never the angle the shield reached. A jammed shield reports open.
+    SERVO_GPIO = "servo-gpio"
+    # The shutter's stub backend: a servo that exists only as a number. Named
+    # separately from SERVO_GPIO so that running the demo with no hardware
+    # attached cannot present as running it with hardware attached.
+    SERVO_STUB = "servo-stub"
+    # The Logitech Brio 101 on USB, frames read live off the device. MEASURED_LIVE
+    # because a person is in front of a lens and the sensor recorded them.
+    CAMERA_UVC = "camera-uvc"
+    # Real footage, captured at the house earlier, replayed through the same
+    # pipeline. Mirrors REPLAY_CSI exactly: measured, but not live. The venue
+    # fallback runs on this when the camera cannot be set up in the room.
+    REPLAY_VIDEO = "replay-video"
+    # A synthetic video fixture: flat colour fields, luminance ramps, generated
+    # test footage. Not measured, and named separately so a test rig cannot
+    # present as a camera.
+    CAMERA_SIM = "camera-sim"
 
 
 class SourceClass(StrEnum):
@@ -72,6 +92,11 @@ _SOURCE_CLASS: dict[Source, SourceClass] = {
     Source.USER_INPUT: SourceClass.HUMAN,
     Source.OPERATOR_AUDIO: SourceClass.HUMAN,
     Source.AGENT_INFERENCE: SourceClass.DERIVED,
+    Source.SERVO_GPIO: SourceClass.DERIVED,
+    Source.SERVO_STUB: SourceClass.SIMULATED,
+    Source.CAMERA_UVC: SourceClass.MEASURED_LIVE,
+    Source.REPLAY_VIDEO: SourceClass.MEASURED_REPLAY,
+    Source.CAMERA_SIM: SourceClass.SIMULATED,
 }
 
 MEASURED_SOURCES: frozenset[Source] = frozenset(

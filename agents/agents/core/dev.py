@@ -203,3 +203,31 @@ class StaticRoster:
 
     def arrive(self, device_id: str) -> None:
         self._associated.add(device_id)
+
+
+class SyntheticOccupancy:
+    """A camera that sees somebody every so often. Implements `OccupancySource`.
+
+    The deployed agents run with no Pi and no Logitech attached, and `vision`
+    still has to say something true on every tick. This says "person present"
+    for `present_s` out of every `period_s`, and "nobody" the rest of the time,
+    off the wall clock so a running agent produces a verdict that changes while
+    somebody is watching it.
+
+    It is constructed only where `Source.CAMERA_SIM` is passed alongside it, and
+    that pairing is the point: `VisionAgent` refuses any source label that is not
+    a camera, and `CAMERA_SIM` is what the app renders a simulated badge from. A
+    fixture that could present as `CAMERA_UVC` would be a lie about which sensor
+    produced the claim.
+    """
+
+    def __init__(self, *, period_s: float = 40.0, present_s: float = 15.0) -> None:
+        self.period_s = period_s
+        self.present_s = present_s
+
+    def occupancy(self) -> "Occupancy":
+        from hawkeye_vision.occupancy import Occupancy
+
+        if time.time() % self.period_s < self.present_s:
+            return Occupancy.PERSON_PRESENT
+        return Occupancy.NO_PERSON

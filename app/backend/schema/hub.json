@@ -44,6 +44,17 @@
       }
     ],
     "active_incident_id": "inc-0001",
-    "stream_path": "/v1/stream"
+    "stream_path": "/v1/stream",
+    "camera": {
+      "linked": false,
+      "live": false,
+      "edge_id": null,
+      "source": null,
+      "last_frame_age_s": null,
+      "fps": 0.0,
+      "frames_received": 0,
+      "frames_dropped": 0,
+      "detail": "No edge camera has connected yet."
+    }
   }
 }

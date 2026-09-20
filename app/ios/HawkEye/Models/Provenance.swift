@@ -42,6 +42,21 @@ struct Provenance: Codable, Sendable, Hashable {
         /// hardware attached cannot present as running it with hardware
         /// attached.
         case servoStub = "servo-stub"
+
+        // The camera, added by the 2026-09-19 pivot. These were in
+        // `schema/enums.json` from that day and missing here until 2026-09-20,
+        // which meant every frame, narration line and occupancy verdict failed
+        // to decode on the phone with "Cannot initialize Source from invalid
+        // String value camera-uvc".
+
+        /// The Logitech Brio over UVC. The room camera, and the only source
+        /// that can support a claim about what a person is doing.
+        case cameraUVC = "camera-uvc"
+        /// Recorded footage replayed through the same pipeline. Measured, but
+        /// not live, and it must never be presentable as a live camera.
+        case replayVideo = "replay-video"
+        /// A synthetic frame. Not measured at all.
+        case cameraSim = "camera-sim"
     }
 
     /// How much weight the reading's origin can bear. Derived server-side.

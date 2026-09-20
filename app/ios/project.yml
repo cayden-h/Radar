@@ -1,15 +1,5 @@
 name: HawkEye
 
-# The one sanctioned third-party dependency in this app, per root CLAUDE.md's
-# "no third-party dependencies" rule and its one exception: the resident's own
-# WebRTC leg of the 911 call needs Twilio's actual client SDK rather than a
-# hand-rolled WebRTC stack. Pinned to 6.13.7, the version CallAudioSession.swift
-# was verified against (TVOCallDelegate.h, TVOCall.h, TVOConnectOptions.h).
-packages:
-  TwilioVoice:
-    url: https://github.com/twilio/twilio-voice-ios
-    exactVersion: 6.13.7
-
 options:
   bundleIdPrefix: ai.hawkeye
   deploymentTarget:
@@ -58,8 +48,6 @@ targets:
         copy:
           destination: productsDirectory
           subpath: "$(CONTENTS_FOLDER_PATH)/Watch"
-      - package: TwilioVoice
-        product: TwilioVoice
     info:
       path: HawkEye/Info.plist
       properties:
@@ -84,8 +72,6 @@ targets:
         NSBonjourServices:
           - _hawkeye._tcp
           - _hawkeye._udp
-        UIAppFonts:
-          - Oswald-Bold.ttf
 
   # The watch app. Shares Models, Shared and DesignSystem with the phone by
   # source path rather than by a copied file, so there is one definition of
@@ -140,10 +126,22 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.hawkeye.app.tests
+        # Must match the HawkEye target's PRODUCT_NAME, which is `Radar`.
+        # It said `Hawk Eye` until 2026-09-20, left behind by the rename, and
+        # the whole test target was unrunnable the entire time: xcodebuild
+        # resolves TEST_HOST before it builds anything, so the failure reads as
+        # "could not find test host" rather than as a stale name.
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Radar.app/Radar"
         BUNDLE_LOADER: "$(TEST_HOST)"
         GENERATE_INFOPLIST_FILE: YES
 
+  # The watch app. Shares Models, Shared and DesignSystem with the phone by
+  # source path rather than by a copied file, so there is one definition of
+  # every wire type and the two apps cannot drift apart.
+  #
+  # The bundle IDs must nest exactly and WKCompanionAppBundleIdentifier must
+  # name the phone app. Getting either wrong produces a build that succeeds and
+  # a watch app that never pairs.
   HawkEyeUITests:
     type: bundle.ui-testing
     platform: iOS

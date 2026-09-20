@@ -1,0 +1,17 @@
+{
+  "$note": "A camera thumbnail for the watch, which has no MJPEG decoder. `live` false means the client must label it as the last thing seen, never as the room now.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 49,
+    "at": "2026-09-20T04:12:43.200000Z",
+    "incident_id": null,
+    "payload": {
+      "kind": "frame",
+      "jpeg_base64": "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAEBAQEBAQ==",
+      "captured_at": "2026-09-20T04:12:43.100000Z",
+      "source": "camera-uvc",
+      "live": true,
+      "room": "Living room"
+    }
+  }
+}

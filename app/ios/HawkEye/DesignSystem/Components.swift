@@ -52,23 +52,65 @@ struct SignalBars: View {
 }
 
 /// A card. One corner radius, one border, used everywhere so nothing drifts.
+///
+/// Backed by `View.glassPanel` — a frosted material over the ambient
+/// gradient, rather than an opaque fill, so a card reads as a pane held up
+/// to the dusk behind it instead of a solid slab dropped on top of it.
 struct Card<Content: View>: View {
     var tint: Color = .clear
     @ViewBuilder var content: Content
 
     var body: some View {
-        content
+        content.glassPanel(tint: tint)
+    }
+}
+
+extension View {
+    /// The frosted-glass panel every surface in Radar now shares: a blurred
+    /// material tinted faintly with the brand purple, bordered with
+    /// `Palette.glassBorder` instead of a flat fill bordered with
+    /// `Palette.hairline`. One corner radius and one border recipe, applied
+    /// everywhere a `RoundedRectangle` used to just fill `Palette.surface`,
+    /// so no panel in the app quietly reverts to the old opaque look.
+    func glassPanel(cornerRadius: CGFloat = Radius.lg, tint: Color = .clear) -> some View {
+        self
+            // `.ultraThinMaterial` at full strength is still a fairly opaque
+            // dark-grey fill in dark mode — cut further so the gradient
+            // behind a panel actually shows through it. The tradeoff this
+            // buys is real transparency for real legibility: content drawn
+            // on top now has to carry its own brightness (closer to
+            // `Palette.ink`) rather than leaning on an opaque backing.
             .background(
-                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                    .fill(Palette.surface)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial.opacity(0.12))
+            )
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Palette.glassTint)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                // A brighter hairline along the top edge only, under the full
+                // border below — the "light catching the rim of the glass"
+                // cue that a single flat-opacity stroke can't give, and the
+                // detail that most reads as "glass" rather than "dark card."
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(
-                        tint == .clear ? Palette.hairline : tint.opacity(0.35),
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.28), Color.white.opacity(0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
                         lineWidth: 1
                     )
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        tint == .clear ? Palette.glassBorder : tint.opacity(0.5),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: .black.opacity(0.35), radius: 18, y: 10)
     }
 }
 

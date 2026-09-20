@@ -149,6 +149,62 @@
         "title": "ContextNote",
         "type": "object"
       },
+      "CourierEvent": {
+        "description": "The sealed record was handed to the responding department, or was not.\n\nEmitted after the record seals, so the recorder deliberately does not chain\nit - `ReplaySession.append_courier_receipt` writes the chain entry instead,\nand it is the only thing allowed to append past a seal. This event exists\nso the three surfaces can say what happened without reopening the record.\n\nA failure is as loud as a success here for the same reason it is in the\nchain: a screen that goes quiet on a failed send is indistinguishable from\none reporting an email that arrived.",
+        "properties": {
+          "kind": {
+            "const": "courier",
+            "default": "courier",
+            "title": "Kind",
+            "type": "string"
+          },
+          "incident_id": {
+            "title": "Incident Id",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "`sent`, `failed`, or `skipped`.",
+            "title": "Outcome",
+            "type": "string"
+          },
+          "to": {
+            "default": "",
+            "description": "The destination, empty when there was none.",
+            "title": "To",
+            "type": "string"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "`operator_supplied` or `configured`. An address a person said on a phone call is a human statement, never a verified binding.",
+            "title": "Provenance"
+          },
+          "detail": {
+            "default": "",
+            "description": "Why, in one line. Always set on a failure.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "incident_id",
+          "outcome"
+        ],
+        "title": "CourierEvent",
+        "type": "object"
+      },
       "EnvironmentReading": {
         "description": "Air quality. Carbon monoxide, and not from CSI.\n\nCSI cannot sense gas composition at 2.4/5 GHz. This reading comes from a\nseparate modality, which is what makes it real corroboration rather than two\nviews of one stream. No gas sensor was purchased, so in practice\n`provenance.source` is `demo-trigger` and `provenance.simulated` is true.",
         "properties": {
@@ -251,6 +307,58 @@
           "rooms"
         ],
         "title": "Floorplan",
+        "type": "object"
+      },
+      "FrameEvent": {
+        "description": "A camera thumbnail, for clients that cannot hold an MJPEG stream open.\n\nThe watch is the reason this exists. It has no MJPEG decoder and no direct\npath to the hub, so it gets frames the way it gets everything else: as an\nenvelope, relayed through the phone. `Notice.stillFrame` already proves a\nbase64 JPEG survives that trip.\n\nOne per second, and small. This is a wrist, not a monitor.",
+        "properties": {
+          "kind": {
+            "const": "frame",
+            "default": "frame",
+            "title": "Kind",
+            "type": "string"
+          },
+          "jpeg_base64": {
+            "description": "Base64 JPEG. A thumbnail, not a recording.",
+            "title": "Jpeg Base64",
+            "type": "string"
+          },
+          "captured_at": {
+            "description": "When the camera took it, not when it was published here.",
+            "format": "date-time",
+            "title": "Captured At",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/Source",
+            "description": "What produced it. A video file must not read as a camera."
+          },
+          "live": {
+            "description": "Whether this was current when published. False means the client must label it as the last thing seen rather than draw it as the room now.",
+            "title": "Live",
+            "type": "boolean"
+          },
+          "room": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The room this camera covers. One fixed camera sees one room, and every vision claim carries its scope rather than implying it has none.",
+            "title": "Room"
+          }
+        },
+        "required": [
+          "jpeg_base64",
+          "captured_at",
+          "source",
+          "live"
+        ],
+        "title": "FrameEvent",
         "type": "object"
       },
       "HelloEvent": {
@@ -667,6 +775,50 @@
         "title": "InteriorState",
         "type": "object"
       },
+      "NarrationEvent": {
+        "description": "One line the camera produced about what it is seeing.\n\n**Not a `TranscriptLine`.** That type is documented as one line of the\ncaller-to-911 conversation, and collapsing the two would let a camera\nobservation render as something an operator was told. When `caller` quotes\none of these to an operator, that becomes a `TranscriptLine` whose\n`claim_ids` point back here, which is the existing mechanism for exactly\nthis and needs nothing new.\n\n`room` and `window_s` are both required and both load-bearing. One fixed\ncamera sees one room, and Gemini samples at roughly one frame per second, so\nthis is a sequence of observations rather than continuous tracking. The root\nCLAUDE.md requires both limits to be carried in the data rather than only\nstated in a comment.",
+        "properties": {
+          "kind": {
+            "const": "narration",
+            "default": "narration",
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "room": {
+            "description": "The room this camera covers. Never absent.",
+            "minLength": 1,
+            "title": "Room",
+            "type": "string"
+          },
+          "window_s": {
+            "default": 1.0,
+            "description": "Seconds of observation this line summarizes. About one frame per second reaches the model, so this is a sequence of glances rather than continuous tracking, and a reader is entitled to know that.",
+            "exclusiveMinimum": 0,
+            "title": "Window S",
+            "type": "number"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/Source",
+            "default": "agent-inference"
+          }
+        },
+        "required": [
+          "text",
+          "room"
+        ],
+        "title": "NarrationEvent",
+        "type": "object"
+      },
       "Notice": {
         "description": "One thing the resident should know about.",
         "properties": {
@@ -759,6 +911,25 @@
             ],
             "default": null,
             "description": "A still from the moment the shield opened. None until agents/vision produces one, and None forever if the shield refused to open, which is the honest answer rather than a placeholder image."
+          },
+          "dismissed": {
+            "default": false,
+            "description": "Whether a human has cleared this notice. Server-side rather than per-client, so a notice cleared on the phone is cleared on the watch and in the browser too. Before this was carried here, each surface kept its own opinion and the resident had to dismiss the same alarm three times.\n\nDismissing is *not* vouching. It clears a banner and nothing else: it does not suppress the next notice about this presence, and it does not add anyone to the roster. Those are `POST /v1/presences/{id}/approve` and `POST /v1/household/remember`, which are separate controls with separate words on purpose, because one control for both would persist strangers because somebody wanted a banner gone.",
+            "title": "Dismissed",
+            "type": "boolean"
+          },
+          "dismissed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dismissed At"
           }
         },
         "required": [
@@ -867,6 +1038,48 @@
           "provenance"
         ],
         "title": "ObservedDevice",
+        "type": "object"
+      },
+      "OccupancyEvent": {
+        "description": "Whether the camera can see anybody. What closes the shutter again.\n\nPersonhood only. This never says who: we have no database and no lawful\nbasis for one, and `intruder` answers identity separately by asking the\nrouter which devices are present.",
+        "properties": {
+          "kind": {
+            "const": "occupancy",
+            "default": "occupancy",
+            "title": "Kind",
+            "type": "string"
+          },
+          "person_present": {
+            "title": "Person Present",
+            "type": "boolean"
+          },
+          "people": {
+            "description": "How many tracks are currently present.",
+            "minimum": 0,
+            "title": "People",
+            "type": "integer"
+          },
+          "room": {
+            "minLength": 1,
+            "title": "Room",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/Source",
+            "default": "camera-uvc"
+          }
+        },
+        "required": [
+          "person_present",
+          "people",
+          "room"
+        ],
+        "title": "OccupancyEvent",
         "type": "object"
       },
       "Position": {
@@ -1129,6 +1342,76 @@
         "title": "Room",
         "type": "object"
       },
+      "ShieldEvent": {
+        "description": "Where the physical shield is, and what the shutter said about getting there.\n\n`position_basis` is `commanded` and never `measured`, and that is not a\ntechnicality. The SG92R is open-loop with no position feedback, so this is\nthe angle the servo was told to reach and never the angle the shield\nactually reached. A jammed shield attests open while covering the lens, and\nthe only thing that catches that is the frame itself being dark.\n\n`refused` is a first-class outcome. A shutter declining a grant it cannot\nverify is the system working, and it is the thing this project most wants to\nbe able to put on a screen.",
+        "properties": {
+          "kind": {
+            "const": "shield",
+            "default": "shield",
+            "title": "Kind",
+            "type": "string"
+          },
+          "position": {
+            "description": "`open`, `closed`, or `unknown`. Unknown when the shutter did not answer.",
+            "title": "Position",
+            "type": "string"
+          },
+          "position_basis": {
+            "default": "commanded",
+            "description": "Always `commanded`. The servo has no position feedback.",
+            "title": "Position Basis",
+            "type": "string"
+          },
+          "commanded_angle": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Commanded Angle"
+          },
+          "requested_action": {
+            "description": "What was asked for: `open` or `close`.",
+            "title": "Requested Action",
+            "type": "string"
+          },
+          "refused": {
+            "default": false,
+            "title": "Refused",
+            "type": "boolean"
+          },
+          "refusal_reason": {
+            "default": "",
+            "title": "Refusal Reason",
+            "type": "string"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why the move was requested. Recorded, not trusted.",
+            "title": "Reason",
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/Source",
+            "default": "servo-gpio"
+          }
+        },
+        "required": [
+          "position",
+          "requested_action"
+        ],
+        "title": "ShieldEvent",
+        "type": "object"
+      },
       "Source": {
         "description": "What physically produced a reading.\n\nClosed set on purpose. Adding a value is a deliberate act, and each new value\nmust be placed into MEASURED_SOURCES or SIMULATED_SOURCES below.",
         "enum": [
@@ -1139,7 +1422,12 @@
           "demo-trigger",
           "user-input",
           "operator-audio",
-          "agent-inference"
+          "agent-inference",
+          "servo-gpio",
+          "servo-stub",
+          "camera-uvc",
+          "replay-video",
+          "camera-sim"
         ],
         "title": "Source",
         "type": "string"
@@ -1598,11 +1886,16 @@
         "discriminator": {
           "mapping": {
             "context": "#/$defs/ContextEvent",
+            "courier": "#/$defs/CourierEvent",
             "error": "#/$defs/ErrorEvent",
+            "frame": "#/$defs/FrameEvent",
             "hello": "#/$defs/HelloEvent",
             "incident": "#/$defs/IncidentEvent",
             "instruction": "#/$defs/InstructionEvent",
+            "narration": "#/$defs/NarrationEvent",
             "notice": "#/$defs/NoticeEvent",
+            "occupancy": "#/$defs/OccupancyEvent",
+            "shield": "#/$defs/ShieldEvent",
             "state": "#/$defs/StateEvent",
             "transcript": "#/$defs/TranscriptEvent",
             "verification": "#/$defs/VerificationEvent"
@@ -1630,6 +1923,21 @@
           },
           {
             "$ref": "#/$defs/NoticeEvent"
+          },
+          {
+            "$ref": "#/$defs/FrameEvent"
+          },
+          {
+            "$ref": "#/$defs/NarrationEvent"
+          },
+          {
+            "$ref": "#/$defs/OccupancyEvent"
+          },
+          {
+            "$ref": "#/$defs/ShieldEvent"
+          },
+          {
+            "$ref": "#/$defs/CourierEvent"
           },
           {
             "$ref": "#/$defs/HelloEvent"
