@@ -17,7 +17,7 @@ What exists right now:
 - **`app/web/replay/`** - the replay console at `/replay`. Gains video playback with the pivot.
 - **`sensor/`** - the Pi 4B CSI capture path. Real, varying, non-zero CSI confirmed flowing end to end via `nexmon_csi`. Its output contract shrinks with the pivot.
 - **`vision/`** - the camera capture path. **New, not yet written.**
-- **`shutter/`** - the servo control path. **New, not yet written.**
+- **`shutter/`** - the servo control path. The contract; the agent is `agents/agents/shutter/`. **Gate written and tested, 22 tests, no hardware needed. The servo itself is unrun.**
 - **`docs/hardware/`** - one guide per hardware item, plus a linear bring-up checklist.
 - **`TASKS.md`** - the work board. Dependency-ordered, claimable, not assigned by person. Start there.
 

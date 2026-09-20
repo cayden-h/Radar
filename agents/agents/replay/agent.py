@@ -32,7 +32,7 @@ and that step is not wired yet.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from hawkeye_backend.models.common import Provenance, Source, utc_now
