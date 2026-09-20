@@ -198,6 +198,55 @@ final class MockHubBrowser: HubBrowsing {
     }
 }
 
+// MARK: - Direct
+
+/// Surfaces a single, known hub without any discovery.
+///
+/// Bonjour is the honest mechanism when the hub advertises itself, but for a
+/// live demo it is fragile: it needs the advertisement to exist and a
+/// service-instance name to resolve as an HTTP host. This browser skips all of
+/// that and hands the Connect screen the one hub named by `Config.directHubURL`,
+/// so the identical connect/verify/stream path runs against a hub whose address
+/// we already know.
+///
+/// `ansName` is deliberately `nil`: the `GET /v1/hub` handshake only enforces an
+/// identity match when Bonjour advertised one, so a direct hub is trusted for
+/// its address and still identified (and displayed) by what `/v1/hub` returns.
+@MainActor
+@Observable
+final class DirectHubBrowser: HubBrowsing {
+
+    private(set) var hubs: [Hub] = []
+    private(set) var phase: DiscoveryPhase = .idle
+
+    @ObservationIgnored private let url: URL
+
+    init(url: URL) {
+        self.url = url
+    }
+
+    func start() {
+        let host = url.host ?? "hub"
+        hubs = [
+            Hub(
+                id: "direct-\(host)",
+                name: "Home hub (\(host))",
+                endpoint: "Wi-Fi",
+                signal: 1.0,
+                paired: true,
+                port: url.port,
+                ansName: nil
+            )
+        ]
+        phase = .found
+    }
+
+    func stop() {
+        hubs = []
+        phase = .idle
+    }
+}
+
 // MARK: - Pairing
 
 /// Which hubs this device has connected to before. One resident, one device,

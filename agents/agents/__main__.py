@@ -30,8 +30,6 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-import httpx
-
 from agents.core.base import Agent
 from agents.core.dev import SyntheticCsiFeed, StaticRoster
 from agents.core.identity import ROSTER, identity
@@ -91,7 +89,7 @@ def peers_from(base_urls: dict[str, str]) -> dict[str, Peer]:
     }
 
 
-def build_agent(slug: str) -> Agent:
+def build_agent(slug: str, *, feed_kind: str = "synthetic") -> Agent:
     """Construct one agent with development inputs.
 
     The wiring is explicit rather than a registry lookup, because each agent
@@ -101,19 +99,30 @@ def build_agent(slug: str) -> Agent:
     locally attached gas sensor, and `caller` and `replay` read only `master`.
     """
     mesh = build_mesh(slug)
-    # realtime: a running agent has no test driving the clock, so the feed
-    # catches up to the wall clock on read. See `agents.core.dev`.
-    #
-    # `history_s` has to exceed `BASELINE_SEED_S`, or the seed window is capped
-    # by the buffer and the baseline lands a hair under its minimum age - which
-    # presents as an agent that is up, ticking, and permanently unhealthy.
-    feed = SyntheticCsiFeed(DEMO_ZONES, realtime=True, history_s=240.0)
     roster = StaticRoster()
 
     match slug:
         case "presence":
             from agents.presence import PresenceAgent
 
+            # `--feed rssi` swaps the synthetic radio for the real Mac WiFi-RSSI
+            # motion classifier, scoped to the one room it can resolve. It fails
+            # over to *blind*, never to a fabricated "absent", when no radio is
+            # available - see `agents.presence.rssi`. The default stays synthetic
+            # because the demo must never depend on hardware being alive.
+            if feed_kind == "rssi":
+                from agents.presence.rssi import RssiCsiFeed
+
+                feed = RssiCsiFeed(room=VISION_ROOM)
+            else:
+                # realtime: a running agent has no test driving the clock, so the
+                # feed catches up to the wall clock on read. See `agents.core.dev`.
+                #
+                # `history_s` has to exceed `BASELINE_SEED_S`, or the seed window
+                # is capped by the buffer and the baseline lands a hair under its
+                # minimum age - which presents as an agent that is up, ticking,
+                # and permanently unhealthy.
+                feed = SyntheticCsiFeed(DEMO_ZONES, realtime=True, history_s=240.0)
             return PresenceAgent(feed, roster)
         case "intruder":
             from agents.intruder import IntruderAgent
@@ -128,9 +137,26 @@ def build_agent(slug: str) -> Agent:
 
             return CallerAgent(mesh)
         case "vision":
+            from agents.core.dev import DevNarrations, DevOpenAttestations
             from agents.vision import VisionAgent
 
-            return VisionAgent(occupancy_source(), room=VISION_ROOM)
+            # `occupancy_source()` is the real camera relay by default (synthetic
+            # via `HAWKEYE_VISION_SOURCE`), and it reports its own camera label,
+            # so `source_kind` is left to its `CAMERA_SIM` default until it does.
+            #
+            # `vision` claims nothing without a fresh, open attestation from
+            # `shutter`. In the live mesh that attestation arrives over ANS; this
+            # single-process dev runner has no `shutter` on the wire and runs on
+            # `LocalMesh`, which verifies nothing - so the dev attestation and
+            # narration fixtures stand in here exactly as `LocalMesh` does. They
+            # are NOT the verified path: that runs as separate processes, and the
+            # gate's real enforcement is covered in `tests/test_vision_agent.py`.
+            return VisionAgent(
+                occupancy_source(),
+                attestations=DevOpenAttestations(),
+                narrations=DevNarrations(),
+                room=VISION_ROOM,
+            )
         case "replay":
             from agents.replay import ReplayAgent
 
@@ -425,6 +451,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--transport-port", type=int, default=8107, help="Transport server port (caller only)")
     parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - must be reachable
     parser.add_argument("--list", action="store_true", help="List the roster and exit.")
+    parser.add_argument(
+        "--feed",
+        choices=["synthetic", "rssi"],
+        default="synthetic",
+        help=(
+            "presence only. `synthetic` is the ruview-sim radio (default, no "
+            "hardware). `rssi` reads the real Mac WiFi-RSSI motion classifier."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -437,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.slug:
         parser.error("name an agent, or pass --list")
 
-    agent = build_agent(args.slug)
+    agent = build_agent(args.slug, feed_kind=args.feed)
     key = load_or_create(args.slug)
     signer = ClaimSigner(identity(args.slug), key)
     # `master` alone serves a second surface - the one `app/backend` reads - so
@@ -516,6 +551,10 @@ def main(argv: list[str] | None = None) -> int:
                 SimulatedRetellVoiceClient,
                 build_retell_transport_app,
             )
+            from agents.caller.transport.retell.courier_client import (
+                HttpBackendCourierClient,
+            )
+            from agents.caller.transport.retell.transcript_sink import HttpTranscriptSink
 
             if settings.mode == "live" and settings.retell_configured:
                 retell_client = RealRetellVoiceClient(
@@ -524,12 +563,26 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 retell_client = SimulatedRetellVoiceClient()
+            # The operator-supplied police email captured mid-call is POSTed to
+            # the edge service's courier endpoint. Fail-soft: a POST that cannot
+            # reach the hub logs and is dropped rather than breaking the live 911
+            # call. The email is a destination the operator read back, never
+            # authorization - the backend records it as `operator_supplied`.
             orchestrator = RetellCallOrchestrator(
                 agent,
                 retell_client,
                 from_number=settings.retell_from_number or "+15550003333",
                 operator_number=settings.mock_911_number or "+15550004444",
                 hub=hub_reporter,
+                courier=HttpBackendCourierClient(settings.edge_base_url),
+                # Best-effort fan-out of each transcript line to the hub, so the
+                # resident's app can render the live operator <-> agent
+                # conversation on the existing TRANSCRIPT stream events. Fails
+                # soft: it never raises into the call loop.
+                transcript_sink=HttpTranscriptSink(settings.edge_base_url),
+                # Demo fallback: spoken only in place of an "I don't know", never
+                # over a real verified answer. Empty in production.
+                demo_operator_line=settings.caller_demo_operator_line,
             )
             transport_app = build_retell_transport_app(
                 orchestrator,

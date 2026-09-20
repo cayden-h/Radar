@@ -33,6 +33,10 @@ final class AppModel {
         if Config.useMocks {
             browser = MockHubBrowser()
             client = MockHawkEyeClient()
+        } else if let direct = Config.directHubURL {
+            // A known hub address, no discovery. See `Config.directHubURL`.
+            browser = DirectHubBrowser(url: direct)
+            client = LiveHawkEyeClient()
         } else {
             browser = BonjourHubBrowser()
             client = LiveHawkEyeClient()
@@ -45,6 +49,13 @@ final class AppModel {
     func startDiscovery() {
         connectError = nil
         browser.start()
+        // One known hub, no decision to make: connect straight through so the
+        // demo boots into the live house. `DirectHubBrowser.start()` populates
+        // its single hub synchronously, so it is available here.
+        if !Config.useMocks, Config.autoConnectDirectHub, Config.directHubURL != nil,
+           case .connect = stage, let hub = browser.hubs.first {
+            Task { await connect(to: hub) }
+        }
     }
 
     /// Tapping a hub row. Short verifying state, then the main app.

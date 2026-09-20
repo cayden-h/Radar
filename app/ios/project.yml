@@ -90,6 +90,18 @@ targets:
         NSBonjourServices:
           - _hawkeye._tcp
           - _hawkeye._udp
+        # The mic button on the "what is happening" box (`ScribeClient`,
+        # `ResidentMicRecorder`) records locally via `AVAudioRecorder` before
+        # sending audio to ElevenLabs Scribe — separate from, and unrelated
+        # to, the 911 call's own mic path in `CallAudioSession`.
+        NSMicrophoneUsageDescription: >-
+          Radar uses your microphone so you can add spoken context to an
+          incident instead of typing it.
+        # The hub is reached over plain HTTP on the local network (loopback in
+        # the Simulator, a LAN address on a physical device). ATS permits this
+        # for local destinations without disabling HTTPS elsewhere.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
 
   # The watch app. Shares Models, Shared and DesignSystem with the phone by
   # source path rather than by a copied file, so there is one definition of

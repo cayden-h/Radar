@@ -28,10 +28,32 @@ enum Config {
 
     // MARK: Live backend
 
-    /// Base URL for REST calls when `useMocks` is false.
+    /// When set (and `useMocks` is false), the app skips Bonjour discovery
+    /// entirely and connects straight to this hub URL.
     ///
-    /// In practice this is replaced at runtime by the endpoint resolved from
-    /// Bonjour when a hub is selected, so this value is only the fallback for
+    /// Bonjour discovery relies on the hub advertising `_hawkeye._tcp` *and* on
+    /// resolving a service-instance name as an HTTP host, neither of which is
+    /// reliable for a live demo. This is the boring, deterministic path: point
+    /// the app at a known hub and go.
+    ///
+    /// - iOS Simulator shares the Mac's loopback, so `127.0.0.1` reaches a hub
+    ///   running on this machine.
+    /// - On a physical phone, set this to the Mac's LAN address instead, e.g.
+    ///   `http://192.168.1.42:8787`, and keep both on the same Wi-Fi.
+    ///
+    /// Set to `nil` to fall back to Bonjour discovery.
+    static let directHubURL: URL? = URL(string: "http://127.0.0.1:8787")
+
+    /// When true (and a `directHubURL` is set), the app connects to that hub
+    /// automatically on launch instead of waiting for a tap on the Connect
+    /// screen. There is exactly one hub and its address is known, so the tap
+    /// carries no decision; skipping it makes the demo boot straight to the
+    /// live house. Ignored under `useMocks` and when no direct URL is set.
+    static let autoConnectDirectHub = true
+
+    /// Base URL for REST calls when `useMocks` is false and no direct URL is
+    /// set. In that case it is replaced at runtime by the endpoint resolved
+    /// from Bonjour when a hub is selected; this value is only the fallback for
     /// running against a hosted instance directly.
     static let fallbackBaseURL = URL(string: "https://hub.hawkeye.ai")!
 
@@ -184,6 +206,25 @@ enum Config {
 
     /// Seconds spent in transit between two zones on that route.
     static let mockIntruderTravelSeconds: Double = 4.5
+
+    // MARK: Voice context (ElevenLabs Scribe)
+
+    /// ElevenLabs API key for the mic button on the "what is happening" box —
+    /// `Services/ScribeClient.swift`'s speech-to-text path.
+    ///
+    /// **Supplied at runtime. Never hardcoded.** This app has no existing
+    /// secret-delivery mechanism (no keychain config, no bundled secrets
+    /// file — every other credential in this project lives server-side in
+    /// `app/backend`), so this is the one new seam. It reads
+    /// `ELEVENLABS_API_KEY` from the process environment, settable from the
+    /// Xcode scheme's "Arguments > Environment Variables" for local runs.
+    /// Empty by default, which `ScribeClient` treats as "voice input
+    /// unavailable" rather than crashing — the typed path is the must-have
+    /// and does not depend on this being set.
+    static let elevenLabsScribeAPIKey = ProcessInfo.processInfo.environment["ELEVENLABS_API_KEY"] ?? ""
+
+    /// ElevenLabs Scribe speech-to-text endpoint.
+    static let scribeEndpoint = URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!
 
     // MARK: Site
 

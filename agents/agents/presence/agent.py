@@ -34,11 +34,12 @@ a test. See `docs/research/agent-briefs.md`.
 from __future__ import annotations
 
 from hawkeye_backend.models.common import Provenance, Source
+from hawkeye_backend.verification.envelope import Severity
 
 from agents.core.base import Agent
 from agents.core.identity import identity
 from agents.core.observations import AgentObservation, Assertion, Unknown
-from agents.core.ports import CsiFeed, RosterSource
+from agents.core.ports import CsiFeed, CsiFrame, RosterSource
 from agents.presence.presence import (
     BASELINE_SEED_S,
     DISTURBANCE_WINDOW_S,
@@ -69,6 +70,19 @@ class PresenceAgent(Agent):
             )
 
         newest = frames[-1]
+
+        # The RSSI modality arrives already classified. When the newest frame
+        # carries a confirmed motion verdict, take it directly and skip both the
+        # rate floor and the percentile baseline below: the wifi-rssi pipeline
+        # (collector -> features -> classifier, with its own EMA baseline and
+        # hysteresis) has already separated motion from noise on a signal our own
+        # CSI-tuned math was never scaled against. Re-thresholding it here would
+        # launder a good verdict through the wrong yardstick. A raw CSI frame
+        # (nexmon, replay, ruview-sim) carries motion_state=None and falls
+        # through to the unchanged path below.
+        if newest.motion_state is not None:
+            return self._rssi_tick(newest)
+
         rate_hz = newest.rate_hz
         provenance = Provenance(
             source=_source(newest.source),
@@ -124,9 +138,80 @@ class PresenceAgent(Agent):
             ),
         )
 
+    def _rssi_tick(self, newest: "CsiFrame") -> AgentObservation:
+        """Emit a motion observation straight from the classifier's verdict.
+
+        This is the RSSI modality's whole path. The `wifi-rssi` feed already ran
+        the collector -> features -> classifier pipeline and handed us a confirmed
+        `"active"`/`"absent"` state in `newest.motion_state`, so there is no
+        baseline to seed, no rate floor to clear and no percentile to compute
+        here. We translate the verdict into the same `presence.motion` shape the
+        CSI path produces - one room, CORROBORATING ceiling, provenance stamped
+        with the frame's source - so `master` cannot tell the two modalities apart
+        by claim shape, only by the (honest) source label and confidence.
+
+        `"active"` becomes a motion assertion scoped to the room. `"absent"`
+        becomes an observation with no assertions and no unknowns, which is the
+        protocol's way of saying "nothing is happening" - distinct from blind,
+        which says "I cannot tell". The classifier separating motion from noise is
+        exactly what lets us make that distinction confidently.
+        """
+        room = next(iter(newest.amplitude), "site")
+        provenance = Provenance(
+            source=_source(newest.source),
+            producer=self.identity.name,
+            ansname=self.identity.ansname,
+            detail=f"wifi-rssi classifier verdict at {newest.rate_hz:.1f} Hz",
+        )
+
+        if newest.motion_state == "active":
+            assertion = Assertion(
+                field="presence.motion",
+                value="true",
+                zone_scope=room,
+                # CORROBORATING at most, identical to the CSI path: a channel
+                # perturbation is not a person and must never trigger anything on
+                # its own. What it triggers is a shutter opening, and `master`
+                # makes that call.
+                severity_ceiling=Severity.CORROBORATING,
+                # A confirmed, hysteresis-debounced verdict off a single link.
+                # Fixed rather than derived: the classifier reports a state, not a
+                # margin, and inventing a continuous confidence from a binary
+                # would be dressing up precision the modality does not have. High
+                # enough to reflect that the debounce already rejected a lone
+                # noisy tick; short of the CSI path's ceiling because one RSSI
+                # scalar cannot localise or corroborate the way subcarriers can.
+                confidence=0.75,
+                basis=(
+                    "The WiFi-RSSI motion classifier reports a confirmed 'active' state: "
+                    "link-quality variance and rate-of-change energy rose past its adaptive "
+                    "baseline and held across the hysteresis window. Something moved in this "
+                    "room. Whether it is a person is the camera's question, not the radio's."
+                ),
+                provenance=provenance,
+            )
+            return self.observe(
+                assertions=(assertion,),
+                healthy=True,
+                note=f"motion in {room} (wifi-rssi, {newest.rate_hz:.1f} Hz)",
+            )
+
+        # "absent" (or any confirmed non-active verdict): the room is quiet. No
+        # assertions, no unknowns - the classifier is telling us nothing is
+        # happening, which is a different fact from being unable to tell.
+        return self.observe(
+            assertions=(),
+            healthy=True,
+            note=f"no motion in {room} (wifi-rssi, {newest.rate_hz:.1f} Hz)",
+        )
+
 
 def _source(feed_source: str) -> Source:
     """Feed's source string to the closed Source enum.
+
+    `"wifi-rssi"` maps to `Source.WIFI_RSSI`, which classifies as MEASURED_LIVE:
+    the RSSI feed genuinely measured the link. Every other known string resolves
+    by its own value (`nexmon-csi`, `replay-csi`, `ruview-sim`).
 
     Unknown strings fall to RUVIEW_SIM, which classifies as simulated. Failing
     toward "simulated" is the only safe direction: mislabelling a synthetic

@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 #: talks plain HTTP to Twilio rather than A2A.
 CALLER_TRIGGER_START_CALL = "/internal/start-call"
 CALLER_TRIGGER_SET_MODE = "/internal/set-mode"
+CALLER_TRIGGER_INJECT = "/internal/inject-context"
 
 
 class StartCallRequest(BaseModel):
@@ -83,6 +84,20 @@ class SetModeRequest(BaseModel):
     incident_id: str
     mode: str
     by_human: bool = False
+
+
+class InjectContextRequest(BaseModel):
+    """The body the hub sends to `POST /a2a/inject-context`.
+
+    A pass-through side channel, not a dial: it carries a resident's typed
+    note through to agents/caller for an incident whose call is already
+    running (or about to be), so caller can speak it, attributed to the
+    resident, never as authorization. See `app/CLAUDE.md`'s untrusted-input
+    rules - context, never instruction.
+    """
+
+    incident_id: str
+    text: str
 
 
 def attach_call_bridge_routes(
@@ -203,3 +218,32 @@ def attach_call_bridge_routes(
         body = response.json()
         announcement = body.get("announcement", "") if isinstance(body, dict) else ""
         return JSONResponse(status_code=200, content={"announcement": announcement})
+
+    @app.post("/a2a/inject-context")
+    async def inject_context(payload: InjectContextRequest) -> JSONResponse:
+        # No `agent.` dial guard here, unlike start-call: this is a
+        # pass-through side channel forwarding a resident's note to a call
+        # that already exists (or is about to), never a way to originate one.
+        try:
+            response = await _trigger_caller(
+                CALLER_TRIGGER_INJECT,
+                {"incident_id": payload.incident_id, "text": payload.text},
+            )
+            response.raise_for_status()
+        except RuntimeError as exc:
+            logger.error("cannot trigger agents/caller: %s", exc)
+            return JSONResponse(
+                status_code=500,
+                content={"error": "caller_transport_not_configured", "detail": str(exc)},
+            )
+        except httpx.HTTPError as exc:
+            logger.exception(
+                "failed to forward resident context for incident %s to agents/caller",
+                payload.incident_id,
+            )
+            return JSONResponse(
+                status_code=502,
+                content={"error": "caller_unreachable", "detail": str(exc)},
+            )
+
+        return JSONResponse(status_code=200, content={"queued": True})

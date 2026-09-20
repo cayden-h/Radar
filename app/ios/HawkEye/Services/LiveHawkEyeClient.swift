@@ -202,13 +202,13 @@ final class LiveHawkEyeClient: HawkEyeClienting {
         incident = nil
     }
 
-    func sendContext(_ text: String) async throws {
+    func injectContext(text: String, speakOnCall: Bool) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         guard let incident else { throw HawkEyeClientError.notConnected }
         _ = try await post(
             path: "\(Config.incidentPath)/\(incident.id)/context",
-            body: ContextRequest(text: trimmed)
+            body: ContextRequest(text: trimmed, speakOnCall: speakOnCall)
         )
     }
 
@@ -592,6 +592,12 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     /// guess - assuming the instance name resolves - is precisely the bug this
     /// replaced.
     private static func resolveBaseURL(for hub: Hub) throws -> URL {
+        // A configured direct URL wins over Bonjour resolution: the hub's
+        // address is known, so there is nothing to discover. See
+        // `Config.directHubURL`.
+        if let direct = Config.directHubURL {
+            return direct
+        }
         guard let host = hub.host, !host.isEmpty else {
             throw HawkEyeClientError.badEndpoint
         }
