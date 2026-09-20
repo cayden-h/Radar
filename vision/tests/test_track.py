@@ -5,7 +5,7 @@ import pytest
 
 from hawkeye_vision.config import VisionConfig
 from hawkeye_vision.frames import Frame, utc_now
-from hawkeye_vision.track import BBox, Detection, StubTracker, Track, TrackBook
+from hawkeye_vision.track import BBox, Detection, StubTracker, Track, TrackBook, UnavailableTracker
 
 
 def _frame(index: int) -> Frame:
@@ -153,3 +153,51 @@ def test_the_stub_runs_out_of_script_gracefully():
 def test_a_detection_defaults_to_full_confidence():
     """The stub asserts what it was told. Only a real detector has doubt."""
     assert Detection(track_id=1, bbox=BBox(x1=0.1, y1=0.1, x2=0.2, y2=0.2)).confidence == 1.0
+
+
+def test_a_failed_detector_yields_a_tracker_that_finds_nothing_rather_than_raising():
+    """The tracker is a corroborating view, not a gate.
+
+    A missing weights file or an unavailable MPS backend must cost the measured
+    count and nothing else. Narration and recording keep running, because the
+    footage is the thing worth having when everything else fails.
+    """
+    tracker = UnavailableTracker(reason="weights missing")
+
+    assert tracker.update(_frame(0)) == []
+    assert tracker.available is False
+    assert tracker.reason == "weights missing"
+
+
+def test_a_working_tracker_reports_itself_available():
+    tracker = StubTracker([[]])
+
+    assert tracker.available is True
+    assert tracker.reason is None
+
+
+def test_the_book_of_an_unavailable_tracker_reports_zero_not_a_false_count():
+    book = TrackBook(VisionConfig())
+    tracker = UnavailableTracker(reason="mps unavailable")
+
+    book.ingest(tracker.update(_frame(0)), frame_index=0)
+
+    assert book.people_visible == 0
+
+
+def test_an_unavailable_tracker_keeps_returning_nothing_rather_than_degrading():
+    """Called every frame for the length of an incident. It must stay quiet."""
+    tracker = UnavailableTracker(reason="weights missing")
+
+    assert all(tracker.update(_frame(i)) == [] for i in range(100))
+
+
+def test_the_factory_returns_an_unavailable_tracker_when_weights_are_missing():
+    """The single place that decides between the real thing and the stand-in."""
+    from hawkeye_vision.yolo_tracker import build_tracker
+
+    tracker = build_tracker(VisionConfig(), weights="/nonexistent/no-such-weights.pt")
+
+    assert tracker.available is False
+    assert tracker.reason is not None
+    assert tracker.update(_frame(0)) == []

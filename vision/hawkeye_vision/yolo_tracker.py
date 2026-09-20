@@ -42,6 +42,8 @@ class YoloBotSortTracker:
     """The real detector and tracker. Same interface as `StubTracker`."""
 
     def __init__(self, config: VisionConfig, *, weights: str = "yolo11m.pt") -> None:
+        self.available = True
+        self.reason: str | None = None
         self._config = config
         self._confidence = config.day_confidence
         try:
@@ -104,3 +106,18 @@ class YoloBotSortTracker:
                 )
             )
         return detections
+
+
+def build_tracker(config: VisionConfig, *, weights: str = "yolo11m.pt"):
+    """The real tracker, or an honest stand-in for it.
+
+    The only place in the package that decides between them, so no caller has to
+    remember to handle the failure.
+    """
+    from hawkeye_vision.track import UnavailableTracker
+
+    try:
+        return YoloBotSortTracker(config, weights=weights)
+    except TrackerUnavailable as exc:
+        logger.error("Tracker unavailable, continuing without measured counts: %s", exc)
+        return UnavailableTracker(reason=str(exc))

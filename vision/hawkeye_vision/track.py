@@ -70,6 +70,14 @@ class Track:
 class Tracker(Protocol):
     """Something that finds people in a frame and keeps their identities."""
 
+    #: False when this tracker cannot actually detect anything. Consumers read
+    #: it to decide between a measured count and `tracker_unavailable`.
+    available: bool
+
+    #: Why it is unavailable, or None. Carried into the claim, because "I could
+    #: not look" and "I looked and saw nobody" are different facts.
+    reason: str | None
+
     def update(self, frame: Frame) -> Sequence[Detection]:
         """Detections for this frame, each carrying a stable identity."""
 
@@ -85,6 +93,8 @@ class StubTracker:
     def __init__(self, script: Sequence[Sequence[tuple[int, BBox]]]) -> None:
         self._script = list(script)
         self._calls = 0
+        self.available = True
+        self.reason: str | None = None
 
     def update(self, frame: Frame) -> Sequence[Detection]:
         if self._calls >= len(self._script):
@@ -155,3 +165,22 @@ class TrackBook:
         an absence claim about the house.
         """
         return len(self._tracks)
+
+
+class UnavailableTracker:
+    """What you get when the detector could not be brought up.
+
+    Deliberately not an exception at the call site. A camera path that crashes
+    because a model failed to load loses the recording too, and the recording is
+    the artifact that goes to the police. This degrades instead: the measured
+    count becomes unavailable and stays honest about why, and every other path
+    carries on.
+    """
+
+    available = False
+
+    def __init__(self, *, reason: str) -> None:
+        self.reason = reason
+
+    def update(self, frame: Frame) -> Sequence[Detection]:
+        return []
