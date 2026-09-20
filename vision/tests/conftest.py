@@ -6,6 +6,8 @@ reads it and nobody notices, and a binary in a diff is unreviewable.
 
 from __future__ import annotations
 
+import os
+
 import cv2
 import numpy as np
 import pytest
@@ -48,3 +50,21 @@ def ramp_mp4(tmp_path) -> str:
     down = [f for value in range(200, 0, -4) for f in _flat(value, 1)]
     up = [f for value in range(0, 200, 4) for f in _flat(value, 1)]
     return _write_mp4(tmp_path / "ramp.mp4", down + up)
+
+
+@pytest.fixture
+def person_mp4() -> str:
+    """Real footage of people, recorded from the Brio.
+
+    Synthetic rectangles are not people and YOLO will not detect them, so this
+    one fixture cannot be generated. Record it once with:
+
+        python3 -m hawkeye_vision.record_fixture tests/footage/person.mp4
+
+    and keep it out of git. It is the only test that needs it, and that test is
+    marked integration for exactly this reason.
+    """
+    path = os.path.join(os.path.dirname(__file__), "footage", "person.mp4")
+    if not os.path.exists(path):
+        pytest.skip(f"recorded fixture missing: {path}")
+    return path

@@ -1,0 +1,28 @@
+# BoT-SORT for Hawk Eye, with two deliberate changes from the ultralytics
+# default at ultralytics/cfg/trackers/botsort.yaml.
+#
+# 1. with_reid is True. The default ships it off. ReID is what keeps a track
+#    identity across an occlusion, which is what makes "the same person moved
+#    into the hallway, still carrying the bag" a sentence we can support rather
+#    than a guess. `model: auto` reuses the detector's own features, so this
+#    costs no second network and no extra download.
+#
+# 2. gmc_method is none. The default is sparseOptFlow, which compensates for a
+#    moving camera. Our camera is bolted in place facing the entry point, so
+#    global motion compensation is estimating a transform that is always
+#    identity, and paying optical flow on every frame to do it.
+
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 30
+match_thresh: 0.8
+fuse_score: True
+
+gmc_method: none
+
+proximity_thresh: 0.5
+appearance_thresh: 0.8
+with_reid: True
+model: auto
