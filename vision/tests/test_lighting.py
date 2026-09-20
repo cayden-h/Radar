@@ -150,8 +150,11 @@ def test_a_shield_jammed_over_the_lens_is_caught_even_from_broad_daylight():
     classifier = LightingClassifier(config)
     classifier.update(200.0)
 
+    # 5.0 sits inside the band the old bug swallowed: above
+    # dark_threshold - hysteresis, and below dark_threshold. That is exactly
+    # where a two-step jump from DAY used to be held at DAY forever.
     for _ in range(20):
-        classifier.update(20.0)
+        classifier.update(5.0)
 
     assert classifier.mode is LightingMode.TOO_DARK
 
@@ -160,7 +163,7 @@ def test_every_luminance_below_the_dark_threshold_is_eventually_caught():
     """No value that classify() calls TOO_DARK may be permanently unreachable."""
     config = VisionConfig(dwell_frames=5)
 
-    for luminance in range(0, 25):
+    for luminance in range(0, int(config.dark_threshold)):
         classifier = LightingClassifier(config)
         classifier.update(200.0)
         for _ in range(20):

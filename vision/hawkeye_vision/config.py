@@ -22,8 +22,18 @@ class VisionConfig(BaseModel):
         description="Mean luminance at or above this is DAY. Calibrate at the venue.",
     )
     dark_threshold: float = Field(
-        default=25.0,
-        description="Mean luminance below this is TOO_DARK: no detection, no narration.",
+        default=10.0,
+        description=(
+            "Mean luminance below this is TOO_DARK: no detection, no narration. "
+            "Lowered from 25.0 on 2026-09-19 against 675 frames of real footage: "
+            "YOLO11m detected people in 100% of frames in every band from luma 10 "
+            "upward, and scored HIGHER mean confidence at luma 10-15 (0.81) than "
+            "above 40 (0.78). A threshold of 25 threw away 72 frames of that clip "
+            "in which four people were plainly visible and tracked. The floor still "
+            "has to catch a shield jammed over the lens, which reads near zero, so "
+            "it belongs just above black rather than anywhere near usable light. "
+            "Recalibrate at the venue; this is a better default, not a constant."
+        ),
     )
     hysteresis: float = Field(
         default=8.0,
