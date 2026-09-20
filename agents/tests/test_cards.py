@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from hawkeye_backend.verification.card import commit_address, verify_card
 
 from agents.core import cards
-from agents.core.identity import ROSTER, identity
+from agents.core.identity import ROSTER, Role, identity
 
 
 def test_every_card_is_signed_and_verifies():
@@ -103,3 +103,13 @@ def test_people_declares_no_collapse_fields():
     declared = _declared("people")
 
     assert not any("collapse" in f or "still_down" in f or "long_lie" in f for f in declared)
+
+
+def test_vision_is_registered_and_scoped_to_one_room():
+    """The camera sees one room. That limit is carried on the identity, not in
+    a comment, so the published card states it too."""
+    vision = identity("vision")
+    assert vision.role is Role.SENSING
+    fields = {f for skill in vision.skills for f in skill.fields}
+    assert "vision.occupancy" in fields
+    assert any("identif" in claim.lower() for claim in vision.must_not_claim)

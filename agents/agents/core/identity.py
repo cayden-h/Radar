@@ -280,6 +280,46 @@ ROSTER: tuple[AgentIdentity, ...] = (
         consumes=("people",),
     ),
     AgentIdentity(
+        slug="vision",
+        tier=1,
+        role=Role.SENSING,
+        summary=(
+            "The camera. Whether a human is in frame, and a description of what they "
+            "are doing."
+        ),
+        question="Is there a person in this room, and what are they doing?",
+        # TRANSACTIONAL, not FIDUCIARY. Its verdict retires a shutter grant and
+        # feeds the intruder rule; it is never on its own the basis for telling
+        # a dispatcher that a specific person is present.
+        profile=TrustProfile.TRANSACTIONAL,
+        skills=(
+            Skill(
+                id="occupancy",
+                name="Occupancy verdict",
+                description=(
+                    "Whether a human being is in frame. Object detection, not "
+                    "recognition: `person_present`, `no_person`, or "
+                    "`tracker_unavailable` when the detector cannot see at all. "
+                    "Scoped to the one room the fixed camera covers."
+                ),
+                fields=("vision.occupancy",),
+            ),
+        ),
+        must_not_claim=(
+            "That we identify anyone. Track identities are stable within a session "
+            "only; a track id says 'the same person as a moment ago', never 'this "
+            "particular person'. There is no enrolment and no database.",
+            "A headcount. The verdict is personhood, not a count, because a count "
+            "invites being read as occupancy, which the 2026-09-19 pivot deleted.",
+            "Anything about a room the camera does not cover. One fixed camera sees "
+            "one room and every claim carries that scope.",
+            "That an empty frame means an empty room when the tracker is unavailable. "
+            "A detector with no weights returns zero detections and that is not "
+            "evidence of absence.",
+        ),
+        consumes=(),
+    ),
+    AgentIdentity(
         slug="master",
         tier=1,
         role=Role.COORDINATION,
