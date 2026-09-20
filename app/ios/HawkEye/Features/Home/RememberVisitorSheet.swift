@@ -66,7 +66,12 @@ struct RememberVisitorSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
+                    // Disabled while a save is in flight: dismissing here
+                    // would race the awaited `onSave` the same way the Save
+                    // button itself used to, popping the notice card back
+                    // once the still-running save finally clears it.
                     Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
