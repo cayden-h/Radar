@@ -422,6 +422,7 @@ These are the combinations that waste an evening, because most of them look like
 | Shutter to real GPIO | Servo on the Pi's 5V rail | The Pi browns out when the shield moves. Presents as the camera dying, or the CSI capture dying, or an unreachable Pi. Never mentions the servo. |
 | Shutter to real GPIO | Pulse width not stopped after the move | The shield buzzes and twitches at rest, on camera, in the footage. |
 | Shutter to real GPIO | Closed position not recalibrated after the mount was touched | **The worst one.** The shield partly covers, frames are not black, and the privacy claim is quietly false while everything reports healthy. Check with a live frame, not by eye. |
+| Vision to real camera | Weights never fetched | `tracker_unavailable`, so the shutter never closes and `master.vision_silent` fires. Correct behaviour, and it looks like the camera path is broken. It is: pre-fetch `yolo11m.pt`. |
 | Vision to real camera | Fixture file still configured | Narration repeats on a fixed cycle. Looks like a model quirk, is a config bug. |
 | Vision to real camera | Auto-exposure left on | Narration contradicts itself one second apart on a live call. |
 | Vision to real camera | Two processes opening `/dev/video0` | "Device busy", usually the first time the recorder and narrator are run separately. |
@@ -474,6 +475,34 @@ Covered in full in `docs/hardware/logitech-camera.md`, and repeated here because
 Every AVFoundation index opens and reports the same 1280x720, so an index that works is not evidence it is the right camera.
 On the MacBook, index 0 is the Brio, 1 is an iPhone over Continuity Camera, and 2 is the built-in FaceTime.
 The Pi does not have this problem.
+
+## The occupancy verdict, which closes the shutter
+
+**New on 2026-09-20**, and the highest-consequence seam on this page, because this is the one that decides whether a lens gets covered back up.
+
+`vision.occupancy` is the camera's answer to one question: is there a human in frame.
+Three values, and the third one is the entire point.
+
+| Value | What it means | What `master` does |
+|---|---|---|
+| `person_present` | A person is in frame | Holds the lens open, hands the verdict to `intruder` |
+| `no_person` | The detector looked and saw nobody | Issues a `close` grant. The shield drops |
+| `tracker_unavailable` | The detector could not look at all | Nothing. The lens stays open and the resident is told |
+
+**The seam** is the same `StubTracker` to `YoloBotSortTracker` swap as the section below, chosen by `build_tracker`.
+
+**How to tell the flip worked:** the verdict changes when you walk in front of the camera, and the shield physically closes a few seconds after you leave frame.
+A verdict that never leaves `no_person` while somebody is visibly in the room is the failure to look for.
+
+**The half-flipped state, and it is the worst one on this page:** a real tracker with no weights file returns zero detections.
+If that reached the verdict as `no_person`, `master` would issue a close grant, the shield would drop, and it would look exactly like a working benign close - the demo beat we most want to show - while the camera was blind the whole time.
+
+This is why the verdict has three values rather than two.
+`UnavailableTracker` reports `available = False`, `verdict()` checks that first and unconditionally, and `VisionAgent` emits an `Unknown` rather than an assertion, so `tracker_unavailable` is not a value anything downstream can compare against and get a truthy answer from.
+`vision/tests/test_occupancy.py::test_a_tracker_with_no_weights_reads_as_unavailable_not_empty` is the assertion that keeps this true, and it is the reason this is a code guarantee rather than a line on this page.
+
+**Nothing closes the shutter on silence.** If `vision` stops answering entirely, the lens stays open and `master` raises `master.vision_silent` to the watch and the phone.
+A silence timeout would be exactly what an attacker who can kill `vision` wants, so there is none, and a human closes it instead.
 
 ## The detector, and what happens without it
 

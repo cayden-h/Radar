@@ -234,7 +234,10 @@ class Shutter:
         angle = OPEN_ANGLE if grant.action == "open" else CLOSED_ANGLE
         self.backend.set_angle(angle)
         return Attestation(
-            position=grant.action if grant.action == "close" else "open",
+            # The state, not the verb. `close` is an action; `closed` is where
+            # the shield ends up, and it must agree with the `position` property
+            # because both land in the sealed record.
+            position="closed" if grant.action == "close" else "open",
             commanded_angle=angle,
             nonce=grant.nonce,
             at=now,

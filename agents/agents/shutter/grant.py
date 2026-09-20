@@ -72,17 +72,19 @@ class GrantEnvelope(BaseModel):
 
     reason: str = Field(
         description=(
-            "The `intruder` verdict id that justified this. **Recorded, not trusted** - "
-            "it goes into the sealed record so an investigator can follow the chain "
-            "backwards, and nothing here reads it as authorization."
+            "What justified this grant: a motion claim id for `open`, a vision verdict "
+            "id for `close`. **Recorded, not trusted** - it goes into the sealed record "
+            "so an investigator can follow the chain backwards, and nothing here reads "
+            "it as authorization."
         )
     )
 
     incident_id: str | None = Field(
         default=None,
         description=(
-            "Null when the shutter opens on an unaccounted-motion verdict, which is the "
-            "normal case. Set when a human raised the incident first."
+            "Null when the shutter moves on motion or on a vision verdict, which is the "
+            "normal case. Set when a human raised the incident first, or closed the lens "
+            "from the app."
         ),
     )
 

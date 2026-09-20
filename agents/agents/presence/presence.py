@@ -27,13 +27,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from hawkeye_backend.models.common import Provenance, Source
-from hawkeye_backend.models.state import PresenceClass
 from hawkeye_backend.verification.envelope import Severity
 
 from agents.core.observations import Assertion, Unknown
 from agents.core.ports import CsiFrame, RosterSource
 from agents.core.signals import percentile, rms
-from agents.people.respiration import ZoneVitals
 
 #: Seconds of history the rolling baseline is computed over. Long enough that a
 #: person standing still for a minute does not become the new normal.
@@ -56,6 +54,17 @@ BASELINE_SEED_S = 180.0
 #: Short window the current disturbance level is measured over. One sample is
 #: noise; two seconds of RMS is a measurement.
 DISTURBANCE_WINDOW_S = 2.0
+
+#: How much history the reader pulls each tick. Not a respiration window - that
+#: concept left with `respiration.py` on 2026-09-20. It is simply enough frames
+#: for the rolling quiet floor to mean something.
+WINDOW_S = 30.0
+
+#: Below this, motion and noise are not separable and the reader says so rather
+#: than producing a confident answer from data that cannot support it. Far lower
+#: than the old respiration floor, because detecting that something moved is a
+#: much cheaper question than detecting a breath.
+MIN_RATE_HZ = 5.0
 
 #: How far above the quiet floor a zone's disturbance must sit to read as
 #: occupied, in normalized amplitude units. Absolute rather than a ratio,
@@ -155,7 +164,6 @@ class PresenceReader:
         self,
         frame: CsiFrame,
         window: list[CsiFrame],
-        vitals: dict[str, ZoneVitals],
         roster: RosterSource,
         provenance: Provenance,
     ) -> tuple[list[str], list[Assertion], list[Unknown]]:
@@ -175,31 +183,10 @@ class PresenceReader:
         # does not depend on the radio working. If CSI is dead and two phones
         # are on the network, "two residents are home" is still true and still
         # the most useful thing we can tell a dispatcher.
-        residents = roster.residents()
-        associated = roster.associated_devices()
-        home = [r for r in residents if any(d in associated for d in r.device_ids)]
-        assertions.append(
-            Assertion(
-                field="people.headcount",
-                value=str(len(home)),
-                severity_ceiling=Severity.ACTIONABLE,
-                confidence=0.95,
-                basis=(
-                    f"{len(home)} of {len(residents)} registered residents have a device "
-                    "associated to the router. This figure comes from the network, not the "
-                    "radio. It misses a resident who left their phone behind, a guest, and "
-                    "anyone carrying a device that never associates."
-                ),
-                provenance=Provenance(
-                    # Device association is not a CSI measurement and must not
-                    # be labelled as one. It is an inference over network state.
-                    source=Source.AGENT_INFERENCE,
-                    producer=self._agent,
-                    ansname=self._ansname,
-                    detail=f"{len(associated)} associated devices",
-                ),
-            )
-        )
+        # The roster answer moved out on 2026-09-20. `people.headcount` was
+        # sourced from device association rather than from the radio, and the
+        # pivot notes it never came from CSI at all. `intruder` does that
+        # arithmetic now, against the camera, which is where it belongs.
 
         # ------------------------------------------------------ the radio answer
 
@@ -210,7 +197,7 @@ class PresenceReader:
             if floor is None or baseline.age_s < BASELINE_MIN_AGE_S:
                 unknowns.append(
                     Unknown(
-                        field="people.zone",
+                        field="presence.zone",
                         zone_scope=zone,
                         reason=(
                             f"Baseline is {baseline.age_s:.0f}s old against a "
@@ -222,77 +209,56 @@ class PresenceReader:
                 continue
 
             excess = max(0.0, disturbance[zone] - floor)
-            zone_vitals = vitals.get(zone)
-            breathing = bool(zone_vitals and zone_vitals.breathing)
-
-            # Personhood gates the zone claim. A disturbance without a
-            # respiration signature is a perturbation, and this reader will not
-            # call it a person - that verdict belongs to `respiration.py`.
-            if not breathing and excess < OCCUPIED_EXCESS:
-                continue
-            if not breathing:
-                assertions.append(
-                    Assertion(
-                        field="people.perturbation",
-                        value=f"{excess:.3f}",
-                        zone_scope=zone,
-                        # CORROBORATING at most. A perturbation is not a person
-                        # and must never be able to trigger anything on its own.
-                        severity_ceiling=Severity.CORROBORATING,
-                        confidence=round(min(0.9, excess * 2.0), 2),
-                        basis=(
-                            f"Channel disturbance {excess:.3f} above the quiet floor of "
-                            f"{floor:.3f}, with no respiration signature. This is a "
-                            "perturbation, not a person. A curtain looks exactly like this."
-                        ),
-                        provenance=provenance,
-                    )
-                )
+            if excess < OCCUPIED_EXCESS:
                 continue
 
+            # Motion, and nothing more. Until 2026-09-20 this reader gated the
+            # zone claim on a respiration signature and called the result a
+            # breathing presence. That verdict is gone: the radio cannot support
+            # it and the camera answers it better. What is left is the honest
+            # residue - something in this room perturbed the channel.
             occupied.append(zone)
             assertions.append(
                 Assertion(
-                    field="people.zone",
-                    value=zone,
+                    field="presence.motion",
+                    value="true",
                     zone_scope=zone,
-                    severity_ceiling=Severity.ACTIONABLE,
-                    confidence=round(min(0.95, 0.6 + excess), 2),
+                    # CORROBORATING at most. A perturbation is not a person and
+                    # must never be able to trigger anything on its own. What it
+                    # does trigger is a shutter opening, which is a privacy
+                    # decision rather than a dispatch, and `master` makes it.
+                    severity_ceiling=Severity.CORROBORATING,
+                    confidence=round(min(0.9, excess * 2.0), 2),
                     basis=(
-                        f"A breathing presence resolved in this zone, {excess:.3f} above a "
-                        f"{baseline.age_s:.0f}s rolling quiet floor. Room-level, not a "
-                        "coordinate: this hardware tier does not support a fix and claiming "
-                        "one invites a question we lose."
+                        f"Channel disturbance {excess:.3f} above a {floor:.3f} quiet floor "
+                        f"aged {baseline.age_s:.0f}s. Something moved in this room. Whether "
+                        "it is a person is the camera's question, not the radio's: a curtain "
+                        "looks exactly like this."
                     ),
-                    presence_id=zone_vitals.presence_id if zone_vitals else None,
                     provenance=provenance,
                 )
             )
-
-            presence_class, basis = classify_presence(zone_vitals.bpm if zone_vitals else None)
-            if presence_class is PresenceClass.UNKNOWN:
-                unknowns.append(
-                    Unknown(field="people.presence_class", zone_scope=zone, reason=basis)
+            assertions.append(
+                Assertion(
+                    field="presence.zone",
+                    value=zone,
+                    zone_scope=zone,
+                    severity_ceiling=Severity.CORROBORATING,
+                    confidence=round(min(0.95, 0.6 + excess), 2),
+                    basis=(
+                        "The room the motion is in. Room-level, not a coordinate: this "
+                        "hardware tier does not support a fix and claiming one invites a "
+                        "question we lose."
+                    ),
+                    provenance=provenance,
                 )
-            else:
-                assertions.append(
-                    Assertion(
-                        field="people.presence_class",
-                        value=presence_class.value,
-                        zone_scope=zone,
-                        severity_ceiling=Severity.CORROBORATING,
-                        confidence=0.5,
-                        basis=basis,
-                        presence_id=zone_vitals.presence_id if zone_vitals else None,
-                        provenance=provenance,
-                    )
-                )
+            )
 
         # The sensed count, phrased as what it is: a floor, corroborating the
         # roster figure, never replacing it.
         assertions.append(
             Assertion(
-                field="people.sensed_presences",
+                field="presence.sensed_presences",
                 value=f"at least {len(occupied)}",
                 # CORROBORATING is the ceiling and it is not negotiable. A 1x1
                 # link cannot deliver a count that should move anybody.
@@ -308,30 +274,3 @@ class PresenceReader:
             )
         )
         return occupied, assertions, unknowns
-
-
-def classify_presence(bpm: float | None) -> tuple[PresenceClass, str]:
-    """Coarse class from respiration rate. Amplitude is not an input.
-
-    Resting rates: adult 12-20, child 20-30, infant 30-60, dog and cat 15-30+.
-    Those bands overlap, and the overlap is stated rather than hidden - the
-    honest resolution is "adult versus small and fast-breathing", and an
-    RF-literate judge will press on exactly this. Grounding the split in
-    respiration is physically defensible where "mass perturbs the signal
-    differently" was not.
-    """
-    if bpm is None:
-        return PresenceClass.UNKNOWN, "No respiration rate available, so no class."
-    if bpm <= 20.0:
-        return PresenceClass.ADULT, f"{bpm:.0f} BPM sits in the adult resting band of 12-20."
-    if bpm <= 30.0:
-        return (
-            PresenceClass.CHILD,
-            f"{bpm:.0f} BPM is small and fast-breathing. Child 20-30 and dog or cat 15-30+ "
-            "overlap here and a single link does not separate them; this is reported as a "
-            "child because that is the consequential reading, not because it is resolved.",
-        )
-    return (
-        PresenceClass.UNKNOWN,
-        f"{bpm:.0f} BPM is above the range this agent will classify from.",
-    )

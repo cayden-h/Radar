@@ -43,6 +43,8 @@ from hawkeye_backend.verification.envelope import Severity
 
 from agents.core.base import Agent
 from agents.core.identity import identity
+from agents.master.episode import ShutterEpisode
+from agents.master.shutter_client import ShutterClient
 from agents.core.observations import AgentObservation, Assertion, Unknown
 from agents.core.ports import GasSensor, ObservationSource
 from agents.master.classify import Classification, classify
@@ -52,7 +54,10 @@ from agents.master.gate import AdmittedClaim, TrustGate
 #: The agents master aggregates. Order is the order claims are admitted in,
 #: which is also the order they appear in the verification feed, so `people`
 #: first: its personhood verdict is what `intruder` is conditioned on.
-SENSING = ("people", "intruder")
+# `people` became `presence` and `vision` joined when the shutter stopped being
+# gated on a body count the radio can no longer produce. See
+# docs/superpowers/specs/2026-09-20-motion-gated-shutter-design.md.
+SENSING = ("presence", "intruder", "vision")
 
 
 class AutonomousDialRefused(RuntimeError):
@@ -98,6 +103,7 @@ class MasterAgent(Agent):
         *,
         gas: GasSensor | None = None,
         profiles: dict[str, TrustProfile] | None = None,
+        shutter_client: ShutterClient | None = None,
     ) -> None:
         super().__init__(identity("master"))
         self._mesh = mesh
@@ -111,12 +117,19 @@ class MasterAgent(Agent):
         self._profiles = profiles
         self._incident: Incident | None = None
         self._last_gate: TrustGate | None = None
+        # None in tests that only exercise classification. A master with no
+        # shutter client simply never issues a grant, which is the correct
+        # degenerate behaviour rather than a crash.
+        self._shutter = shutter_client
+        self._episode = ShutterEpisode()
+        self._vision_silent_ticks = 0
 
     # ------------------------------------------------------------------ the job
 
     def tick(self) -> AgentObservation:
         gate, admitted, unreachable = self._gather()
         self._last_gate = gate
+        vision_silent = self._drive_shutter(admitted)
 
         classification = classify(
             admitted,
@@ -157,6 +170,22 @@ class MasterAgent(Agent):
                         provenance=provenance,
                     ),
                 ]
+            )
+        if vision_silent:
+            assertions.append(
+                Assertion(
+                    field="master.vision_silent",
+                    value="true",
+                    severity_ceiling=Severity.ACTIONABLE,
+                    confidence=1.0,
+                    basis=(
+                        "The lens is uncovered and the camera is not reporting. Nothing "
+                        "closes it automatically, because a silence timeout is what an "
+                        "attacker who can kill the vision agent would want. Close it from "
+                        "the app if this is not expected."
+                    ),
+                    provenance=provenance,
+                )
             )
         assertions.extend(
             [
@@ -229,6 +258,76 @@ class MasterAgent(Agent):
         )
 
     # ------------------------------------------------------------- aggregation
+
+    #: Ticks of vision silence, with the lens open, before the resident is told.
+    #: Not a timeout: nothing closes on silence, because a silence timeout is
+    #: precisely what an attacker who can kill `vision` wants. The condition is
+    #: made loud and a human decides.
+    VISION_SILENT_NOTICE_TICKS = 20
+
+    def _drive_shutter(self, admitted: list[AdmittedClaim]) -> bool:
+        """The two shutter decisions. True when the resident should be told
+        that the lens is open and the camera has gone quiet.
+
+        Decision A opens on motion alone. Decision B closes on the camera's own
+        verdict. They are independent: neither reads the other's input, which is
+        what let the body count the 2026-09-19 pivot deleted stop being
+        load-bearing.
+
+        Only admitted claims reach here, so an unverified `no_person` has
+        already been capped by the gate and cannot retire a verified grant.
+        """
+        if self._shutter is None:
+            return False
+
+        rooms = {a.assertion.zone_scope for a in admitted}
+        notice = False
+
+        for room in sorted(rooms):
+            moving = any(
+                a.assertion.field == "presence.motion"
+                and a.assertion.value == "true"
+                and a.assertion.zone_scope == room
+                and a.spoken
+                for a in admitted
+            )
+            occupancy = next(
+                (
+                    a.assertion.value
+                    for a in admitted
+                    if a.assertion.field == "vision.occupancy"
+                    and a.assertion.zone_scope == room
+                    and a.spoken
+                ),
+                None,
+            )
+
+            # ------------------------------------------------ Decision B, close
+            if self._episode.is_open(room):
+                if occupancy is None:
+                    # Nothing closes on silence. See VISION_SILENT_NOTICE_TICKS.
+                    self._vision_silent_ticks += 1
+                    if self._vision_silent_ticks >= self.VISION_SILENT_NOTICE_TICKS:
+                        notice = True
+                else:
+                    self._vision_silent_ticks = 0
+                    if occupancy == "no_person" and self._shutter.request(
+                        action="close", reason=f"vision:{room}:no_person"
+                    ):
+                        self._episode.closed(room)
+                continue
+
+            # ------------------------------------------------- Decision A, open
+            if not moving:
+                self._episode.on_clear(room)
+                continue
+            if self._episode.on_motion(room) and self._shutter.request(
+                action="open", reason=f"motion:{room}"
+            ):
+                self._episode.opened(room)
+                self._vision_silent_ticks = 0
+
+        return notice
 
     def _gather(self) -> tuple[TrustGate, list[AdmittedClaim], list[str]]:
         """Re-read and re-admit every sensing agent. Fresh, every time.

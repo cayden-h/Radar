@@ -99,7 +99,10 @@ Every claim is scoped to the one room the camera sees, and carries that scope as
 
 | Field | Meaning |
 |---|---|
-| `vision.people_visible` | How many distinct people are in frame. Integer, and it is a count of what the camera sees, not of the building |
+| `vision.people_visible` | How many distinct people are in frame. **Measured**, from the local tracker, not from the narration. A count of what the camera sees, not of the building |
+| `vision.tracks` | **Measured.** Per person: `track_id`, normalised `bbox`, `first_seen_frame`, `last_seen_frame`, `frames_held`. Identities are stable within a session only |
+| `vision.lighting` | **Measured.** `day`, `low` or `too_dark`. There is no IR capability; see `docs/swapping-in-real-parts.md` |
+| `vision.mean_luminance` | **Measured.** Mean luma 0..255 of the frame the claim was made from |
 | `vision.description` | The narration sentence. Free text, generated, and labelled as generated |
 | `vision.matches_resident` | `no_match`, `match:<enrolled_id>`, or `undetermined`. See the limits |
 | `vision.carrying` | What the person appears to be holding, when the model says so. Often empty |
@@ -156,3 +159,16 @@ None of these may present as a confident description.
 - Segment writer rotating at the boundary and producing a hashable, closed file
 - Gemini Live dropped mid-incident, and the recording path unaffected
 - Claims carry `source: generated` and the room scope, always
+
+**6. There is no night vision.**
+The Logitech Brio 101 has no IR sensor and no illuminator is owned, so there is no infrared path and there will not be one.
+`vision.lighting: low` means the frame was contrast-stretched before detection and the detection confidence floor was raised, and nothing more.
+Do not write a pitch sentence implying the camera sees in the dark.
+It does not; below `dark_threshold` it says so and stops describing the room.
+
+## Who measures what, after the tracker landed
+
+`people_visible` used to be whatever the narration said. It is now measured by a local YOLO11m plus BoT-SORT tracker running on the same frames, which means every claim carries two independent views of one moment: what an instrument counted, and what a language model said.
+
+That is what makes the safety producer possible.
+A narration describing a person for whom no track ever existed is a corroboration failure, and a corroboration failure is an observation worth posting.

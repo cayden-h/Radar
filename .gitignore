@@ -32,3 +32,11 @@ agents/.ans/
 
 # Local git worktrees
 .worktrees/
+
+# YOLO weights. Roughly 40MB, downloaded by `vision/` on first use and
+# pre-fetched before the demo because the venue network cannot be relied on.
+*.pt
+
+# Recorded test footage. Real people, so it does not belong in a public repo,
+# and a binary fixture in git drifts from the code that reads it.
+vision/tests/footage/

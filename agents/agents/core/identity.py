@@ -144,94 +144,41 @@ class AgentIdentity:
 
 ROSTER: tuple[AgentIdentity, ...] = (
     AgentIdentity(
-        slug="people",
+        slug="presence",
         tier=1,
         role=Role.SENSING,
-        summary=(
-            "Who is in the building, where each one is, whether they are breathing, and "
-            "whether anyone has stopped being resolvable."
-        ),
-        question="How many people, where, in what state, and should a dispatcher expect an answer?",
-        # FIDUCIARY: its verdicts are what turn an occupancy report into a
-        # medical emergency. "A breathing signature in the main bedroom that we
-        # had four minutes ago and do not have now" originates entirely here,
-        # and nothing else in the stack can tell a human from a curtain.
-        profile=TrustProfile.FIDUCIARY,
+        summary="Something moved, and which room it moved in.",
+        question="Did anything in this house just move, and where?",
+        # Was FIDUCIARY when its verdicts turned an occupancy report into a
+        # medical emergency. Respiration was cut on 2026-09-19 and the camera
+        # took personhood on 2026-09-20, so what is left is "something moved in
+        # this room", which opens a shutter and is never on its own the basis
+        # for anything said to a dispatcher.
+        profile=TrustProfile.TRANSACTIONAL,
         skills=(
             Skill(
-                id="personhood",
-                name="Personhood verdict",
+                id="motion",
+                name="Motion and room",
                 description=(
-                    "Whether a perturbation shows quasi-periodic modulation in the "
-                    "0.1-0.5 Hz respiration band. Calibration-free: periodicity does "
-                    "not depend on knowing what an empty room looks like."
+                    "A channel disturbance above a rolling quiet floor, resolved to a "
+                    "room. Says that something moved; says nothing about what moved. "
+                    "Needs a baseline, and reports the zone unanswered until it has one."
                 ),
-                fields=("people.personhood", "people.respiration", "people.moving"),
-            ),
-            Skill(
-                id="vitals",
-                name="Respiration and heart rate",
-                description=(
-                    "Breaths per minute, 6-30; outside that range, null rather than a number. "
-                    "Heart rate 40-120 is best effort - a good number to say on the call and "
-                    "never a decision input, because a heartbeat moves the chest wall a few "
-                    "tenths of a millimetre against 5-12mm for breathing."
-                ),
-                fields=("people.breathing_bpm", "people.heart_bpm"),
-            ),
-            Skill(
-                id="zones",
-                name="Room-level location",
-                description=(
-                    "Which zone each resolved presence is in. Room-level, never coordinates: "
-                    "the literature does not support coordinates at this hardware tier."
-                ),
-                fields=("people.zone", "people.presence_class", "people.perturbation"),
-            ),
-            Skill(
-                id="headcount",
-                name="Headcount",
-                description=(
-                    "Occupants in the building. Sourced from device association against the "
-                    "registered roster, because that comes from the network and is certain. "
-                    "A sensed count is reported separately, as a floor, with a confidence."
-                ),
-                fields=("people.headcount", "people.sensed_presences"),
-            ),
-            Skill(
-                id="responsiveness",
-                name="Responsiveness",
-                description=(
-                    "Whether a breathing signature that was present in a zone is still "
-                    "resolvable, and the seconds since it was last seen. The transition is "
-                    "the signal: a presence that never resolved a signature carries no "
-                    "information, because shallow breathing, breath-holding and range limits "
-                    "are indistinguishable from an empty room. What this answers for a "
-                    "dispatcher is whether to expect a response from whoever is in that room."
-                ),
-                fields=("people.respiration_lost",),
+                fields=("presence.motion", "presence.zone"),
             ),
         ),
         must_not_claim=(
-            "Absence of a respiration signature is not absence of a person. Shallow "
-            "breathing, breath-holding and range limits all degrade toward invisible.",
-            "Heart rate is never the personhood test. Respiration carries every decision.",
-            "Person re-identification. RuView flags it experimental and data-gated, and "
-            "gait-based WiFi identification needs a walking subject, which a person "
-            "motionless on a floor is not.",
-            "An exact sensed count. The BCM43455c0 is 1x1: frequency diversity across "
-            "subcarriers, no spatial diversity. Two people within roughly a metre read as "
-            "one. A sensed count is phrased as 'at least', never as a figure.",
-            "Coordinates. Zones are room-level by design.",
-            "That a person has stopped breathing. A signature that is no longer resolvable "
-            "is a reason to look, never a finding about a body. Shallow breathing and range "
-            "limits produce exactly this reading.",
-            "Anything at all about a presence that never established a breathing signature. "
-            "A moving body swamps its own chest sinusoid with broadband motion, so someone "
-            "who goes from walking to gone leaves no transition to report. Only "
-            "breathing-then-silent is a signal; that limit is the price of the claim being "
-            "worth anything.",
+            "That a perturbation is a person. A curtain looks exactly the same on a "
+            "1x1 link. Personhood is the camera's question as of 2026-09-20.",
+            "A breathing rate, a heart rate, or that anyone has stopped breathing. "
+            "Respiration sensing was cut on 2026-09-19 and the code was deleted on "
+            "2026-09-20.",
+            "A headcount. The count never came from the radio; it came from device "
+            "association, and `intruder` does that arithmetic now.",
+            "A coordinate. Room-level only: this hardware tier does not support a fix "
+            "and claiming one invites a question we lose.",
         ),
+        consumes=(),
     ),
     AgentIdentity(
         slug="intruder",
@@ -270,14 +217,54 @@ ROSTER: tuple[AgentIdentity, ...] = (
             "That the rule has no holes. A resident who left their phone in the car, a "
             "guest, and a burglar carrying a phone that never associates all defeat it. "
             "Every real security product has these gaps; name them.",
-            "An intruder without a personhood verdict from agents/people. A perturbation "
-            "with no respiration signature is a curtain, and calling police on a curtain "
-            "is the failure mode.",
+            "An intruder without a verdict from agents/vision. Motion with nobody in "
+            "frame is a curtain, and calling police on a curtain is the failure mode. "
+            "The camera took this job from the radio on 2026-09-20.",
             "Which resolved presence is the stranger, when residents are also home. We "
             "know there is an extra body; without re-identification we cannot say which "
             "one, and guessing would send officers to the wrong room.",
         ),
-        consumes=("people",),
+        consumes=("vision", "presence"),
+    ),
+    AgentIdentity(
+        slug="vision",
+        tier=1,
+        role=Role.SENSING,
+        summary=(
+            "The camera. Whether a human is in frame, and a description of what they "
+            "are doing."
+        ),
+        question="Is there a person in this room, and what are they doing?",
+        # TRANSACTIONAL, not FIDUCIARY. Its verdict retires a shutter grant and
+        # feeds the intruder rule; it is never on its own the basis for telling
+        # a dispatcher that a specific person is present.
+        profile=TrustProfile.TRANSACTIONAL,
+        skills=(
+            Skill(
+                id="occupancy",
+                name="Occupancy verdict",
+                description=(
+                    "Whether a human being is in frame. Object detection, not "
+                    "recognition: `person_present`, `no_person`, or "
+                    "`tracker_unavailable` when the detector cannot see at all. "
+                    "Scoped to the one room the fixed camera covers."
+                ),
+                fields=("vision.occupancy",),
+            ),
+        ),
+        must_not_claim=(
+            "That we identify anyone. Track identities are stable within a session "
+            "only; a track id says 'the same person as a moment ago', never 'this "
+            "particular person'. There is no enrolment and no database.",
+            "A headcount. The verdict is personhood, not a count, because a count "
+            "invites being read as occupancy, which the 2026-09-19 pivot deleted.",
+            "Anything about a room the camera does not cover. One fixed camera sees "
+            "one room and every claim carries that scope.",
+            "That an empty frame means an empty room when the tracker is unavailable. "
+            "A detector with no weights returns zero detections and that is not "
+            "evidence of absence.",
+        ),
+        consumes=(),
     ),
     AgentIdentity(
         slug="master",
@@ -348,7 +335,7 @@ ROSTER: tuple[AgentIdentity, ...] = (
             "A real MQ-7 on the Pi's GPIO is a driver behind an interface that already "
             "exists, and nothing above it changes.",
         ),
-        consumes=("people", "intruder"),
+        consumes=("presence", "intruder", "vision"),
     ),
     AgentIdentity(
         slug="caller",
