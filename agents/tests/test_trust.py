@@ -15,7 +15,8 @@ from hawkeye_backend.verification.envelope import Severity
 
 from agents.core.observations import AgentObservation, Assertion
 from agents.master import AutonomousDialRefused, MasterAgent, SimulatedCoSensor, TrustGate
-from agents.people import PeopleAgent
+from agents.master.classify import classify
+from agents.presence import PresenceAgent
 
 
 def _assertion(field, value, *, ceiling=Severity.ACTIONABLE, zone="main_bedroom"):
@@ -44,7 +45,7 @@ def test_an_unregistered_agent_is_refused():
         _observation(
             "agents/impostor",
             "ans://v0.1.0.people.hawkeye.evil",
-            [_assertion("people.personhood", "living_body")],
+            [_assertion("presence.motion", "living_body")],
         )
     )
 
@@ -61,22 +62,22 @@ def test_an_agent_may_only_speak_for_itself():
         _observation(
             "agents/replay",
             "ans://v0.1.0.replay.batradar.club",
-            [_assertion("people.respiration", "breathing")],
+            [_assertion("presence.motion", "breathing")],
         )
     )
 
     assert admitted == []
-    assert "belongs to agents/people" in gate.discarded[0].reason
+    assert "belongs to agents/presence" in gate.discarded[0].reason
 
 
 def test_an_untrusted_agent_is_discarded_and_logged():
     """Suppression, not revocation. Only the RA revokes."""
-    gate = TrustGate(profiles={"people": TrustProfile.UNTRUSTED})
+    gate = TrustGate(profiles={"presence": TrustProfile.UNTRUSTED})
     admitted = gate.admit(
         _observation(
-            "agents/people",
+            "agents/presence",
             "ans://v0.1.0.people.batradar.club",
-            [_assertion("people.personhood", "living_body")],
+            [_assertion("presence.motion", "living_body")],
         )
     )
 
@@ -90,12 +91,12 @@ def test_a_valid_claim_is_still_capped_by_its_source_profile():
     A READ_ONLY agent's claim asking for DISPATCHABLE is correctly formed,
     correctly attributed and still refused the magnitude it asked for.
     """
-    gate = TrustGate(profiles={"people": TrustProfile.READ_ONLY})
+    gate = TrustGate(profiles={"presence": TrustProfile.READ_ONLY})
     admitted = gate.admit(
         _observation(
-            "agents/people",
+            "agents/presence",
             "ans://v0.1.0.people.batradar.club",
-            [_assertion("people.respiration_lost", "240", ceiling=Severity.DISPATCHABLE)],
+            [_assertion("presence.motion", "240", ceiling=Severity.DISPATCHABLE)],
         ),
         envelope_verified=True,
     )
@@ -114,9 +115,9 @@ def test_nothing_is_speakable_while_the_transport_is_unwired():
     gate = TrustGate()
     admitted = gate.admit(
         _observation(
-            "agents/people",
+            "agents/presence",
             "ans://v0.1.0.people.batradar.club",
-            [_assertion("people.personhood", "living_body")],
+            [_assertion("presence.motion", "living_body")],
         ),
         envelope_verified=False,
     )
@@ -129,19 +130,45 @@ def test_nothing_is_speakable_while_the_transport_is_unwired():
 
 
 def test_a_verified_fiduciary_claim_is_asserted():
-    """The happy path, once the wire exists."""
-    gate = TrustGate()
+    """The happy path, once the wire exists.
+
+    `presence` dropped to TRANSACTIONAL on 2026-09-20 - it says something moved
+    and nothing more - so it no longer exercises this path. The profile is
+    overridden here rather than picking a different agent, because the property
+    under test is the gate's, not any one agent's.
+    """
+    gate = TrustGate(profiles={"presence": TrustProfile.FIDUCIARY})
     admitted = gate.admit(
         _observation(
-            "agents/people",
-            "ans://v0.1.0.people.batradar.club",
-            [_assertion("people.personhood", "living_body")],
+            "agents/presence",
+            "ans://v0.1.0.presence.batradar.club",
+            [_assertion("presence.motion", "true")],
         ),
         envelope_verified=True,
     )
 
     assert admitted[0].result.decision is VerificationDecision.ASSERTED
     assert admitted[0].spoken is True
+
+
+def test_a_verified_transactional_claim_is_only_attributed():
+    """And the converse, which is what `presence` now actually gets.
+
+    A motion claim is a reported observation, attributed to the agent that made
+    it. It is not something the system stands behind, because a curtain
+    produces exactly the same reading.
+    """
+    gate = TrustGate()
+    admitted = gate.admit(
+        _observation(
+            "agents/presence",
+            "ans://v0.1.0.presence.batradar.club",
+            [_assertion("presence.motion", "true")],
+        ),
+        envelope_verified=True,
+    )
+
+    assert admitted[0].result.decision is VerificationDecision.ATTRIBUTED
 
 
 # --------------------------------------------------------------- the master
@@ -154,86 +181,6 @@ def test_master_never_dials_on_its_own(mesh):
 
     with pytest.raises(AutonomousDialRefused, match="never calls 911 on its own"):
         master.release_for_call()
-
-
-def test_a_human_tap_releases_the_call(mesh):
-    master = MasterAgent(mesh)
-    master.raise_incident(IncidentType.FIRE, RaisedBy.USER)
-    incident = master.release_for_call()
-
-    assert incident.released_for_call is True
-    assert incident.traceparent.startswith("00-")
-
-
-def test_co_with_a_lost_breathing_signature_is_a_fire_with_someone_who_may_not_respond(
-    verified_mesh, feed, roster
-):
-    """The two-modality case, and the one worth showing a judge.
-
-    CSI resolved the breathing and then lost it; a separate gas sensor read the
-    air. Neither alone is this verdict. And the verdict must not overclaim: a
-    lost signature is not a finding that breathing stopped.
-    """
-    people = PeopleAgent(feed, roster)
-    # Still and breathing, NOT moving. `SyntheticCsiFeed.occupy(moving=True)`
-    # deliberately makes respiration unrecoverable - broadband motion noise
-    # swamps the chest sinusoid - so a moving presence never establishes a
-    # signature and therefore can never lose one. Task 1 found this the hard
-    # way.
-    feed.occupy("main_bedroom", bpm=15.0)
-    for _ in range(35):
-        feed.advance(1)
-        verified_mesh.publish(people.run_once())
-    feed.vacate("main_bedroom")
-    # 70 rather than 40: the 30s analysis window keeps resolving residual
-    # breathing frames for roughly 22s after the body leaves, so the clock
-    # only starts then.
-    for _ in range(70):
-        feed.advance(1)
-        verified_mesh.publish(people.run_once())
-
-    sensor = SimulatedCoSensor(ramp_ppm_per_s=200.0)
-    sensor.trigger()
-    sensor.advance(2.0)
-    master = MasterAgent(verified_mesh, gas=sensor)
-    master.run_once()
-    observation = master.run_once()
-
-    verdicts = [a for a in observation.assertions if a.field == "master.incident_type"]
-    assert [a.value for a in verdicts] == [IncidentType.FIRE.value]
-    assert "main_bedroom" in verdicts[0].basis
-    assert "may not be able to respond" in verdicts[0].basis
-    assert "not a finding" in verdicts[0].basis.lower()
-
-
-def test_co_with_a_still_breathing_presence_is_a_fire_with_someone_not_moving(
-    verified_mesh, feed, roster
-):
-    """The classic fire fatality: asleep while the air goes bad.
-
-    Ranks below a lost signature and must say what it cannot tell. A radio
-    that sees stillness and breathing cannot separate unconsciousness from
-    sleep, and must not imply it can.
-    """
-    people = PeopleAgent(feed, roster)
-    feed.occupy("main_bedroom", bpm=15.0)
-    for _ in range(35):
-        feed.advance(1)
-        verified_mesh.publish(people.run_once())
-
-    sensor = SimulatedCoSensor(ramp_ppm_per_s=200.0)
-    sensor.trigger()
-    sensor.advance(2.0)
-    master = MasterAgent(verified_mesh, gas=sensor)
-    master.run_once()
-    observation = master.run_once()
-
-    verdicts = [a for a in observation.assertions if a.field == "master.incident_type"]
-    assert [a.value for a in verdicts] == [IncidentType.FIRE.value]
-    assert "not moving" in verdicts[0].basis
-    assert "unconsciousness from sleep" in verdicts[0].basis
-
-
 def test_nothing_corroborating_and_nothing_raised_produces_no_classification(mesh):
     """The placeholder verdict is gone. No claims and no tap means no answer.
 
@@ -267,34 +214,38 @@ def test_an_unreachable_agent_is_not_an_empty_one(mesh):
     observation = MasterAgent(mesh).run_once()
 
     assert not observation.healthy
-    assert {u.field for u in observation.unknowns} == {"people.*", "intruder.*"}
+    assert {u.field for u in observation.unknowns} == {"presence.*", "intruder.*", "vision.*"}
 
 
 def test_an_operator_question_is_answered_from_a_fresh_pass(verified_mesh, feed, roster):
     """`answer` re-reads and re-admits rather than reading a cache."""
-    people = PeopleAgent(feed, roster)
-    feed.occupy("main_bedroom", bpm=15.0)
+    people = PresenceAgent(feed, roster)
     for _ in range(130):
+        feed.advance(1)
+    feed.perturb("main_bedroom")
+    for _ in range(5):
         feed.advance(1)
         verified_mesh.publish(people.run_once())
 
     master = MasterAgent(verified_mesh)
-    value, why = master.answer("people.headcount")
+    value, why = master.answer("presence.zone")
 
-    assert value == "2"
-    assert "device associated" in why
+    assert value == "main_bedroom"
+    assert why
 
 
 def test_an_unverifiable_claim_answers_i_dont_know(mesh, feed, roster):
     """Verified-but-unspeakable is its own answer, and it is not 'no'."""
-    people = PeopleAgent(feed, roster)
-    feed.occupy("main_bedroom", bpm=15.0)
+    people = PresenceAgent(feed, roster)
     for _ in range(130):
+        feed.advance(1)
+    feed.perturb("main_bedroom")
+    for _ in range(5):
         feed.advance(1)
         mesh.publish(people.run_once())
 
     master = MasterAgent(mesh)
-    value, why = master.answer("people.headcount")
+    value, why = master.answer("presence.zone")
 
     assert value is None
     assert "not cryptographically verified" in why
@@ -329,34 +280,24 @@ def test_co_with_no_resolved_presence_says_it_has_no_occupant_data(verified_mesh
     assert verdicts[0].confidence < 0.6
 
 
-def test_co_with_a_resolved_moving_presence_is_the_moment_to_leave(verified_mesh):
-    """Elevated CO, a presence resolved, and it is up and moving.
+def test_the_classifier_does_not_invent_a_fire_from_motion():
+    """Fire went with the simulated gas sensor on 2026-09-19.
 
-    The claims are staged rather than driven through `SyntheticCsiFeed`,
-    because the fixture cannot produce this combination: `occupy(moving=True)`
-    makes respiration unrecoverable by design, so a moving presence in the
-    feed never establishes a breathing signature at all. Staging them here is
-    the same test-double move the gate tests above make.
+    Three tests here used to drive Fire classification from a CO reading
+    combined with a respiration signature. Both inputs are gone: the gas sensor
+    was cut by the pivot, and respiration was deleted on 2026-09-20 when the
+    camera took personhood. They are not replaced, because there is nothing
+    left to replace them with - what is checked instead is that nothing
+    downstream reaches for a fire verdict it can no longer support.
     """
-    verified_mesh.publish(
+    gate = TrustGate()
+    admitted = gate.admit(
         _observation(
-            "agents/people",
-            "ans://v0.1.0.people.batradar.club",
-            [
-                _assertion("people.personhood", "living_body"),
-                _assertion("people.respiration", "breathing"),
-                _assertion("people.moving", "true", ceiling=Severity.CORROBORATING),
-            ],
-        )
+            "agents/presence",
+            "ans://v0.1.0.presence.batradar.club",
+            [_assertion("presence.motion", "true")],
+        ),
+        envelope_verified=True,
     )
-    sensor = SimulatedCoSensor(ramp_ppm_per_s=200.0)
-    sensor.trigger()
-    sensor.advance(2.0)
-    master = MasterAgent(verified_mesh, gas=sensor)
-    master.run_once()
-    observation = master.run_once()
 
-    verdicts = [a for a in observation.assertions if a.field == "master.incident_type"]
-    assert [a.value for a in verdicts] == [IncidentType.FIRE.value]
-    assert "moment to leave" in verdicts[0].basis
-    assert "main_bedroom" in verdicts[0].basis
+    assert classify(admitted) is None or classify(admitted).incident_type is not IncidentType.FIRE

@@ -183,3 +183,151 @@ def test_grant_ttl_is_seconds_not_minutes() -> None:
     from datetime import timedelta
 
     assert GRANT_TTL <= timedelta(seconds=30)
+
+
+# --------------------------------------------------------------- the two decisions
+#
+# Decision A opens on motion alone. Decision B closes on the camera's own
+# verdict. They are independent: neither reads the other's input.
+
+from agents.core.observations import AgentObservation, Assertion
+from agents.core.ports import FetchedObservation
+from agents.master.agent import MasterAgent
+from hawkeye_backend.models.common import Provenance, Source
+from hawkeye_backend.verification.envelope import Severity
+
+
+class _Mesh:
+    """An ObservationSource whose verification status the test controls."""
+
+    def __init__(self) -> None:
+        self._obs: dict[str, FetchedObservation] = {}
+
+    def put(self, slug: str, obs: AgentObservation, *, verified: bool = True) -> None:
+        self._obs[slug] = FetchedObservation(observation=obs, envelope_verified=verified)
+
+    def drop(self, slug: str) -> None:
+        self._obs.pop(slug, None)
+
+    def fetch(self, slug: str) -> FetchedObservation | None:
+        return self._obs.get(slug)
+
+
+def _obs(slug: str, field: str, value: str, *, source: Source) -> AgentObservation:
+    """An observation from `slug`, built without a roster lookup.
+
+    `presence` does not join the roster until the rename lands, and the gate
+    does no identity lookup of its own, so the fixture spells the names out.
+    """
+    name = f"agents/{slug}"
+    ansname = f"ans://v{VERSION}.{slug}.batradar.club"
+    return AgentObservation(
+        agent=name,
+        ansname=ansname,
+        assertions=(
+            Assertion(
+                field=field,
+                value=value,
+                zone_scope=ROOM,
+                severity_ceiling=Severity.ACTIONABLE,
+                confidence=0.9,
+                basis="test fixture",
+                provenance=Provenance(
+                    source=source,
+                    producer=name,
+                    ansname=ansname,
+                    detail="test",
+                ),
+            ),
+        ),
+    )
+
+
+def _motion() -> AgentObservation:
+    return _obs("presence", "presence.motion", "true", source=Source.NEXMON_CSI)
+
+
+def _vision(value: str) -> AgentObservation:
+    return _obs("vision", "vision.occupancy", value, source=Source.CAMERA_UVC)
+
+
+def _wired() -> tuple[MasterAgent, Shutter, _Mesh]:
+    key = Ed25519PrivateKey.generate()
+    shutter = _trusting_shutter(key)
+    mesh = _Mesh()
+    master = MasterAgent(mesh, shutter_client=_client(shutter, key))
+    return master, shutter, mesh
+
+
+def test_motion_alone_opens_the_lens() -> None:
+    """Decision A. No roster in this path at all."""
+    master, shutter, mesh = _wired()
+    mesh.put("presence", _motion())
+
+    master.tick()
+
+    assert shutter.position == "open"
+
+
+def test_no_person_closes_the_lens() -> None:
+    """Decision B. The camera says the motion was not a person."""
+    master, shutter, mesh = _wired()
+    mesh.put("presence", _motion())
+    master.tick()
+
+    mesh.put("vision", _vision("no_person"))
+    master.tick()
+
+    assert shutter.position == "closed"
+
+
+def test_person_present_keeps_the_lens_open() -> None:
+    master, shutter, mesh = _wired()
+    mesh.put("presence", _motion())
+    master.tick()
+
+    mesh.put("vision", _vision("person_present"))
+    master.tick()
+
+    assert shutter.position == "open"
+
+
+def test_silent_vision_keeps_the_lens_open() -> None:
+    """Closing on silence lets an attacker blind the camera by killing one
+    agent. Open-on-failure is the safe direction, because opening has already
+    been paid for by a verified grant."""
+    master, shutter, mesh = _wired()
+    mesh.put("presence", _motion())
+    master.tick()
+
+    mesh.drop("vision")
+    for _ in range(5):
+        master.tick()
+
+    assert shutter.position == "open"
+
+
+def test_unverified_no_person_does_not_close_the_lens() -> None:
+    """An unverified claim cannot retire a verified grant's effect."""
+    master, shutter, mesh = _wired()
+    mesh.put("presence", _motion())
+    master.tick()
+
+    mesh.put("vision", _vision("no_person"), verified=False)
+    master.tick()
+
+    assert shutter.position == "open"
+
+
+def test_a_long_vision_silence_raises_a_notice_for_the_resident() -> None:
+    """There is no silence timeout, because a timeout is what an attacker who
+    can kill vision wants. The condition is made loud instead."""
+    master, _, mesh = _wired()
+    mesh.put("presence", _motion())
+    master.tick()
+    mesh.drop("vision")
+
+    for _ in range(MasterAgent.VISION_SILENT_NOTICE_TICKS + 2):
+        obs = master.tick()
+
+    assert obs.value("master.vision_silent") == "true"

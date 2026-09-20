@@ -55,6 +55,17 @@ from agents.core.observations import AgentObservation, Assertion
 from agents.core.phrasing import elapsed_phrase
 from agents.core.ports import ObservationSource
 
+#: Questions we used to answer and must now refuse.
+#:
+#: Respiration sensing was cut on 2026-09-19 and the code deleted on
+#: 2026-09-20. The routes stay, pointed here, rather than being removed: a
+#: deleted route lets "is she breathing?" fall through to whatever matches next,
+#: and an operator getting a confident answer to a question about a different
+#: thing is worse than getting none. Routing to an explicit refusal is what
+#: makes "I don't know" available and used, which this agent's contract
+#: requires.
+UNSENSED_VITALS = "caller.unsensed_vitals"
+
 #: Question intent to the interior-state field that answers it.
 #:
 #: **Match on meaning, not exact strings.** A dispatcher will not say the phrase
@@ -173,9 +184,9 @@ QUESTION_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("is it dark", "are the lights", "can you see anything", "is the camera working"),
     ),
     ("intruder.unexpected_presence", ("intruder", "someone else", "stranger", "break in")),
-    ("people.headcount", ("how many", "anyone else", "who else", "occupants", "people")),
+    ("presence.devices_home", ("how many", "anyone else", "who else", "occupants", "people")),
     (
-        "people.respiration_lost",
+        UNSENSED_VITALS,
         (
             "responsive",
             "respond",
@@ -197,9 +208,9 @@ QUESTION_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "passed out",
         ),
     ),
-    ("people.respiration", ("breathing", "breath", "respiration", "still alive", "conscious")),
-    ("people.breathing_bpm", ("how fast", "breathing rate", "breaths")),
-    ("people.zone", ("where", "which room", "what room", "located")),
+    (UNSENSED_VITALS, ("breathing", "breath", "respiration", "still alive", "conscious")),
+    (UNSENSED_VITALS, ("how fast", "breathing rate", "breaths")),
+    ("presence.zone", ("where", "which room", "what room", "located")),
     ("intruder.resident_zones", ("where is the resident", "where are they", "homeowner")),
 )
 
@@ -487,8 +498,6 @@ class CallerAgent(Agent):
 
 #: What a dispatcher needs first. Life status and location before anything else.
 SPEAK_PRIORITY: tuple[str, ...] = (
-    "people.respiration_lost",
-    "people.respiration",
     # The pivot's contribution to this list, and it is near the top on purpose.
     # A dispatcher taking a burglary call already knows a system says someone is
     # in the house. What nobody else can give them is a description of who,
@@ -496,14 +505,10 @@ SPEAK_PRIORITY: tuple[str, ...] = (
     # and whether that person is carrying something.
     "vision.description",
     "vision.carrying",
-    "people.zone",
+    "presence.zone",
     "vision.people_visible",
-    "people.headcount",
     "intruder.unexpected_presence",
     "intruder.occupied_zones",
-    "master.co_ppm",
-    "people.breathing_bpm",
-    "people.heart_bpm",
 )
 
 
@@ -561,29 +566,16 @@ def _speak_value(field: str, value: str, *, zone: str | None = None) -> str:
     """One short sentence a dispatcher can act on. No jargon, no hedging stack."""
     where = f" in the {zone.replace('_', ' ')}" if zone and zone != "site" else ""
     match field:
-        case "people.respiration_lost":
+        case _ if field == UNSENSED_VITALS:
             return (
-                f"I had a breathing signature{where} {elapsed_phrase(value)} ago and I do not "
-                "have one now. That is not the same as them having stopped breathing, and it "
-                "does not tell me they are still in that room - they may have walked out of it. "
-                "If they are in there, do not expect them to answer."
+                "I cannot tell you that. This system does not sense breathing or a "
+                "pulse - it has a camera, and a camera cannot see either one. I will "
+                "not guess at it."
             )
-        case "people.respiration":
-            return (
-                f"They are breathing{where}."
-                if value == "breathing"
-                else f"I cannot resolve breathing{where}. That is not the same as them not breathing."
-            )
-        case "people.breathing_bpm":
-            return f"Breathing about {float(value):.0f} a minute."
-        case "people.heart_bpm":
-            return f"Heart rate about {float(value):.0f}, best effort."
-        case "people.zone":
-            return f"There is a person in the {value.replace('_', ' ')}."
-        case "people.headcount":
+        case "presence.zone":
+            return f"There was movement in the {value.replace('_', ' ')}."
+        case "presence.devices_home":
             return f"{value} resident(s) are home, by the devices on the home network."
-        case "people.sensed_presences":
-            return f"The radio resolves {value} breathing presence(s)."
         case "intruder.unexpected_presence":
             return (
                 "There is someone in the house that no registered device accounts for."
