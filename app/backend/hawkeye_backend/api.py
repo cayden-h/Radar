@@ -35,7 +35,11 @@ from pydantic import BaseModel
 
 from hawkeye_backend import __version__
 from hawkeye_backend.household import DeviceAlreadyClaimed, UnknownDevice
-from hawkeye_backend.master.base import MasterUnavailable
+from hawkeye_backend.master.base import (
+    AutonomousDialRefused,
+    MasterUnavailable,
+    ParticipationModeRefused,
+)
 from hawkeye_backend.master.simulated import SimulatedMasterClient
 from hawkeye_backend.models.common import utc_now
 from hawkeye_backend.models.events import Envelope, HelloEvent
@@ -136,6 +140,19 @@ class UnclaimedDevicesResponse(BaseModel):
     devices: list[ObservedDevice]
 
 
+class SetParticipationModeRequest(BaseModel):
+    """POST /v1/incident/{id}/mode body.
+
+    `by_human` defaults true because the only caller that should ever send
+    false is the automation itself asking to move quieter; a human tapping a
+    mode control in the app always sets it explicitly true. See
+    `app/CLAUDE.md`: automation may only ever move toward quieter.
+    """
+
+    mode: Literal["watching", "whisper", "full_voice"]
+    by_human: bool = True
+
+
 @router.get("/hub", response_model=HubStatus, summary="Hub identity and health")
 async def get_hub(request: Request) -> HubStatus:
     """What the Connect screen hits after Bonjour discovery.
@@ -204,6 +221,23 @@ async def post_incident(request: Request, body: RaiseIncidentRequest) -> Inciden
         )
     except MasterUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"agent mesh unavailable: {exc}") from exc
+
+    # The incident is already raised and acknowledged to the app by this point.
+    # A start_call failure must not roll that back: the resident tapped, the
+    # incident stands, and the call either starts or it doesn't. Either way the
+    # app learns about it from the event stream (call_state stays NOT_PLACED
+    # on failure) rather than from this response.
+    try:
+        await runtime.client.start_call(incident)
+    except AutonomousDialRefused:
+        # RaisedBy.USER is hardcoded three lines above, so this route can
+        # never actually produce the incident that trips this guard. It stays
+        # here anyway as the second, structural copy of the rule: if a future
+        # change lets a non-user-raised incident reach this point, dialing
+        # still refuses rather than silently proceeding.
+        logger.warning("start_call refused for %s: not user-raised", incident.incident_id)
+    except Exception:
+        logger.exception("start_call failed for %s", incident.incident_id)
     return IncidentAck(incident_id=incident.incident_id, status=incident.status)
 
 
@@ -231,6 +265,30 @@ async def post_context(request: Request, incident_id: str, body: ContextRequest)
         return await runtime.client.submit_context(incident_id, body.text)
     except MasterUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"agent mesh unavailable: {exc}") from exc
+
+
+@router.post(
+    "/incident/{incident_id}/mode",
+    summary="Switch the resident's leg of an in-progress call",
+)
+async def set_mode(
+    incident_id: str, request: Request, body: SetParticipationModeRequest
+) -> dict:
+    """Watching, whisper, or full voice. See the mode table in `app/CLAUDE.md`.
+
+    409 rather than a silent no-op when the change is refused: an automated
+    caller asking to go louder without `by_human=True` is exactly the case
+    that must fail loudly, because the asymmetry only holds if going quieter
+    is free and going louder always needs a human hand.
+    """
+    runtime = _runtime(request)
+    try:
+        announcement = await runtime.client.set_participation_mode(
+            incident_id, body.mode, by_human=body.by_human
+        )
+    except ParticipationModeRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"announcement": announcement}
 
 
 @router.get("/replay", response_model=ReplayIndex, summary="Index of recorded incidents")
