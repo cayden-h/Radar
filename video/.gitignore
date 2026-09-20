@@ -1,0 +1,11 @@
+plates/
+burns/
+*.mp4
+
+# The reference 911 call audio stays out of git. This repo is public, and the
+# source is a real call from a thirteen year old girl, named in the audio,
+# during a home intrusion. `docs/research/footage.md` rule 4 forbids exactly
+# this, and SKIT.md already records that the tape cannot ship and the beat gets
+# re-performed instead. The file lives on disk for reference; publishing it
+# would be the dignity problem SKIT.md names.
+audio/*.wav
