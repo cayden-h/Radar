@@ -27,6 +27,14 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     private(set) var household: [HouseholdMember] = []
     private(set) var unclaimedDevices: [ObservedDevice] = []
 
+    /// The resident's leg of the bridge, tracked locally: the hub has no
+    /// wire field for it, only the route that changes it. Set optimistically
+    /// once `POST /v1/incident/{id}/mode` succeeds.
+    private(set) var participationMode: ParticipationMode = .watching
+
+    /// Mirrors `incident?.callState`, `.notPlaced` with nothing open.
+    var callState: CallState { incident?.callState ?? .notPlaced }
+
     @ObservationIgnored private var baseURL: URL = Config.fallbackBaseURL
     @ObservationIgnored private let session = URLSession(configuration: .default)
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
@@ -77,6 +85,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
         missedFrames = false
         hello = nil
         link = .offline
+        participationMode = .watching
     }
 
     // MARK: Commands
@@ -93,6 +102,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     /// the backend still considers the incident open.
     func dismissIncident() {
         incident = nil
+        participationMode = .watching
     }
 
     func sendContext(_ text: String) async throws {
@@ -103,6 +113,33 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             path: "\(Config.incidentPath)/\(incident.id)/context",
             body: ContextRequest(text: trimmed)
         )
+    }
+
+    /// Switches the resident's leg on the bridge, following the exact
+    /// request-building style `sendContext(_:)` uses above: an `Encodable`
+    /// body posted through the shared `post(path:body:)` helper, no second
+    /// HTTP-calling convention in this file.
+    ///
+    /// `by_human: true` always, matching the request model's default and the
+    /// comment on it in `app/backend/hawkeye_backend/api.py`: the only caller
+    /// that should ever send `false` is the automation itself asking to move
+    /// quieter, and nothing in this client does that — every call here
+    /// originates from a human-initiated control per `ParticipationMode`'s
+    /// doc. The backend returns 409 rather than silently no-op'ing a refused
+    /// change, which surfaces here as a thrown `HawkEyeClientError`.
+    func setParticipationMode(_ mode: ParticipationMode) async throws {
+        guard let incident else { throw HawkEyeClientError.notConnected }
+        _ = try await post(
+            path: "\(Config.incidentPath)/\(incident.id)/mode",
+            body: SetParticipationModeRequest(mode: mode)
+        )
+        participationMode = mode
+    }
+
+    /// `TAKE OVER`. Always a human action, held for 1.5s in the UI before
+    /// this is called.
+    func takeOver() async throws {
+        try await setParticipationMode(.fullVoice)
     }
 
     // MARK: Household
@@ -255,6 +292,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             transcript = []
             instructions = []
             verifications = []
+            participationMode = .watching
         }
         incident = value
         if value.status == .resolved || phase == .resolved {
@@ -262,6 +300,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             transcript = []
             instructions = []
             verifications = []
+            participationMode = .watching
         }
     }
 

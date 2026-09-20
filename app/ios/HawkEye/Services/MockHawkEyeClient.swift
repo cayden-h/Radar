@@ -53,6 +53,16 @@ final class MockHawkEyeClient: HawkEyeClienting {
     private(set) var household: [HouseholdMember] = []
     private(set) var unclaimedDevices: [ObservedDevice] = [MockHawkEyeClient.seededVisitorDevice]
 
+    /// The resident's leg of the bridge. `.watching` at rest and at the start
+    /// of every call; nothing in this file ever moves it toward `.fullVoice`
+    /// except `setParticipationMode`/`takeOver`, which are only ever called
+    /// from a human-initiated control per `ParticipationMode`'s doc.
+    private(set) var participationMode: ParticipationMode = .watching
+
+    /// Mirrors `incident?.callState`, `.notPlaced` with nothing open, so a
+    /// view can ask this directly instead of unwrapping `incident` first.
+    var callState: CallState { incident?.callState ?? .notPlaced }
+
     /// Presences vouched for this session only. Nothing here persists across
     /// `disconnect()`/`resolve()`, which is the point: "this is expected" is a
     /// session-scoped fact, unlike remembering a visitor.
@@ -149,6 +159,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         household = []
         unclaimedDevices = [MockHawkEyeClient.seededVisitorDevice]
         approvedPresences = []
+        participationMode = .watching
     }
 
     // MARK: Household
@@ -233,6 +244,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         transcript = []
         instructions = []
         verifications = []
+        participationMode = .watching
     }
 
     func dismissNotice(_ id: String) {
@@ -263,6 +275,36 @@ final class MockHawkEyeClient: HawkEyeClienting {
         // it as one rather than asserting it as something a sensor observed.
         try? await Task.sleep(for: .milliseconds(700))
         appendTranscript(.caller, "The resident reports: \(trimmed)")
+    }
+
+    /// Switches the resident's leg. Scripted rather than networked, same as
+    /// everything else here, but it is a real state transition: a view
+    /// reading `participationMode` afterward sees it change, and the system
+    /// line below is the same "announce every transition" behaviour
+    /// `agents/caller` owes on the live path per `app/CLAUDE.md`.
+    func setParticipationMode(_ mode: ParticipationMode) async throws {
+        guard mode != participationMode else { return }
+        participationMode = mode
+        guard incident != nil else { return }
+        appendTranscript(.system, Self.transitionAnnouncement(for: mode))
+    }
+
+    /// `TAKE OVER`. Always a human action — the UI holds this for 1.5s before
+    /// calling it — so it goes straight to `.fullVoice` rather than working
+    /// through whisper first.
+    func takeOver() async throws {
+        try await setParticipationMode(.fullVoice)
+    }
+
+    /// "Announce every transition", per `app/CLAUDE.md`: a mode change nobody
+    /// narrated is the failure mode on a call built around not surprising a
+    /// dispatcher with an unexplained voice.
+    private static func transitionAnnouncement(for mode: ParticipationMode) -> String {
+        switch mode {
+        case .watching: "The resident has gone quiet again. Transcript only."
+        case .whisper: "The resident is joining but cannot hear you. They are hiding and will respond by voice only."
+        case .fullVoice: "The resident is joining. They can hear you."
+        }
     }
 
     // MARK: Sensor loop
@@ -742,6 +784,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         instructions = []
         verifications = []
         lineCounter = 0
+        participationMode = .watching
         incident = Incident(
             incidentID: "inc-0001",
             siteID: Self.siteID,
@@ -1353,6 +1396,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         household = []
         unclaimedDevices = [MockHawkEyeClient.seededVisitorDevice]
         approvedPresences = []
+        participationMode = .watching
         // The house keeps being watched. Resolving an incident does not stop
         // the sensing layer, because nothing spawns on incident.
         startDetectionTimer()
