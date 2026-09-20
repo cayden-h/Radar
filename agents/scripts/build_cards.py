@@ -29,9 +29,13 @@ compromised sensing agent could then sign as `master`.
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from hawkeye_backend.verification.b64 import key_thumbprint
 from hawkeye_backend.verification.card import commit_address
@@ -40,8 +44,57 @@ from agents.core import cards
 from agents.core.identity import ROSTER
 from agents.core.keys import load_or_create
 
+logger = logging.getLogger(__name__)
+
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "build" / "cards"
+
+#: Where `ans-cli` leaves what the registration produced. Gitignored, so a fresh
+#: clone and CI both build cards without it and simply publish less.
+ANS = ROOT / ".ans"
+
+
+@dataclass(frozen=True)
+class Registration:
+    """What the RA assigned, if this agent has been registered on this machine."""
+
+    agent_id: str | None = None
+    receipt: dict[str, Any] | None = None
+
+
+def registration(slug: str) -> Registration:
+    """Read the registration facts, or return empty ones.
+
+    **Degrades rather than fails.** Cards must build on a machine that has never
+    run `ans-cli`, because `--check` runs in CI and a card that could only be
+    built on one laptop would be a card nobody else could verify we had not
+    tampered with.
+    """
+
+    def read(name: str) -> Any | None:
+        path = ANS / slug / name
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            logger.warning(
+                "%s: %s is unreadable, building the card without it", slug, name
+            )
+            return None
+
+    status = read("status.json") or {}
+    badge = read("badge.json") or {}
+    return Registration(
+        agent_id=status.get("agentId"),
+        # The RA's own badge document, verbatim: merkle proof, signed payload,
+        # root signature and status. Not the reference's compact COSE receipt -
+        # we publish what we were actually given, and it is the thing a verifier
+        # needs to check the log offline rather than fetching `_ans-badge` over
+        # a network that an incident may have taken away.
+        receipt=badge.get("transparencyLog"),
+    )
+
 
 #: The address the installation is anchored to. Fictional, and it stays that
 #: way: a simulated 911 call must never carry a real residential address.
@@ -68,6 +121,7 @@ def build(*, write: bool) -> dict[str, str]:
 
     fingerprints: dict[str, str] = {}
     for agent in ROSTER:
+        registered = registration(agent.slug)
         # The agent's own key, the same one it will sign claims with. Created on
         # first use and stable thereafter; a key that changed per build would
         # invalidate the published card every time, which to any monitor is
@@ -79,13 +133,23 @@ def build(*, write: bool) -> dict[str, str]:
             agent,
             public_key_b64=cards.public_key_b64(key),
             kid=key_thumbprint(key.public_key()),
-            # Deterministic from the ANSName rather than random, so rebuilding
-            # does not produce a new agentId and therefore fake drift. A real
-            # registration assigns this; until then a stable value is the only
-            # one that does not lie about having changed.
-            agent_id=str(uuid.uuid5(uuid.NAMESPACE_URL, agent.ansname)),
+            # The id the RA actually assigned, once there is a registration
+            # to read it from. Before 2026-09-20 this was a uuid5 of the
+            # ANSName - stable, so rebuilding produced no fake drift, but not
+            # the agent's real id. The transparency log and `verify_agent` both
+            # speak the RA's id, so a card carrying a different one was a card
+            # disagreeing with the log about who it describes.
+            agent_id=registered.agent_id
+            or str(uuid.uuid5(uuid.NAMESPACE_URL, agent.ansname)),
+            # Stays None, and the reason is worth knowing rather than guessing:
+            # the ANS PKI refuses Ed25519 ("CSR public key must use RSA or EC"),
+            # so no certificate exists for the key this card publishes. The
+            # certificates the RA did issue are over keys ans-cli generated, and
+            # putting one of those here would publish a chain that does not
+            # contain the key beside it - which is `wrong_dpop_key_attack`, on
+            # our most-inspected surface. A null field is the honest answer.
             x5c=None,
-            transparency_receipt=None,
+            transparency_receipt=registered.receipt,
         )
         signed_trust = cards.sign(trust, key, agent)
 
@@ -100,7 +164,9 @@ def build(*, write: bool) -> dict[str, str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="Compare against disk; do not write.")
+    parser.add_argument(
+        "--check", action="store_true", help="Compare against disk; do not write."
+    )
     args = parser.parse_args(argv)
 
     if args.check:
@@ -126,7 +192,9 @@ def main(argv: list[str] | None = None) -> int:
             for card in (on_disk, rebuilt):
                 card.get("x-hawkeye", {}).pop("dispatchAddressCommitment", None)
             if cards.fingerprint(on_disk) != cards.fingerprint(rebuilt):
-                failures.append(f"{agent.slug}: card on disk differs from the code that built it")
+                failures.append(
+                    f"{agent.slug}: card on disk differs from the code that built it"
+                )
         if failures:
             print("card drift:", *failures, sep="\n  ")
             return 1

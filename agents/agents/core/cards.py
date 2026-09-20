@@ -35,9 +35,14 @@ from typing import Any
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from hawkeye_backend.verification.b64 import b64u_encode, key_thumbprint
 from hawkeye_backend.verification.canonical import canonicalize
-from hawkeye_backend.verification.card import AddressCommitment, card_fingerprint, sign_card
+from hawkeye_backend.verification.card import (
+    AddressCommitment,
+    card_fingerprint,
+    sign_card,
+)
 
 from agents.core.identity import DOMAIN, VERSION, AgentIdentity, Role
+from agents.core.mcp import MCP_PATH, MCP_PROTOCOL_VERSION
 
 A2A_CARD_PATH = "/.well-known/agent-card.json"
 A2A_CARD_ALIAS = "/.well-known/agent.json"
@@ -77,16 +82,23 @@ def _security(identity: AgentIdentity) -> dict[str, Any]:
     probe from `verify_agent`, which reports the credential we actually required.
     """
     schemes: dict[str, Any] = {
-        "noAuth": {"type": "noAuth", "description": "Read-only card and health surfaces."},
+        "noAuth": {
+            "type": "noAuth",
+            "description": "Read-only card and health surfaces.",
+        },
         "ansIdentityCert": {
             "type": "mutualTLS",
             "description": "ANS identity certificate, private CA. Chain in keys[].x5c of the trust card.",
         },
     }
     if identity.role is Role.SENSING:
-        expected_caller = "agents/master only. This agent has no other legitimate caller."
+        expected_caller = (
+            "agents/master only. This agent has no other legitimate caller."
+        )
     elif identity.slug == "master":
-        expected_caller = "The five sensing agents inbound; caller, guidance and replay outbound."
+        expected_caller = (
+            "The five sensing agents inbound; caller, guidance and replay outbound."
+        )
     else:
         expected_caller = "agents/master."
     return {
@@ -123,7 +135,41 @@ def build_a2a_card(
             "streaming": False,
             "pushNotifications": False,
             "stateTransitionHistory": identity.slug == "replay",
+            # The MCP endpoint, declared the way the reference agents declare
+            # theirs. `agent.webmesh.ai verify_agent` reported `mcp_capable:
+            # false` and named MCP in its one warning; this is the half of the
+            # answer that is published rather than served.
+            "extensions": [
+                {
+                    "uri": "https://modelcontextprotocol.io",
+                    "description": (
+                        "MCP server over streamable-HTTP, exposing the same handlers "
+                        "as /a2a. The envelope differs; the gate does not."
+                    ),
+                    "required": False,
+                    "params": {
+                        "endpoint": f"{identity.base_url}{MCP_PATH}",
+                        "transport": "streamable-http",
+                        "protocolVersion": MCP_PROTOCOL_VERSION,
+                    },
+                }
+            ],
         },
+        # What `verify_agent` reads to enumerate endpoints. Absent until
+        # 2026-09-20, which is why it reported `interfaces_raw: []` for an agent
+        # it had just successfully spoken A2A to.
+        "supportedInterfaces": [
+            {
+                "url": f"{identity.base_url}/a2a",
+                "protocolBinding": "jsonrpc",
+                "protocolVersion": "0.3.0",
+            },
+            {
+                "url": f"{identity.base_url}{MCP_PATH}",
+                "protocolBinding": "mcp",
+                "protocolVersion": MCP_PROTOCOL_VERSION,
+            },
+        ],
         "defaultInputModes": ["application/json"],
         "defaultOutputModes": ["application/json"],
         "skills": _skills(identity),
@@ -161,7 +207,9 @@ def build_a2a_card(
         },
     }
     if address_commitment is not None:
-        card["x-hawkeye"]["dispatchAddressCommitment"] = address_commitment.card_fragment()
+        card["x-hawkeye"]["dispatchAddressCommitment"] = (
+            address_commitment.card_fragment()
+        )
     return card
 
 
@@ -172,7 +220,7 @@ def build_trust_card(
     kid: str,
     agent_id: str,
     x5c: list[str] | None = None,
-    transparency_receipt: str | None = None,
+    transparency_receipt: dict[str, Any] | str | None = None,
 ) -> dict[str, Any]:
     """The ANS card. Identity, keys, chain, stapled receipt.
 
@@ -181,10 +229,20 @@ def build_trust_card(
     hop that needs a network round trip to verify is a hop that can be starved,
     so the staple is a resilience property and not a convenience.
 
-    `x5c` and the receipt are None until `ans/` has a registration. They are
-    serialized as null rather than omitted so the card's shape does not change
-    when they arrive - a key set appearing is a re-registration, a key
-    *structure* appearing is gratuitous drift.
+    They are serialized as null rather than omitted when absent, so the card's
+    shape does not change when they arrive - a key set appearing is a
+    re-registration, a key *structure* appearing is gratuitous drift.
+
+    **`x5c` stays null, and that is a finding rather than a gap.** The ANS PKI
+    refuses Ed25519 outright ("CSR public key must use RSA or EC, but was
+    'Ed25519'"), so no certificate exists for the key this card publishes. The
+    certificates the RA did issue cover keys `ans-cli` generated for its own
+    CSRs - EC P-256 and RSA-2048 - and neither contains the signing key. Putting
+    one of them beside this `x` would publish a chain that does not contain the
+    key it sits next to, which ANS-6 §7.4 step 4 requires a verifier to catch
+    before it does any signature work, and which is precisely the shape of
+    `wrong_dpop_key_attack`. A null field is the honest answer and the card says
+    so rather than reaching for a certificate that describes something else.
     """
     return {
         "ansName": identity.ansname,
@@ -217,7 +275,9 @@ def build_trust_card(
     }
 
 
-def sign(card: dict[str, Any], key: Ed25519PrivateKey, identity: AgentIdentity) -> dict[str, Any]:
+def sign(
+    card: dict[str, Any], key: Ed25519PrivateKey, identity: AgentIdentity
+) -> dict[str, Any]:
     """Sign a card with the JWS shape the reference cards use.
 
     `jku` points at our own trust card and `kid` matches the `keys[].kid` there,
@@ -255,6 +315,4 @@ def public_key_b64(key: Ed25519PrivateKey) -> str:
     """Raw Ed25519 public key, base64url unpadded, for the `x` member."""
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-    return b64u_encode(
-        key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    )
+    return b64u_encode(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))

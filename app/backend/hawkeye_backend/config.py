@@ -173,6 +173,13 @@ class Settings(BaseSettings):
     # being able to turn it off is not optional.
     live_site_enabled: bool = True
 
+    # Where /motion sends a browser. The RSSI motion detector in
+    # wifi-rssi-motion-template/ is a separate, deliberately self-contained
+    # process with its own server and its own page, so the hub does not embed
+    # it or proxy it - it just knows the address and hands the browser over.
+    # Set it empty to drop the /motion route entirely.
+    motion_console_url: str = "http://localhost:8766/index.html"
+
     # Used to render the local time in an SMS. The demo home is in Blacksburg.
     site_timezone: str = "America/New_York"
 

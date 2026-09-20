@@ -217,6 +217,26 @@ What the system refused to repeat to a dispatcher is the interesting number, not
 
 `HAWKEYE_REPLAY_SITE_ENABLED=false` turns the page off without touching code, because serving a human surface is a deployment decision.
 
+## The motion detector, at `/motion`
+
+**`GET /motion` is a redirect, not a page.**
+It sends the browser to the WiFi RSSI motion detector in `wifi-rssi-motion-template/`, which runs as its own process, on its own port, with its own server and its own frontend.
+
+This service does not embed it, proxy it, or read its output.
+That detector is deliberately self-contained - it depends on nothing in `sensor/`, `agents/`, `app/` or ANS, and keeping it that way is worth more than the convenience of merging it.
+So the only thing the hub owes it is a stable address, and the two consoles link to `/motion` rather than to a hardcoded `localhost:8766`.
+
+`HAWKEYE_MOTION_CONSOLE_URL` sets where it points.
+It defaults to `http://localhost:8766/index.html`, which is what `python3 server.py` prints when the detector runs on the same machine as the hub.
+Set it to the detector's LAN address when it runs on the laptop nearest the router instead, and set it empty to drop the route, which makes `/motion` a 404 rather than a redirect to nowhere.
+
+Start the detector separately; the hub does not launch it:
+
+```sh
+cd wifi-rssi-motion-template
+.venv/bin/python3 server.py
+```
+
 ## Notices
 
 An unexpected presence that holds for `HAWKEYE_NOTICE_HOLD_S` seconds raises a notice: a banner in the app, and an SMS if Twilio is configured.

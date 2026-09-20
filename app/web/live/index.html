@@ -10,6 +10,12 @@
     <header>
       <h1>Hawk Eye <span class="badge" id="mode">…</span></h1>
       <p id="hub" class="muted">Connecting…</p>
+      <p class="muted">
+        <!-- The RSSI motion detector runs as its own process on its own port.
+             /motion is the hub's stable address for it, so this link does not
+             have to know which port that is. -->
+        <a href="/motion" target="_blank" rel="noopener">WiFi motion detector &rarr;</a>
+      </p>
     </header>
 
     <main>

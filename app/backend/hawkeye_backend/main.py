@@ -172,6 +172,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.runtime = build_runtime(settings)
     app.include_router(api.router)
 
+    # The motion detector. It runs as its own process out of
+    # wifi-rssi-motion-template/, on its own port, with no dependency on this
+    # service - so all the hub owes it is a stable address on the hub's own
+    # origin. /motion is that address; the consoles link to it rather than to
+    # a hardcoded localhost port.
+    if settings.motion_console_url:
+
+        @app.get("/motion", include_in_schema=False)
+        async def motion() -> RedirectResponse:
+            return RedirectResponse(url=settings.motion_console_url)
+
+        logger.info("motion console redirect: /motion -> %s", settings.motion_console_url)
+    else:
+        logger.info("motion console redirect disabled by configuration")
+
     # The live console. Mounted before /replay and after the API router, so
     # it cannot shadow an API route either.
     if settings.live_site_enabled and LIVE_SITE.is_dir():
