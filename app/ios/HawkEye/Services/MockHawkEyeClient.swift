@@ -251,7 +251,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         notices.removeAll { $0.id == id }
     }
 
-    func sendContext(_ text: String) async throws {
+    func injectContext(text: String, speakOnCall: Bool) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let open = incident else { return }
         let note = ContextNote(
@@ -267,12 +267,15 @@ final class MockHawkEyeClient: HawkEyeClienting {
                 sourceClass: .human,
                 simulated: false
             ),
-            deliveredToCaller: true
+            deliveredToCaller: speakOnCall
         )
         incident?.contextNotes.append(note)
 
-        // What the resident types is a human statement, and `caller` attributes
-        // it as one rather than asserting it as something a sensor observed.
+        // Mirrors the backend: `speak_on_call` is what routes the note to
+        // `caller` to be spoken on the call. Best-effort and attributed as a
+        // human statement, same as the live path — `caller` never asserts it
+        // as something a sensor observed.
+        guard speakOnCall else { return }
         try? await Task.sleep(for: .milliseconds(700))
         appendTranscript(.caller, "The resident reports: \(trimmed)")
     }

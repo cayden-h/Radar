@@ -39,6 +39,13 @@ struct IncidentView: View {
     @State private var feed: Feed = .call
     @FocusState private var fieldFocused: Bool
 
+    // Voice path for the "what is happening" box. Additive to the text path,
+    // which stays the must-have — see `Services/ScribeClient.swift`.
+    @State private var micRecorder = ResidentMicRecorder()
+    @State private var isRecording = false
+    @State private var transcribing = false
+    @State private var voiceError: String?
+
     private var client: any HawkEyeClienting { model.client }
 
     private var refusals: [VerificationResult] {
@@ -344,7 +351,7 @@ struct IncidentView: View {
     /// `user-input` provenance, and `caller` attributes it as something the
     /// resident said rather than as something a sensor observed.
     private var contextField: some View {
-        VStack(alignment: .leading, spacing: Space.sm) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             HStack(alignment: .bottom, spacing: Space.sm) {
                 TextField(
                     "Anything the system cannot see",
@@ -362,6 +369,8 @@ struct IncidentView: View {
                 .glassPanel(cornerRadius: Radius.md, tint: fieldFocused ? Palette.calm : .clear)
                 .animation(Motion.snappy, value: fieldFocused)
 
+                micButton
+
                 Button(action: send) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 16, weight: .bold))
@@ -376,6 +385,78 @@ struct IncidentView: View {
                 .animation(Motion.snappy, value: canSend)
                 .accessibilityLabel("Send to the dispatcher")
             }
+
+            if let voiceError {
+                Text(voiceError)
+                    .font(TypeScale.caption)
+                    .foregroundStyle(Palette.inkFaint)
+            }
+        }
+    }
+
+    /// Voice path into the same box. Single tap starts and stops recording —
+    /// per the control-friction table in `app/CLAUDE.md`, capturing the
+    /// resident's own mic to text is low-harm if triggered by accident,
+    /// unlike anything that opens their mic to the 911 call itself, so this
+    /// does not get a hold-to-confirm gesture.
+    ///
+    /// What comes back from `ScribeClient` lands in the same editable text
+    /// field as anything typed by hand — it does not send itself. Voice does
+    /// not skip review.
+    private var micButton: some View {
+        Button(action: toggleRecording) {
+            Group {
+                if transcribing {
+                    ProgressView()
+                        .tint(Palette.ink)
+                } else {
+                    Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(isRecording ? Palette.ground : Palette.ink.opacity(0.75))
+                }
+            }
+            .frame(width: Hit.min - 8, height: Hit.min - 8)
+            .background(
+                isRecording
+                    ? AnyShapeStyle(Palette.fire)
+                    : AnyShapeStyle(.ultraThinMaterial)
+            )
+            .overlay(Circle().strokeBorder(isRecording ? Color.clear : Palette.glassBorder, lineWidth: 1))
+            .clipShape(Circle())
+        }
+        .buttonStyle(.pressable)
+        .disabled(transcribing)
+        .animation(Motion.snappy, value: isRecording)
+        .accessibilityLabel(isRecording ? "Stop recording" : "Record a note by voice")
+    }
+
+    private func toggleRecording() {
+        voiceError = nil
+        if isRecording {
+            isRecording = false
+            guard let audio = micRecorder.stop() else { return }
+            transcribing = true
+            Task {
+                defer { transcribing = false }
+                do {
+                    let text = try await ScribeClient().transcribe(audio)
+                    guard !text.isEmpty else { return }
+                    context = context.isEmpty ? text : "\(context) \(text)"
+                } catch {
+                    voiceError = (error as? LocalizedError)?.errorDescription
+                        ?? "Could not transcribe that."
+                }
+            }
+        } else {
+            Task {
+                do {
+                    try await micRecorder.start()
+                    isRecording = true
+                } catch {
+                    voiceError = (error as? LocalizedError)?.errorDescription
+                        ?? "Could not start recording."
+                }
+            }
         }
     }
 
@@ -388,7 +469,12 @@ struct IncidentView: View {
         context = ""
         sending = true
         Task {
-            try? await client.sendContext(text)
+            // Typed (or transcribed) context is spoken on the call: this box
+            // doubles as typed takeover in silent mode, per `app/CLAUDE.md`.
+            // It is still context, never instruction — `speak_on_call` only
+            // asks `caller` to say it, attributed to the resident; it cannot
+            // change what `caller` trusts or where the incident is directed.
+            try? await client.injectContext(text: text, speakOnCall: true)
             sending = false
         }
     }
