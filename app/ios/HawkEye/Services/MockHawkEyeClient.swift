@@ -81,6 +81,11 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// dismissal empties it, and the sensor loop runs at 4 Hz.
     @ObservationIgnored private var hasRaisedNotice = false
 
+    /// When this connection opened. The resting shield's `changedAt` is
+    /// measured from here rather than from `.distantPast`, so the Idle screen
+    /// says something true instead of "55 years ago".
+    @ObservationIgnored private var connectedAt = Date()
+
     @ObservationIgnored private var tick: Double = 0
     @ObservationIgnored private var lineCounter = 0
 
@@ -109,6 +114,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
 
     func connect(to hub: Hub) async throws {
         disconnect()
+        connectedAt = Date()
         link = .connecting
         try? await Task.sleep(for: .milliseconds(320))
         // The same `hello` frame the hub sends first on every connection.
@@ -382,8 +388,71 @@ final class MockHawkEyeClient: HawkEyeClienting {
                 )
             ),
             floorplan: plan,
+            shield: shieldStatus(),
             activeIncidentID: incident?.id
         )
+    }
+
+    /// The shield, as `agents/shutter` would attest it.
+    ///
+    /// Driven off the same entry clock as the intruder, so the whole timing
+    /// budget in the root `CLAUDE.md` plays out on screen: the grant is issued
+    /// about 800ms after `intruder` returns its verdict, and the servo takes
+    /// about 400ms to clear the lens.
+    ///
+    /// `Config.mockShutterRefuses` runs the other path, which is the one worth
+    /// having: the camera never opens and the resident is told that something
+    /// asked to open it and could not prove it was allowed to.
+    private func shieldStatus() -> ShieldStatus {
+        let attestation = Provenance(
+            // A stub servo, and it says so. Naming this `servoGPIO` would let a
+            // demo with no hardware attached present as one with hardware
+            // attached, which is the whole reason the two sources are separate.
+            source: .servoStub,
+            producer: "agents/shutter",
+            ansName: "shutter.hawkeye.invalid",
+            detail: "Servo position attested against the nonce shutter itself issued.",
+            sourceClass: .derived,
+            simulated: true
+        )
+
+        guard let entry = enteredAt else {
+            return ShieldStatus(state: .closed, changedAt: connectedAt, commandedAngle: 0,
+                                provenance: attestation)
+        }
+
+        let grantAt = entry.addingTimeInterval(Config.mockIntruderIdentifiedAfter + 0.8)
+        let openAt = grantAt.addingTimeInterval(0.4)
+        let now = Date()
+
+        guard now >= grantAt else {
+            return ShieldStatus(state: .closed, changedAt: connectedAt, commandedAngle: 0,
+                                provenance: attestation)
+        }
+
+        if Config.mockShutterRefuses {
+            return ShieldStatus(
+                state: .refused,
+                changedAt: grantAt,
+                // The shield never moved, so the commanded angle is still the
+                // resting one. A refusal that reported 90 would be claiming a
+                // move that did not happen.
+                commandedAngle: 0,
+                grantNonce: "nonce-7f3a91",
+                refusalCode: "lookalike_ansname",
+                refusalReason: "The grant was signed by a key that is not the one "
+                    + "master publishes in its trust card.",
+                provenance: attestation
+            )
+        }
+
+        if now < openAt {
+            return ShieldStatus(state: .opening, changedAt: grantAt, commandedAngle: 90,
+                                grantNonce: "nonce-7f3a91", provenance: attestation)
+        }
+
+        return ShieldStatus(state: .open, changedAt: openAt, commandedAngle: 90,
+                            grantNonce: "nonce-7f3a91", provenance: attestation)
     }
 
     private func clamp(_ value: Double) -> Double { min(max(value, 0.05), 0.98) }
@@ -557,6 +626,24 @@ final class MockHawkEyeClient: HawkEyeClienting {
         // called, and it is the plan.
         let room = interior.floorplan.room(named: intruder.zone)?.name ?? intruder.zone
 
+        // The camera's own first sentence. **This is the notification.** A
+        // generic "motion detected" on a wrist throws away the entire camera
+        // pivot, so the mock scripts a real sentence rather than a placeholder.
+        //
+        // It describes build, clothing and what the person is doing, and stops
+        // there. It does not name them and it does not claim a match against
+        // any database, because `agents/vision` has neither.
+        let narration = "A person in a dark jacket is standing just inside the "
+            + "\(room.lowercased()), carrying something in their right hand."
+
+        // Nil when the shield refused, and that is the honest answer: there is
+        // no frame because the camera never opened. The notice still goes out.
+        let frame = shieldStatus().state == .open
+            ? SimulatedCameraFrame.jpeg(room: room).map {
+                NoticeFrame(jpeg: $0, capturedAt: Date(), room: room)
+            }
+            : nil
+
         hasRaisedNotice = true
         notices.insert(
             Notice(
@@ -575,7 +662,9 @@ final class MockHawkEyeClient: HawkEyeClienting {
                     detail: "presence surplus against roster and device association",
                     sourceClass: .derived,
                     simulated: false
-                )
+                ),
+                narration: narration,
+                stillFrame: frame
             ),
             at: 0
         )

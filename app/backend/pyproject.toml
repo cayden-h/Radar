@@ -15,6 +15,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "pytest-asyncio>=0.24"]
+# The replay archive: sealed records to MongoDB. Optional because the hub
+# imports and runs without it when HAWKEYE_REPLAY_ARCHIVE=off, which is why
+# MongoReplayArchive imports motor inside __init__ rather than at module scope.
+#
+#     pip install -e ".[archive]"
+archive = ["motor>=3.6"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

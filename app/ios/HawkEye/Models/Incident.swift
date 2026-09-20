@@ -29,6 +29,21 @@ enum IncidentType: String, Codable, Sendable, Hashable, CaseIterable, Identifiab
     }
 }
 
+extension IncidentType {
+
+    /// The one incident type the pivot left.
+    ///
+    /// Fire went with the simulated gas sensor on 2026-09-19 and fall detection
+    /// went earlier the same day, so there is nothing for a resident to choose,
+    /// which is the right shape for a control someone uses while frightened.
+    ///
+    /// The wire enum still spells it `burglary` until T01 renames it. Every
+    /// caller that raises an incident goes through this one name instead, so the
+    /// rename is a one-line change here rather than a search across the app, and
+    /// nothing user-facing says the old word.
+    static var intrusion: IncidentType { .burglary }
+}
+
 /// How the incident was raised. The autonomous path is the one that matters,
 /// because the person who would have pressed the button may not be in a state
 /// to press it.

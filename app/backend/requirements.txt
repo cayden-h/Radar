@@ -6,3 +6,9 @@ pydantic-settings>=2.6
 httpx>=0.28
 websockets>=13.0
 cryptography>=44
+
+# The replay archive only. Sealed records to MongoDB; see replay/archive.py.
+# Optional: with HAWKEYE_REPLAY_ARCHIVE=off the hub imports and runs without it,
+# which is why the import sits inside MongoReplayArchive.__init__ rather than at
+# module scope.
+motor>=3.6

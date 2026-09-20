@@ -90,12 +90,27 @@ New with the pivot. SwiftUI, watchOS 11, paired to the iOS app over WatchConnect
 That is a deliberate trade: a standalone watch app would survive the phone being out of range, and it would also need Bonjour discovery, its own WebSocket, and its own connection state machine on a platform with an aggressive background policy.
 On a weekend, paired is the boring working path. Say so if asked; it is a deployment property, not an architectural one.
 
-### Four screens, and that is all
+### Three screens, and that is all
 
-1. **Idle.** Armed or not, and when the shield last moved. One line
-2. **Notice.** The still frame, the camera's sentence, and three controls: **Start Incident**, **This is expected**, **Remember this visitor**
-3. **Incident live.** The current narration as it updates, an elapsed timer, and the transcript as scrolling text. One control: **Take over**
-4. **Transcribe.** Mic open, the resident's speech going to the operator. This is whisper mode on the wrist
+Cut from four on 2026-09-19, the same day the target was written.
+
+1. **Idle.** Armed or not, where the shield is, and when it last moved
+2. **Notice.** The still frame, the camera's sentence, and two controls: **Start Incident** and **This is expected**
+3. **Saved.** What the hub did with the answer the resident gave, and where to read it back
+
+**The live-incident screen and transcribe mode are gone from the watch**, and the cut is the point rather than a shortfall.
+
+The call, the transcript and **Take over** are the phone's, and a wrist that offers a second way to end a call is a misfire waiting to happen: "offer a second way to end the call" is already on the list of things the watch must never do, and a live-incident screen with a control on it is exactly that.
+The watch says an incident is open and points at the phone.
+
+Transcribe mode went with it. It was already the weakest of the four, it needs a microphone path and a server-side bridge that does not exist yet, and whisper mode on the phone covers the same need on a device the resident can actually read replies on.
+If it comes back it comes back as a fourth screen; nothing here forecloses it.
+
+**"Remember this visitor" is not on the watch either.** It names a person, naming needs a keyboard, and it changes what the house believes rather than muting one session.
+The two controls that remain are still deliberately separate words for separate things, and the Saved screen says to use the phone for naming rather than leaving the resident wondering where the control went.
+
+The watch app is a second target in `app/ios/`, not a sibling directory, so it can share `Models/`, `Shared/` and `DesignSystem/` by source path.
+`app/ios/HawkEyeWatch/README.md` has the reasoning and the build commands.
 
 ### Rules the watch inherits from the phone
 

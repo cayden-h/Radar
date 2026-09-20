@@ -46,6 +46,11 @@ if TYPE_CHECKING:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+#: The one room the fixed camera covers. Every `vision` assertion carries it as
+#: `zone_scope`, because a scoped claim that can be read as unscoped is the
+#: failure root CLAUDE.md names by hand.
+VISION_ROOM = "living_room"
+
 #: The eleven zones of the demo floorplan, from the hub's `build_floorplan`.
 #: TODO(sensor): these come from the one-time enrollment walk in the real
 #: install. The floorplan is authored, not sensed - walls are the static
@@ -99,10 +104,10 @@ def build_agent(slug: str) -> Agent:
     roster = StaticRoster()
 
     match slug:
-        case "people":
-            from agents.people import PeopleAgent
+        case "presence":
+            from agents.presence import PresenceAgent
 
-            return PeopleAgent(feed, roster)
+            return PresenceAgent(feed, roster)
         case "intruder":
             from agents.intruder import IntruderAgent
 
@@ -115,6 +120,19 @@ def build_agent(slug: str) -> Agent:
             from agents.caller import CallerAgent
 
             return CallerAgent(mesh)
+        case "vision":
+            from hawkeye_backend.models.common import Source
+
+            from agents.core.dev import SyntheticOccupancy
+            from agents.vision import VisionAgent
+
+            # `CAMERA_SIM` because that is what this is. The agent refuses any
+            # source label that is not a camera, and the honest camera label for
+            # a process with no lens attached is the simulated one - which the
+            # app renders a badge from rather than hiding.
+            return VisionAgent(
+                SyntheticOccupancy(), room=VISION_ROOM, source_kind=Source.CAMERA_SIM
+            )
         case "replay":
             from agents.replay import ReplayAgent
 

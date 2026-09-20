@@ -31,6 +31,12 @@
     </p>
   </section>
 
+  <!-- Where sealed records are kept. Drawn from GET /v1/replay's `archive`
+       block. A configured archive that is unreachable looks exactly like
+       "nothing has happened yet" unless the page says otherwise, so it says
+       otherwise. -->
+  <div id="archive" class="archive" hidden></div>
+
   <div id="records" class="cards"></div>
   <div id="empty" class="empty" hidden>
     <h2>Nothing recorded yet</h2>

@@ -10,7 +10,7 @@ implementation of the same contract, and the two share `chain.py` so their
 hashes cannot drift apart.
 """
 
-from hawkeye_backend.replay.chain import GENESIS, canonical, entry_hash
+from hawkeye_backend.replay.chain import GENESIS, canonical, entry_hash, verify_entries
 from hawkeye_backend.replay.export import build_export
 from hawkeye_backend.replay.recorder import ReplayRecorder
 from hawkeye_backend.replay.session import RecordSealed, ReplaySession
@@ -23,4 +23,5 @@ __all__ = [
     "build_export",
     "canonical",
     "entry_hash",
+    "verify_entries",
 ]
