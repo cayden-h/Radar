@@ -114,6 +114,30 @@ class Settings(BaseSettings):
     elevenlabs_voice_id: str = ""
     public_base_url: str = ""
 
+    # Twilio Voice Access Tokens, for the app's own leg of the conference (the
+    # resident's phone joining as a WebRTC leg; see app/CLAUDE.md's mode table).
+    # A separate credential pair from the REST credentials above: minting a
+    # client Access Token needs an API Key/Secret, not the account auth token,
+    # and a TwiML Application SID to route the connecting client into.
+    twilio_api_key_sid: str = ""
+    twilio_api_key_secret: SecretStr = SecretStr("")
+    twilio_application_sid: str = ""
+
+    # Retell AI, the real call transport (Twilio Voice is paywalled and now
+    # dormant). All three of api key, from number, and websocket secret are
+    # required for a real call; missing any one reads as unconfigured, the same
+    # all-or-nothing rule as the Twilio blocks above. The operator's phone is
+    # `mock_911_number`, reused - it is exactly the fake 911 operator's phone.
+    # ElevenLabs stays: it is configured on the Retell agent as the TTS voice,
+    # so `elevenlabs_voice_id` above is still consumed.
+    retell_api_key: SecretStr = SecretStr("")
+    retell_from_number: str = ""
+    retell_agent_id: str = ""
+    retell_websocket_secret: str = ""
+    # Which call transport the caller agent wires at startup: retell | twilio |
+    # simulated. Default retell; twilio is retained but dormant.
+    call_transport: str = "retell"
+
     # Replay recording. The record opens on a human tap and seals when the 911
     # call ends; these bound what goes into it in between.
     #
@@ -176,6 +200,26 @@ class Settings(BaseSettings):
             self.elevenlabs_voice_id,
             self.public_base_url,
         ))
+
+    @property
+    def twilio_call_token_configured(self) -> bool:
+        """True only when every value needed to mint a client Access Token is present."""
+        return all((
+            self.twilio_account_sid,
+            self.twilio_api_key_sid,
+            self.twilio_api_key_secret.get_secret_value(),
+            self.twilio_application_sid,
+        ))
+
+    @property
+    def retell_configured(self) -> bool:
+        return all(
+            [
+                self.retell_api_key.get_secret_value(),
+                self.retell_from_number,
+                self.retell_websocket_secret,
+            ]
+        )
 
 
 _settings: Settings | None = None
