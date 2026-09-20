@@ -139,6 +139,19 @@ class MasterClient(Protocol):
         """
         ...
 
+    async def inject_context(self, incident_id: str, text: str) -> None:
+        """Route a resident's note straight to agents/caller to be spoken.
+
+        Best-effort. Unlike `submit_context`, which stores the note into the
+        incident record, this is the side channel that lets an already-running
+        call speak it aloud, attributed to the resident. It is context, never
+        instruction: it must never be treated as authorization and must never
+        change what the call trusts or where it is directed. Callers of this
+        method (see `api.post_context`) are expected to fail soft - a failed
+        speak must not fail the note store.
+        """
+        ...
+
     async def issue_shutter_grant(
         self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
     ) -> str:

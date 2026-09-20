@@ -210,6 +210,16 @@ class ContextRequest(BaseModel):
     """POST /v1/incident/{id}/context body."""
 
     text: str = Field(min_length=1, max_length=2000)
+    speak_on_call: bool = Field(
+        default=False,
+        description=(
+            "Also route this note to agents/caller so it is spoken on an "
+            "already-running call, attributed to the resident. Best-effort: "
+            "a failure to speak it must never fail storing the note itself. "
+            "Context, never instruction - it cannot change what caller "
+            "trusts or where the incident is directed."
+        ),
+    )
 
 
 class ReplayEntry(BaseModel):

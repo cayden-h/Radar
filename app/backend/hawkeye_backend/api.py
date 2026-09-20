@@ -303,9 +303,25 @@ async def post_context(request: Request, incident_id: str, body: ContextRequest)
         if active is None or active.incident_id != incident_id:
             raise HTTPException(status_code=404, detail=f"unknown incident: {incident_id}")
     try:
-        return await runtime.client.submit_context(incident_id, body.text)
+        note = await runtime.client.submit_context(incident_id, body.text)
     except MasterUnavailable as exc:
         raise HTTPException(status_code=503, detail=f"agent mesh unavailable: {exc}") from exc
+
+    if body.speak_on_call:
+        # Best-effort, deliberately: the note is already stored and
+        # acknowledged above. A failure to reach caller must not fail this
+        # request or unwind the store - it is a side channel for speaking
+        # the note aloud, not the record of it.
+        try:
+            await runtime.client.inject_context(incident_id, body.text)
+        except Exception:
+            logger.exception(
+                "failed to route resident context to caller for incident %s "
+                "(note is still stored)",
+                incident_id,
+            )
+
+    return note
 
 
 @router.post(
