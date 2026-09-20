@@ -2,26 +2,28 @@ import SwiftUI
 
 /// Stage 2. The product.
 ///
-/// A persistent bottom tab bar (`RadarTabBar`) switches between three pages —
-/// Camera, Videos, and People — without tearing any of them down, so the
-/// resident can add a family member or glance at a past recording mid-call
-/// without losing anything. Videos and People used to be modal pop-ups
-/// reached from header icons; they are real pages now, reached from the bar,
-/// and their own content is unchanged.
+/// A persistent bottom tab bar (`RadarTabBar`) switches between Camera and
+/// People without tearing either down, so the resident can add a family
+/// member mid-call without losing anything. Videos and Household used to be
+/// reachable from here too — Videos as a third tab, Household as a fourth
+/// side button — and both are gone now: Videos' own page did nothing but
+/// point at the desktop replay console, and Household had no remaining
+/// entry point once its button left the bar, so both the pages and their
+/// files were removed rather than left reachable by nothing.
 ///
-/// A live 911 call is deliberately **not** one of those tabs. It is the one
-/// screen in this app that still bleeds full-screen with nothing competing
-/// with it, exactly as before — see `IncidentView`. The bar's own Back
-/// button leaves the call screen without ending the call (typing to the
-/// operator and the transcript both keep running underneath), and
-/// `LiveCallBanner` is how the resident gets back to it: a thin bar, the
-/// same idea as iOS's own "tap to return to call," shown on every tab
-/// whenever a call is live but not on screen.
+/// A live 911 call is deliberately **not** a tab. It is the one screen in
+/// this app that still bleeds full-screen with nothing competing with it,
+/// exactly as before — see `IncidentView`. The bar's own Back button leaves
+/// the call screen without ending the call (typing to the operator and the
+/// transcript both keep running underneath), and `LiveCallBanner` is how the
+/// resident gets back to it: a thin bar, the same idea as iOS's own "tap to
+/// return to call," shown on every tab whenever a call is live but not on
+/// screen.
 ///
-/// Notices and the household are a separate axis from all of that: a notice
-/// is the sensing layer flagging an unexpected presence, and it never raises
-/// an incident on its own — a human tap still does that, on the Camera page,
-/// same as ever.
+/// Notices are a separate axis from all of that: the sensing layer flagging
+/// an unexpected presence, reached from the bell rather than a tab, and it
+/// never raises an incident on its own — a human tap still does that, on the
+/// Camera page, same as ever.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     var hubName: String
@@ -33,7 +35,7 @@ struct HomeView: View {
     /// sheet off the notice itself, rather than a bare `Bool`, is what lets
     /// the save action know which presence to approve alongside naming it.
     @State private var rememberingNotice: Notice?
-    @State private var showingHousehold = false
+    @State private var showingNotices = false
 
     private var client: any HawkEyeClienting { model.client }
 
@@ -50,7 +52,6 @@ struct HomeView: View {
             Group {
                 switch selectedTab {
                 case .camera: cameraPage
-                case .videos: VideoLibraryView()
                 case .people: AddFamilyMemberView()
                 }
             }
@@ -63,14 +64,14 @@ struct HomeView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
+            // No extending background here on purpose: the bar is a floating
+            // glass pill now, not a shelf docked to the edge, so the ambient
+            // gradient behind the whole screen (`RootView`) is meant to show
+            // through around it rather than being papered over.
             RadarTabBar(
                 selection: $selectedTab,
                 onBack: { model.disconnectAndForget() }
             )
-            // The bar's own background stops at its content frame; this
-            // extends the same fill through the home-indicator strip so the
-            // bar reads as anchored to the bottom edge, like a native tab bar.
-            .background(Palette.surface.ignoresSafeArea(edges: .bottom))
         }
         .task { await client.refreshHousehold() }
         .sheet(item: $rememberingNotice) { notice in
@@ -91,10 +92,22 @@ struct HomeView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingHousehold) {
-            HouseholdList(members: client.household) { memberID in
-                Task { try? await client.forgetMember(memberID) }
-            }
+        .sheet(isPresented: $showingNotices) {
+            NoticesPanel(
+                notices: client.notices,
+                onDismiss: { notice in
+                    withAnimation(Motion.standard) { client.dismissNotice(notice.id) }
+                },
+                onApprove: { notice in
+                    guard let presenceID = notice.presenceID else { return }
+                    Task { try? await client.approvePresence(presenceID) }
+                    withAnimation(Motion.standard) { client.dismissNotice(notice.id) }
+                },
+                onRemember: { notice in
+                    guard notice.presenceID != nil else { return }
+                    rememberingNotice = notice
+                }
+            )
         }
         .onChange(of: client.incident?.id) { _, newID in
             guard let newID else {
@@ -136,29 +149,6 @@ struct HomeView: View {
         VStack(spacing: Space.lg) {
             header
 
-            ForEach(client.notices) { notice in
-                NoticeBanner(
-                    notice: notice,
-                    onDismiss: {
-                        withAnimation(Motion.standard) {
-                            client.dismissNotice(notice.id)
-                        }
-                    },
-                    onApprove: {
-                        guard let presenceID = notice.presenceID else { return }
-                        Task { try? await client.approvePresence(presenceID) }
-                        withAnimation(Motion.standard) {
-                            client.dismissNotice(notice.id)
-                        }
-                    },
-                    onRemember: {
-                        guard notice.presenceID != nil else { return }
-                        rememberingNotice = notice
-                    }
-                )
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
             VStack(spacing: Space.xs) {
                 CameraFeedView()
                     .frame(maxWidth: .infinity)
@@ -167,10 +157,15 @@ struct HomeView: View {
                     CoAlertRow(coPpm: co, simulated: client.interior.coSourceIsSimulated)
                 }
             }
+            .padding(.top, Space.md)
+
+            // Two flexible spacers, so the button centers in whatever room
+            // is actually left between the camera panel and the tab bar.
+            Spacer(minLength: Space.xl)
 
             IncidentBar(client: client)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: Space.xl)
         }
         .padding(.horizontal, Space.gutter)
         .padding(.top, Space.sm)
@@ -178,30 +173,33 @@ struct HomeView: View {
 
     // MARK: Header
 
+    /// Who's home, whether the hub is live, and whether anything's waiting
+    /// for them — the three facts worth a glance before anything else loads.
+    /// The wordmark moved off this screen entirely: it already did its job
+    /// on Connect, and repeating it here just to fill space was the reason
+    /// there was no room left for the resident's own name.
     private var header: some View {
         HStack(alignment: .center, spacing: Space.md) {
-            Wordmark(size: 28, breathing: false)
+            avatarBadge
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Hello, \(Config.residentName)")
+                    .font(TypeScale.heading)
+                    .foregroundStyle(Palette.ink)
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(client.link == .live ? Palette.calm : Palette.inkFaint)
+                        .frame(width: 6, height: 6)
+                    Text(hubName)
+                        .font(TypeScale.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                }
+            }
 
             Spacer(minLength: Space.sm)
 
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(client.link == .live ? Palette.calm : Palette.inkFaint)
-                    .frame(width: 6, height: 6)
-                Text(hubName)
-                    .font(TypeScale.caption)
-                    .foregroundStyle(Palette.inkMuted)
-            }
-
-            Button { showingHousehold = true } label: {
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Palette.inkMuted)
-                    .frame(width: Hit.min * 0.5, height: Hit.min * 0.5)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Household")
+            notificationButton
         }
         .padding(.top, Space.sm)
         .overlay(alignment: .bottom) {
@@ -223,6 +221,104 @@ struct HomeView: View {
             }
         }
     }
+
+    private var avatarBadge: some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [Palette.calm, Palette.collapse],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 44, height: 44)
+            .overlay(
+                Text(Config.residentName.prefix(1))
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Palette.ground)
+            )
+            .accessibilityHidden(true)
+    }
+
+    /// Opens `NoticesPanel`. The badge says whether anything's waiting;
+    /// tapping is now the only way to see notices at all — they no longer
+    /// render inline on Camera, so nothing sits between the header and the
+    /// feed uninvited.
+    private var notificationButton: some View {
+        Button {
+            showingNotices = true
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "bell.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Palette.ink.opacity(0.85))
+                    .frame(width: 42, height: 42)
+                    .glassPanel(cornerRadius: Radius.pill)
+
+                if !client.notices.isEmpty {
+                    Circle()
+                        .fill(Palette.personUnexpected)
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().strokeBorder(Palette.duskBase, lineWidth: 1.5))
+                        .offset(x: 1, y: -1)
+                }
+            }
+        }
+        .buttonStyle(.pressable)
+        .accessibilityLabel(client.notices.isEmpty ? "No notices" : "\(client.notices.count) notices waiting")
+    }
+}
+
+// MARK: - Notices panel
+
+/// Every open notice, reached by tapping the bell rather than shown inline —
+/// see `HomeView.notificationButton`. Reuses `NoticeBanner` as-is; only where
+/// it renders changed; what each notice can do about it (approve, remember,
+/// dismiss) did not.
+private struct NoticesPanel: View {
+    var notices: [Notice]
+    var onDismiss: (Notice) -> Void
+    var onApprove: (Notice) -> Void
+    var onRemember: (Notice) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.md) {
+                Text("Notices")
+                    .font(TypeScale.title)
+                    .foregroundStyle(Palette.ink)
+                    .padding(.top, Space.xxl)
+
+                if notices.isEmpty {
+                    Text("Nothing waiting on you.")
+                        .font(TypeScale.body)
+                        .foregroundStyle(Palette.inkMuted)
+                        .padding(.top, Space.xxl)
+                } else {
+                    VStack(spacing: Space.sm) {
+                        ForEach(notices) { notice in
+                            NoticeBanner(
+                                notice: notice,
+                                onDismiss: { onDismiss(notice) },
+                                onApprove: { onApprove(notice) },
+                                onRemember: { onRemember(notice) }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Space.xl)
+            .padding(.bottom, Space.xl)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Palette.groundGradient.ignoresSafeArea())
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .preferredColorScheme(.dark)
+    }
 }
 
 // MARK: - Live call banner
@@ -237,14 +333,34 @@ private struct LiveCallBanner: View {
 
     var body: some View {
         Button(action: action) {
-            Text("Return to Call")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Palette.ink)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(Palette.live)
+            HStack(spacing: Space.sm) {
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 7, height: 7)
+                Text("Return to Call")
+                    .font(.system(size: 15, weight: .semibold))
+            }
+            .foregroundStyle(Palette.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(
+                Capsule().fill(
+                    LinearGradient(
+                        colors: [Palette.live, Palette.live.opacity(0.82)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            )
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.32), lineWidth: 1))
+            .shadow(color: Palette.live.opacity(0.4), radius: 18, y: 8)
         }
         .buttonStyle(.pressable)
+        // Same floating-pill language as the tab bar directly below it —
+        // a rounded capsule inset from both edges, not a flat rectangle
+        // butting against the bar's rounded corners.
+        .padding(.horizontal, Space.gutter)
+        .padding(.bottom, Space.sm)
         .accessibilityLabel("Live call in progress, \(incident.type.title). Return to call.")
     }
 }
@@ -285,6 +401,13 @@ private struct CoAlertRow: View {
 /// already found — see `HoldToConfirmButton`. Raising it presents the
 /// full-screen call automatically — see `HomeView.body`'s `onChange` and
 /// `.fullScreenCover`.
+///
+/// Drawn with the same recipe as the rest of the app's raised, glowing
+/// controls (the tab bar's mascot button, `glassPanel`'s rim highlight) —
+/// a gradient instead of a flat fill, a light catching the top edge, a glow
+/// under it — so it reads as *this app's* button and not a bare SF Symbol on
+/// a circle. It stays fully opaque on purpose, unlike a `glassPanel`: this is
+/// the one control that must never look transparent or ambiguous.
 private struct IncidentBar: View {
     var client: any HawkEyeClienting
 
@@ -302,10 +425,33 @@ private struct IncidentBar: View {
                     Task { try? await client.raiseIncident(.burglary) }
                 } label: {
                     Image(systemName: "phone.fill")
-                        .font(.system(size: 36, weight: .semibold))
+                        .font(.system(size: 40, weight: .semibold))
                         .foregroundStyle(Palette.ink)
-                        .frame(width: 108, height: 108)
-                        .background(Circle().fill(IncidentType.burglary.tint))
+                        .frame(width: 122, height: 122)
+                        .background(
+                            Circle().fill(
+                                RadialGradient(
+                                    colors: [
+                                        IncidentType.burglary.tint.opacity(0.88),
+                                        IncidentType.burglary.tint,
+                                    ],
+                                    center: UnitPoint(x: 0.32, y: 0.28),
+                                    startRadius: 4,
+                                    endRadius: 102
+                                )
+                            )
+                        )
+                        .overlay(
+                            Circle().strokeBorder(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.55), Color.white.opacity(0)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                ),
+                                lineWidth: 1.5
+                            )
+                        )
+                        .shadow(color: IncidentType.burglary.tint.opacity(0.5), radius: 24, y: 12)
                 }
 
                 Text("Call 911")
