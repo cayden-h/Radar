@@ -28,6 +28,10 @@ struct IncidentView: View {
         }
     }
 
+    /// Leaves this screen without ending the call — the transcript, the
+    /// operator, and the context field all keep running underneath.
+    /// `HomeView` re-presents this same screen via `LiveCallBanner`.
+    var onBack: () -> Void
     var onEndCall: () -> Void
 
     @State private var context: String = ""
@@ -44,7 +48,7 @@ struct IncidentView: View {
     var body: some View {
         GeometryReader { proxy in
         ZStack(alignment: .top) {
-            Palette.ground.ignoresSafeArea()
+            AmbientBackground()
 
             // One scroll for the whole page, with the context field pinned.
             //
@@ -64,7 +68,9 @@ struct IncidentView: View {
                             Color.clear.frame(height: 1).id(Self.bottomAnchor)
                         }
                         .padding(.horizontal, Space.gutter)
-                        .padding(.top, Space.md)
+                        // Extra top clearance for the fixed back button
+                        // overlaid above this scroll content — see `backButton`.
+                        .padding(.top, Hit.min + Space.xs)
                         .padding(.bottom, Space.sm)
                     }
                     .scrollIndicators(.hidden)
@@ -76,12 +82,13 @@ struct IncidentView: View {
                     }
                 }
 
-                endCallButton
+                contextField
                     .padding(.horizontal, Space.gutter)
                     .padding(.top, Space.sm)
 
-                contextField
+                endCallButton
                     .padding(.horizontal, Space.gutter)
+                    .padding(.top, Space.xl)
                     .padding(.bottom, Space.md)
             }
 
@@ -92,10 +99,32 @@ struct IncidentView: View {
                 .frame(height: proxy.safeAreaInsets.top)
                 .ignoresSafeArea(edges: .top)
                 .allowsHitTesting(false)
+
+            backButton
+                .padding(.top, proxy.safeAreaInsets.top + Space.xs)
+                .padding(.leading, Space.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         }
         .preferredColorScheme(.dark)
         .animation(Motion.arrive, value: refusals.count)
+    }
+
+    // MARK: Back
+
+    /// Fixed above the scroll content rather than inside it, so it's always
+    /// reachable regardless of scroll position — this is the one way off
+    /// this screen that does not end the call.
+    private var backButton: some View {
+        Button(action: onBack) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Palette.ink)
+                .frame(width: Hit.min, height: Hit.min)
+                .background(Circle().fill(Palette.surface.opacity(0.9)))
+        }
+        .buttonStyle(.pressable)
+        .accessibilityLabel("Back, call continues")
     }
 
     // MARK: Banner
@@ -261,10 +290,6 @@ struct IncidentView: View {
             }
 
             Spacer()
-
-            Text(feed == .call ? "They cannot see this" : "Before anything is said")
-                .font(.system(size: 10, weight: .regular))
-                .foregroundStyle(Palette.inkFaint)
         }
         .animation(Motion.snappy, value: feed)
     }
@@ -336,9 +361,6 @@ struct IncidentView: View {
     /// resident said rather than as something a sensor observed.
     private var contextField: some View {
         VStack(alignment: .leading, spacing: Space.sm) {
-            Text("What is happening")
-                .eyebrowStyle(Palette.inkFaint)
-
             HStack(alignment: .bottom, spacing: Space.sm) {
                 TextField(
                     "Anything the system cannot see",
@@ -380,10 +402,6 @@ struct IncidentView: View {
                 .animation(Motion.snappy, value: canSend)
                 .accessibilityLabel("Send to the dispatcher")
             }
-
-            Text("Goes to the dispatcher, attributed to you.")
-                .font(.system(size: 11))
-                .foregroundStyle(Palette.inkFaint)
         }
     }
 
@@ -410,29 +428,25 @@ struct IncidentView: View {
     /// real hang-up needs a real stand-down route; this is a placeholder for
     /// that, not a claim that the 911 call itself was ended.
     private var endCallButton: some View {
-        HoldToConfirmButton(
-            tint: Palette.personUnresponsive,
-            accessibilityLabel: "Hold to end call",
-            action: onEndCall
-        ) {
-            HStack(spacing: 8) {
+        VStack(spacing: 8) {
+            HoldToConfirmButton(
+                tint: Palette.ground,
+                circular: true,
+                accessibilityLabel: "Hold to end call",
+                action: onEndCall
+            ) {
                 Image(systemName: "phone.down.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("End call")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 36, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .frame(width: 108, height: 108)
+                    .background(Circle().fill(Palette.personUnresponsive))
             }
-            .foregroundStyle(Palette.ink)
-            .frame(maxWidth: .infinity)
-            .frame(height: Hit.min)
-            .background(
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                    .fill(Palette.personUnresponsive.opacity(0.18))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                    .strokeBorder(Palette.personUnresponsive.opacity(0.5), lineWidth: 1)
-            )
+
+            Text("End call")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Palette.personUnresponsive)
         }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -500,7 +514,10 @@ private struct TranscriptRow: View {
                 .foregroundStyle(Palette.ink)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Capsule().fill(Palette.personUnresponsive))
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
+                        .fill(Palette.personUnresponsive)
+                )
         } else {
             Text(line.speaker.label)
                 .eyebrowStyle(rail.opacity(0.9))

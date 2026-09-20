@@ -141,7 +141,7 @@ final class BonjourHubBrowser: HubBrowsing {
     private nonisolated static func describe(_ error: NWError) -> String {
         // The overwhelmingly likely cause is the local network prompt being
         // declined, so say that rather than surfacing a POSIX code.
-        "Hawk Eye cannot see this network. Allow Local Network access for Hawk Eye in Settings, then try again."
+        "Radar cannot see this network. Allow Local Network access for Radar in Settings, then try again."
     }
 }
 
@@ -174,13 +174,6 @@ final class MockHubBrowser: HubBrowsing {
                     signal: 0.92, paired: true, ansName: "home.hub.hawkeye.ai")
             ]
             self.phase = .found
-
-            try? await Task.sleep(for: .milliseconds(1400))
-            guard !Task.isCancelled else { return }
-            self.hubs.append(
-                Hub(id: "hawkeye-studio", name: "Studio", endpoint: "Wi-Fi",
-                    signal: 0.41, paired: false, ansName: "studio.hub.hawkeye.ai")
-            )
         }
     }
 

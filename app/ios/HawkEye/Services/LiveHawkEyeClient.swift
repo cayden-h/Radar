@@ -81,6 +81,13 @@ final class LiveHawkEyeClient: HawkEyeClienting {
         )
     }
 
+    /// Local only — see the protocol doc. The next `state`/`incident` frame
+    /// from the hub is the real source of truth and will overwrite this if
+    /// the backend still considers the incident open.
+    func dismissIncident() {
+        incident = nil
+    }
+
     func sendContext(_ text: String) async throws {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

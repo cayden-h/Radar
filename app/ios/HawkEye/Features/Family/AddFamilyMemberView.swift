@@ -14,9 +14,10 @@ import SwiftUI
 /// `CoAlertRow` in `HomeView.swift` for the simulated CO reading. It starts
 /// empty and fills in one device at a time via `joinSimulatedDevices()`, to
 /// read as devices joining the network rather than a static pre-filled list.
+///
+/// Reached from `RadarTabBar`'s People tab, not a modal — there is no close
+/// button here on purpose; switching tabs is how you leave.
 struct AddFamilyMemberView: View {
-    var onBack: () -> Void
-
     private struct SimulatedDevice: Identifiable {
         var id: String
         var vendorLabel: String
@@ -47,16 +48,9 @@ struct AddFamilyMemberView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Space.lg) {
-                backRow
-
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    Text("Family members")
-                        .font(TypeScale.title)
-                        .foregroundStyle(Palette.ink)
-                    Text("Placeholder only. Naming a device here does not yet register it with the hub.")
-                        .font(TypeScale.caption)
-                        .foregroundStyle(Palette.inkMuted)
-                }
+                Text("Family members")
+                    .font(TypeScale.title)
+                    .foregroundStyle(Palette.ink)
 
                 deviceSection
 
@@ -72,7 +66,7 @@ struct AddFamilyMemberView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Palette.ground.ignoresSafeArea())
+        .background(AmbientBackground())
         .preferredColorScheme(.dark)
         .task { await joinSimulatedDevices() }
     }
@@ -225,21 +219,5 @@ struct AddFamilyMemberView: View {
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
                 .fill(Palette.surface)
         )
-    }
-
-    // MARK: Back
-
-    private var backRow: some View {
-        Button(action: onBack) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("Home")
-                    .font(.system(size: 15, weight: .medium))
-            }
-            .foregroundStyle(Palette.inkMuted)
-        }
-        .buttonStyle(.pressable)
-        .accessibilityLabel("Back to Home")
     }
 }

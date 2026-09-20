@@ -8,14 +8,15 @@ enum Palette {
 
     // MARK: Ground
 
-    /// The base ground. Near-black with a trace of blue so it does not read as OLED void.
-    static let ground = Color(hex: 0x07090C)
+    /// The base ground. Near-black with a trace of purple, echoing the
+    /// mascot, so it does not read as OLED void.
+    static let ground = Color(hex: 0x090810)
     /// One step up from ground. Cards, sheets, the floorplan well.
-    static let surface = Color(hex: 0x0E1218)
+    static let surface = Color(hex: 0x100D19)
     /// Two steps up. Rows, fields, pressed states.
-    static let surfaceRaised = Color(hex: 0x161B23)
+    static let surfaceRaised = Color(hex: 0x1A1522)
     /// Hairlines. Always this, never an opacity guess.
-    static let hairline = Color(hex: 0x232A35)
+    static let hairline = Color(hex: 0x282030)
 
     // MARK: Ink
 
@@ -29,7 +30,10 @@ enum Palette {
     // MARK: State
 
     /// The system is healthy and watching. Used sparingly.
-    static let calm = Color(hex: 0x4FD1C5)
+    /// Purple-pink, matching the mascot. Deliberately warmer/pinker than
+    /// `collapse`/`faint` below (also a purple) so the two never read as the
+    /// same signal — one is brand chrome, the other is a person down.
+    static let calm = Color(hex: 0xC97BFF)
     /// A confirmed person, moving and breathing. Nothing is wrong.
     static let personMoving = Color(hex: 0x5BA8FF)
     /// A person who is still but breathing. The loudest state in the product.

@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// The Hawk Eye wordmark. An aperture glyph and the name.
+/// The Hawk Eye wordmark. The mascot and the name.
 ///
-/// Drawn rather than shipped as an asset so it stays crisp at any size and can
-/// pulse with the connection state without a second asset.
+/// The glyph is `Assets.xcassets/Mascot`, sized off the same `size` parameter
+/// every call site already passes, so swapping the drawn aperture glyph for
+/// the mascot image changed nothing about how any screen lays out around it.
 struct Wordmark: View {
     var size: CGFloat = 30
     var breathing: Bool = false
@@ -12,21 +13,13 @@ struct Wordmark: View {
 
     var body: some View {
         HStack(spacing: size * 0.36) {
-            ZStack {
-                Circle()
-                    .strokeBorder(Palette.ink.opacity(0.9), lineWidth: size * 0.055)
-                Circle()
-                    .strokeBorder(Palette.calm.opacity(0.55), lineWidth: size * 0.05)
-                    .padding(size * 0.17)
-                    .scaleEffect(breathing ? 1 + 0.08 * phase : 1)
-                Circle()
-                    .fill(Palette.calm)
-                    .frame(width: size * 0.16, height: size * 0.16)
-                    .opacity(breathing ? 0.55 + 0.45 * phase : 1)
-            }
-            .frame(width: size, height: size)
+            Image("Mascot")
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .scaleEffect(breathing ? 1 + 0.05 * phase : 1)
 
-            Text("Hawk Eye")
+            Text("Radar")
                 .font(.system(size: size * 0.82, weight: .semibold, design: .rounded))
                 .foregroundStyle(Palette.ink)
                 .kerning(-0.2)
@@ -36,7 +29,7 @@ struct Wordmark: View {
             withAnimation(Motion.ambient) { phase = 1 }
         }
         .accessibilityElement()
-        .accessibilityLabel("Hawk Eye")
+        .accessibilityLabel("Radar")
     }
 }
 
@@ -109,6 +102,9 @@ struct HoldToConfirmButton<Label: View>: View {
     var duration: TimeInterval = 1.5
     var tint: Color
     var cornerRadius: CGFloat = Radius.md
+    /// Clips to a circle instead of a rounded rectangle. Used for the
+    /// filled, icon-only incident buttons on Home.
+    var circular: Bool = false
     var accessibilityLabel: String
     var action: () -> Void
     @ViewBuilder var label: () -> Label
@@ -126,8 +122,8 @@ struct HoldToConfirmButton<Label: View>: View {
                 }
                 .allowsHitTesting(false)
             }
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .contentShape(Rectangle())
+            .clipShape(circular ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)))
+            .contentShape(circular ? AnyShape(Circle()) : AnyShape(Rectangle()))
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in beginHoldIfNeeded() }

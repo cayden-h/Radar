@@ -22,7 +22,7 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            Palette.ground.ignoresSafeArea()
+            AmbientBackground()
 
             switch model.stage {
             case .connect:
