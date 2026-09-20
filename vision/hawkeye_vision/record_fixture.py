@@ -23,7 +23,7 @@ def main() -> None:
     parser.add_argument("output", help="Where to write the mp4.")
     parser.add_argument("--seconds", type=int, default=10)
     parser.add_argument("--fps", type=int, default=15)
-    parser.add_argument("--camera", type=int, default=1, help="AVFoundation device index.")
+    parser.add_argument("--camera", type=int, default=0, help="AVFoundation device index. 0 is the Brio; see webcam.MacCamera.")
     args = parser.parse_args()
 
     output = Path(args.output)
