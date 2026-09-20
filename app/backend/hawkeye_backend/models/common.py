@@ -36,6 +36,14 @@ class Source(StrEnum):
     REPLAY_CSI = "replay-csi"
     # RuView's synthetic CSI generator. Not measured.
     RUVIEW_SIM = "ruview-sim"
+    # WiFi RSSI motion detection: the MacBook's CoreWLAN RSSI polled at ~3 Hz and
+    # run through the collector->features->classifier pipeline. MEASURED_LIVE
+    # because the radio genuinely measured the link, and the disturbance is a real
+    # physical perturbation of it, not a synthesized number. It is a coarser
+    # modality than nexmon CSI - one scalar per tick, not per-subcarrier amplitude
+    # - but it is measured, so it sits on the measured side and must not fail to
+    # SIMULATED the way an unknown source string does.
+    WIFI_RSSI = "wifi-rssi"
     # A real MQ-7 carbon monoxide sensor on the Pi's GPIO, through an MCP3008 ADC.
     # No such sensor exists today; the value is here so the driver seam is honest.
     MQ7_GPIO = "mq7-gpio"
@@ -88,6 +96,7 @@ _SOURCE_CLASS: dict[Source, SourceClass] = {
     Source.MQ7_GPIO: SourceClass.MEASURED_LIVE,
     Source.REPLAY_CSI: SourceClass.MEASURED_REPLAY,
     Source.RUVIEW_SIM: SourceClass.SIMULATED,
+    Source.WIFI_RSSI: SourceClass.MEASURED_LIVE,
     Source.DEMO_TRIGGER: SourceClass.SIMULATED,
     Source.USER_INPUT: SourceClass.HUMAN,
     Source.OPERATOR_AUDIO: SourceClass.HUMAN,
