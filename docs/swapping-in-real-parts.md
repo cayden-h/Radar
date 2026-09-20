@@ -515,3 +515,93 @@ Boxes and a non-zero `people` count in the preview are the positive evidence.
 **The half-flipped state:** `yolo11m.pt` is roughly 40MB, gitignored, and downloaded on first use.
 A machine that has never run the tracker and has no network gets an `UnavailableTracker` and carries on quietly, which looks exactly like an empty room.
 Pre-fetch the weights before the demo.
+
+## The edge link, added 2026-09-20
+
+The camera and the servo are on the Pi, and everything that is only compute is on the Mac.
+The Pi runs `python -m hawkeye_vision.edge`, which captures, encodes and pushes, and holds no model and no Gemini session.
+A Pi 4B takes about a second per frame on YOLO11m and the budget is three seconds motion to wrist, so the tracker never goes there.
+
+**The Pi dials the Mac, never the reverse.** One websocket carries frames up and shutter grants down.
+That means nothing in this system has to discover the Pi's address, which matters because its DHCP lease moves every time the network changes.
+Only the hub's own address is ever configured, and the Pi finds it by name.
+
+Relaying a signed grant over that link costs nothing in trust: `shutter` verifies the signature over exactly the bytes it receives, whatever carried them.
+The link is a pipe, not a participant, and `EdgeGrant.grant_json` is a **string** for that reason.
+
+### The camera
+
+**The seam:** `FrameSource` in `vision/hawkeye_vision/frames.py`, now with three implementations.
+`MacCamera` is the Brio, `FileFixture` is recorded footage, and `RelayFrameSource` reads the hub's relay so the tracker can run on a different machine from the camera.
+
+**How to flip it:** run the edge with `--source camera` instead of `--source fixture --path <file>`.
+
+**How to tell the flip worked:** `GET /v1/hub` reports `camera.source` as `camera-uvc` and `camera.live` true, and `/live` shows moving video.
+A fixture reports `camera-sim`, and it cannot report anything else, because `source` comes from the `FrameSource` rather than from the flag.
+
+**The half-flipped state, and it is the dangerous one:** `linked` true with `live` false.
+The link is up and frames have stopped, which is a different repair from a disconnected camera and would be invisible if the two were one boolean.
+Every surface must read `live`, not `linked`: the still endpoint sets `X-HawkEye-Live: false`, the live page dims the frame and captions it as the last thing seen, and `RelayFrameSource` refuses to yield it at all.
+A frozen picture of an empty room is the most dangerous thing this system can display, and it is the only reason `CameraStatus` has two booleans instead of one.
+
+**The second half-flipped state:** a camera that stops while the MJPEG stream is open.
+A browser whose `<img>` stops receiving parts keeps painting the last one forever with no way for the page to know, so the stream ends itself after twice the stale window rather than holding a dead connection open.
+
+### The narration
+
+**The seam:** `GeminiLiveNarrator` in `vision/hawkeye_vision/narrate.py`, on the Mac, next to the frames it describes.
+It posts each line to `POST /v1/vision/narration`, which publishes it to every surface.
+
+**How to tell the flip worked:** lines appear on `/live` with a room and a window.
+
+**The half-flipped state:** no API key means no lines at all, which looks exactly like a quiet room.
+Check the vision process's log, not the page.
+
+**Narration is not a transcript line**, and the two must not be merged.
+`TranscriptLine` means one line of the caller-to-911 conversation; collapsing them would let a camera observation render as something an operator was told.
+`NarrationEvent` carries `room` and `window_s` as required fields, because one fixed camera sees one room and Gemini samples about one frame per second, and both limits belong in the data rather than in a comment.
+
+### The servo
+
+**The seam:** `ShutterBackend` in `agents/agents/shutter/backend.py`. `StubShutter` is a servo that exists only as a number; `pigpio_backend.py` is the real SG92R.
+
+**How to flip it:** run the shutter agent on the Pi with the pigpio backend, and point the edge at it with `HAWKEYE_SHUTTER_URL`.
+
+**How to tell the flip worked:** `ShieldEvent.source` reads `servo-gpio` rather than `servo-stub`, and the shield physically moves.
+
+**The half-flipped state that matters most: an empty trust store.**
+A shutter started without `HAWKEYE_PEERS` holds no keys and refuses every grant as `unregistered_issuer`.
+That is correct behaviour and it is indistinguishable, from the hub's side, from a genuine impostor being turned away.
+Both are worth showing; know which one you are looking at before you say either on stage.
+
+```sh
+# refuses everything, because it cannot discover who master is
+python -m agents shutter --port 8106
+
+# discovers master's trust card and accepts a real grant
+HAWKEYE_PEERS="master=https://master.batradar.club" python -m agents shutter --port 8110
+```
+
+**The second half-flipped state:** the servo browns out the Pi under load and reboots the box mid-move.
+The attestation still says `open`, because the position is **commanded** and never measured, and the SG92R is open-loop with no feedback.
+A jammed or unpowered shield attests open while covering the lens, and the only thing that catches that is the frame itself being dark.
+
+### The grant issuer
+
+**In simulated mode the hub signs grants with `master`'s own key**, loaded from `agents/build/keys/master.pem` the same way the agent loads it.
+That is the hub standing in for `agents/master`, not two independent agents, and the startup log says so every time.
+What is simulated is which process holds the key. The signature is real, and `shutter` checks it and refuses it if it does not match.
+
+In live mode `LiveMasterClient` asks the real master to sign and this process never touches a private key.
+
+**The grant is built through `agents.shutter.grant`, never by hand.**
+A hand-built dict serializes datetimes differently from pydantic and produces a signature mismatch indistinguishable from an attack, which is battery probe #13.
+This is why `app/backend` has the agents package installed: its dependencies were already the backend's, and a second copy of the envelope would be exactly the drift that breaks signatures.
+
+### Proving the network before anything depends on it
+
+`scripts/check-hop.sh`, run on the Pi. Three checks, in order: the hub's name resolves, its port answers, and it serves `/healthz`.
+
+The failure it exists for is **client isolation**, where an access point refuses to carry traffic between two of its own clients.
+Everything gets internet and nothing can reach anything else, and it looks exactly like broken code.
+It is the one network failure that cannot be fixed from our side; the answer is a phone hotspot, which has no isolation because we own it.
