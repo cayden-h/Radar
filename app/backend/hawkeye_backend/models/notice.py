@@ -111,3 +111,20 @@ class Notice(BaseModel):
             "the honest answer rather than a placeholder image."
         ),
     )
+    dismissed: bool = Field(
+        default=False,
+        description=(
+            "Whether a human has cleared this notice. Server-side rather than "
+            "per-client, so a notice cleared on the phone is cleared on the watch "
+            "and in the browser too. Before this was carried here, each surface "
+            "kept its own opinion and the resident had to dismiss the same alarm "
+            "three times.\n\n"
+            "Dismissing is *not* vouching. It clears a banner and nothing else: it "
+            "does not suppress the next notice about this presence, and it does "
+            "not add anyone to the roster. Those are `POST /v1/presences/{id}/"
+            "approve` and `POST /v1/household/remember`, which are separate "
+            "controls with separate words on purpose, because one control for "
+            "both would persist strangers because somebody wanted a banner gone."
+        ),
+    )
+    dismissed_at: datetime | None = None

@@ -35,6 +35,12 @@ logger = logging.getLogger(__name__)
 #: levels under `app/`, and the console lives at `app/web/replay`.
 REPLAY_SITE = Path(__file__).resolve().parents[2] / "web" / "replay"
 
+#: The live console. Same deal as REPLAY_SITE: a static directory, no
+#: bundler, nothing to install. It is the third surface, and it exists so
+#: "any app, same backend" is something a judge can watch rather than a
+#: claim they have to take on trust.
+LIVE_SITE = Path(__file__).resolve().parents[2] / "web" / "live"
+
 
 def build_client(settings: Settings) -> MasterClient:
     """One env var decides the whole demo's dependencies."""
@@ -165,6 +171,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.runtime = build_runtime(settings)
     app.include_router(api.router)
+
+    # The live console. Mounted before /replay and after the API router, so
+    # it cannot shadow an API route either.
+    if LIVE_SITE.is_dir():
+        app.mount("/live", StaticFiles(directory=LIVE_SITE, html=True), name="live-console")
+        logger.info("live console served at /live from %s", LIVE_SITE)
 
     # The replay console. Mounted last so it cannot shadow an API route, and
     # behind a flag because serving a human surface is a deployment decision.

@@ -34,18 +34,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import itertools
-import json
 import logging
 import random
-import secrets
 import time
 from dataclasses import dataclass
 from datetime import timedelta
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from hawkeye_backend.verification.b64 import b64u_encode
-from hawkeye_backend.verification.canonical import canonicalize
 from datetime import timedelta
 
 from hawkeye_backend.master.base import EventSink, assert_human_released
@@ -208,16 +203,10 @@ class SimulatedMasterClient:
         self._floorplan = build_floorplan(site_id)
         self._rng = random.Random(1872)
 
-        # Signs shutter grants in simulated mode, where there is no
-        # `agents/master` to sign them. Generated per process and never
-        # persisted: a demo key that survived a restart would be a key somebody
-        # could eventually find. `shutter` still verifies the signature and
-        # still refuses anything it cannot, so what is simulated here is which
-        # agent holds the key, not whether the check happens.
-        self._grant_key = Ed25519PrivateKey.generate()
-        self._master_ansname = "ans://v1.0.0.master.hawkeye.invalid"
-        #: Every nonce this client has spent, so a test can prove none was reused.
-        self.grant_nonces_used: list[str] = []
+        # Master's signing key, loaded lazily on the first grant. In simulated
+        # mode this hub stands in for `agents/master`, key included; see
+        # `issue_shutter_grant`.
+        self._master_key = None
 
         self._incident: Incident | None = None
         self._call_started_for: str | None = None
@@ -1467,32 +1456,58 @@ class SimulatedMasterClient:
         """Roughly how long the script takes at the configured speed."""
         return timedelta(seconds=38.0 * self._speed)
 
-    async def issue_shutter_grant(self, *, action: str, reason: str) -> str:
-        """A grant signed by this process's own demo key.
+    async def issue_shutter_grant(
+        self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
+    ) -> str:
+        """A real grant, signed with master's real key, bound to the shutter's nonce.
 
-        **The nonce is fresh per grant and never cached.** Holding one open
-        across two grants would give an attacker a window in which a captured
-        grant is still live. `agents/master/shutter_client.py` states this from
-        the other end and this mirrors it.
+        **In simulated mode this process stands in for `agents/master`, and that
+        includes holding master's signing key.** Say it out loud rather than
+        letting a reader assume two independent agents: what is simulated is
+        which process holds the key, not whether the signature is checked.
+        `shutter` verifies it against the public half on master's published trust
+        card exactly as it would from the real thing, and refuses it if it does
+        not match.
 
-        Returned as a compact JSON string, which is the form `shutter` verifies
-        the signature over. Nothing between here and the servo may reformat it.
+        In live mode this method is never reached. `LiveMasterClient` asks the
+        real master to sign and this process never touches a private key.
+
+        The envelope is built through `agents.shutter.grant`, never by hand.
+        A hand-built dict serializes datetimes differently from pydantic and
+        produces a signature mismatch indistinguishable from an attack, which is
+        battery probe #13.
         """
-        nonce = secrets.token_urlsafe(12)
-        self.grant_nonces_used.append(nonce)
+        from agents.core.identity import identity
+        from agents.shutter.grant import GrantEnvelope, sign_grant
 
         now = utc_now()
-        payload: dict[str, object] = {
-            "schema_version": "1.0",
-            "nonce": nonce,
-            "issuer": self._master_ansname,
-            "action": action,
+        envelope = GrantEnvelope(
+            nonce=nonce,
+            issuer=identity("master").ansname,
+            action=action,
             # Recorded, not trusted. It goes into the sealed record so an
             # investigator can follow the chain backwards; nothing downstream
             # reads it as authorization.
-            "reason": reason,
-            "issued_at": now.isoformat(),
-            "expires_at": (now + timedelta(seconds=GRANT_TTL_S)).isoformat(),
-        }
-        payload["signature"] = b64u_encode(self._grant_key.sign(canonicalize(payload)))
-        return json.dumps(payload, separators=(",", ":"))
+            reason=reason,
+            incident_id=incident_id,
+            issued_at=now,
+            expires_at=now + timedelta(seconds=GRANT_TTL_S),
+        )
+        return sign_grant(self._grant_key(), envelope).decode()
+
+    def _grant_key(self):  # noqa: ANN202 - Ed25519PrivateKey
+        """Master's signing key, loaded the same way the agent loads it.
+
+        Cached per process. Loading it on every grant would be a file read on the
+        incident path for no benefit.
+        """
+        if self._master_key is None:
+            from agents.core.keys import load_or_create
+
+            self._master_key = load_or_create("master")
+            logger.warning(
+                "simulated mode: this hub is signing shutter grants with master's "
+                "own key. That is the hub standing in for agents/master, not two "
+                "independent agents. The signature is real and shutter checks it."
+            )
+        return self._master_key

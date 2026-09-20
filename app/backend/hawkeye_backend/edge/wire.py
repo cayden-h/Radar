@@ -73,6 +73,30 @@ class EdgeError(_Strict):
     at: datetime = Field(default_factory=utc_now)
 
 
+class EdgeChallengeRequest(_Strict):
+    """Mac to Pi. Ask the local shutter for a fresh nonce.
+
+    The grant has to be bound to a nonce **the shutter itself issued**, so this
+    exchange is two phases and cannot be collapsed into one. Asking for a fresh
+    one per grant is what makes a replayed grant detectable; holding one open
+    across two grants would give an attacker a window in which a captured grant
+    is still live.
+    """
+
+    kind: Literal["challenge_request"] = "challenge_request"
+    request_id: str = Field(min_length=1)
+
+
+class EdgeChallenge(_Strict):
+    """Pi to Mac. The nonce the shutter just issued, or why it could not."""
+
+    kind: Literal["challenge"] = "challenge"
+    request_id: str = Field(min_length=1)
+    nonce: str = ""
+    failed: bool = False
+    detail: str = ""
+
+
 class EdgeGrant(_Strict):
     """Mac to Pi. A signed shutter grant, to be forwarded to the local shutter agent.
 
@@ -99,10 +123,27 @@ class EdgeAttestation(_Strict):
     attestation_json: str = ""
     refused: bool = False
     refusal_reason: str = ""
+    position: str = Field(
+        default="",
+        description=(
+            "Where the shield is. Set on a refusal too, because a refused grant "
+            "means the shield did not move and the shutter still knows where it "
+            "is. Reporting `unknown` there would throw away a true fact. Empty "
+            "only when the shutter could not be reached at all, which is the one "
+            "case where the position genuinely is unknown."
+        ),
+    )
+    commanded_angle: int | None = None
 
 
 EdgeMessage = Annotated[
-    EdgeHello | EdgeFrameHeader | EdgeError | EdgeGrant | EdgeAttestation,
+    EdgeHello
+    | EdgeFrameHeader
+    | EdgeError
+    | EdgeGrant
+    | EdgeAttestation
+    | EdgeChallengeRequest
+    | EdgeChallenge,
     Field(discriminator="kind"),
 ]
 

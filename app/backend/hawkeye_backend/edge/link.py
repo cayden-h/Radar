@@ -28,6 +28,7 @@ from pydantic import ValidationError
 
 from hawkeye_backend.edge.wire import (
     EdgeAttestation,
+    EdgeChallenge,
     EdgeError,
     EdgeFrameHeader,
     EdgeHello,
@@ -126,7 +127,9 @@ async def run_edge_link(websocket: WebSocket, runtime, token: str | None) -> Non
                     reason = "frame before hello"
                     break
                 pending = decoded
-            elif isinstance(decoded, EdgeAttestation):
+            elif isinstance(decoded, (EdgeAttestation, EdgeChallenge)):
+                # Both are answers to something this process asked for, and
+                # both land in the same pending map keyed by request id.
                 runtime.resolve_attestation(decoded)
             elif isinstance(decoded, EdgeError):
                 logger.warning(

@@ -265,13 +265,23 @@ class LiveMasterClient:
             raise MasterUnavailable(f"POST {PATH_SET_MODE} returned no announcement string")
         return payload["announcement"]
 
-    async def issue_shutter_grant(self, *, action: str, reason: str) -> str:
+    async def issue_shutter_grant(
+        self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
+    ) -> str:
         """Ask the real master to sign a grant.
 
         Returned opaque and never re-parsed on the way to `shutter`, which
         verifies the signature over exactly these bytes.
         """
-        payload = await self._post(PATH_GRANT, {"action": action, "reason": reason})
+        payload = await self._post(
+            PATH_GRANT,
+            {
+                "action": action,
+                "reason": reason,
+                "nonce": nonce,
+                "incident_id": incident_id,
+            },
+        )
         grant = payload.get("grant_json")
         if not isinstance(grant, str) or not grant:
             raise MasterUnavailable("master returned no grant_json")

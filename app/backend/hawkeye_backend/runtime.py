@@ -19,7 +19,7 @@ from hawkeye_backend.edge.camera import LiveCamera
 from hawkeye_backend.config import Settings
 from hawkeye_backend.household import Roster, unaccounted_count
 from hawkeye_backend.master.base import MasterClient
-from hawkeye_backend.models.common import Source
+from hawkeye_backend.models.common import Source, utc_now
 from hawkeye_backend.models.events import (
     ContextEvent,
     Envelope,
@@ -116,6 +116,10 @@ class HubRuntime:
         self._pending_attestations: dict[str, asyncio.Future[object]] = {}
         self._thumbnail_task: asyncio.Task[None] | None = None
         self._thumb_warned = False
+        #: Notices raised this session, by id, so a dismissal can republish
+        #: the whole notice rather than a bare id. Not persisted: a notice
+        #: is about a presence, and presence ids are reused across sessions.
+        self._notices: dict[str, object] = {}
         self._sensor_task: asyncio.Task[None] | None = None
 
     @property
@@ -190,8 +194,51 @@ class HubRuntime:
             for notice in notices:
                 await deliver(notice, self.notice_sinks)
 
+    def dismiss_notice(self, notice_id: str) -> "Notice":
+        """Mark a notice cleared, and hand back the notice to republish.
+
+        The hub keeps the notices it has raised this session so a dismissal can
+        carry the original title, body, narration and frame rather than a bare
+        id. A surface that joined after the dismissal then renders a complete,
+        already-cleared notice instead of an empty banner.
+
+        Unknown ids produce a minimal dismissed notice rather than a 404. The
+        resident may be clearing something raised before a restart, and refusing
+        would leave a banner they cannot get rid of.
+        """
+        from hawkeye_backend.models.common import Provenance, Source
+        from hawkeye_backend.models.notice import Notice, NoticeSeverity
+
+        existing = self._notices.get(notice_id)
+        if existing is None:
+            existing = Notice(
+                notice_id=notice_id,
+                severity=NoticeSeverity.INFO,
+                title="Notice",
+                body="This notice was raised before the hub restarted.",
+                provenance=Provenance(
+                    source=Source.AGENT_INFERENCE,
+                    producer="app/backend",
+                    detail=(
+                        "Reconstructed for a dismissal. The hub no longer holds "
+                        "the notice this clears, so nothing here is a claim about "
+                        "what was originally observed."
+                    ),
+                ),
+            )
+        dismissed = existing.model_copy(
+            update={"dismissed": True, "dismissed_at": utc_now()}
+        )
+        self._notices[notice_id] = dismissed
+        return dismissed
+
     async def emit_notice(self, event: NoticeEvent) -> None:
-        """The stream sink's callback. Separate so the recursion is visible."""
+        """The stream sink's callback. Separate so the recursion is visible.
+
+        Every notice is remembered on the way past so a later dismissal can
+        republish the whole thing rather than a bare id.
+        """
+        self._notices[event.notice.notice_id] = event.notice
         await self.emit(event)
 
     # --------------------------------------------------------------- the edge
@@ -236,6 +283,21 @@ class HubRuntime:
         future = self._pending_attestations.pop(request_id, None)
         if future is not None and not future.done():
             future.cancel()
+
+    async def request_challenge(self, request_id: str) -> None:
+        """Ask the edge's shutter for a fresh nonce.
+
+        Phase one of two. The grant must be bound to a nonce the shutter itself
+        issued, so there is no way to collapse this into a single message, and a
+        cached nonce would leave a window in which a captured grant is still
+        live.
+        """
+        from hawkeye_backend.edge.wire import EdgeChallengeRequest
+
+        edge = self.edge
+        if edge is None:
+            raise EdgeUnavailable("no edge box is connected, so there is no shutter to ask")
+        await edge.send_text(EdgeChallengeRequest(request_id=request_id).model_dump_json())
 
     async def send_grant(self, grant_json: str, request_id: str) -> None:
         """Push a signed grant down the edge link.

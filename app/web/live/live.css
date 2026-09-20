@@ -1,0 +1,101 @@
+/* Deliberately plain. This page is a control surface and a proof that the
+   backend is shared; the phone is the designed one. */
+:root {
+  --ink: #12141a;
+  --muted: #6b7280;
+  --surface: #ffffff;
+  --ground: #f4f5f7;
+  --hairline: #e3e5e9;
+  --danger: #b3261e;
+  --ok: #1b7f4b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #edeef2;
+    --muted: #9aa1ad;
+    --surface: #1a1d24;
+    --ground: #101218;
+    --hairline: #2a2e38;
+    --danger: #f2b8b5;
+    --ok: #6bd3a0;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+header { padding: 20px 24px 0; }
+h1 { margin: 0 0 4px; font-size: 20px; letter-spacing: -0.01em; }
+h2 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--muted); margin: 0 0 12px;
+}
+.badge {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  border: 1px solid var(--hairline); border-radius: 999px;
+  padding: 2px 8px; color: var(--muted); vertical-align: 3px;
+}
+.muted { color: var(--muted); font-size: 13px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+  gap: 20px;
+  padding: 20px 24px 40px;
+  align-items: start;
+}
+@media (max-width: 820px) { main { grid-template-columns: 1fr; } }
+section {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  padding: 16px;
+}
+.feed { grid-row: span 2; }
+.frame {
+  position: relative; border-radius: 8px; overflow: hidden;
+  background: #000; min-height: 240px;
+}
+.frame img { width: 100%; display: block; }
+/* A stale frame is dimmed and captioned rather than hidden. It is still a true
+   statement about the last thing the camera saw; it is just not the room now. */
+.frame img.stale { filter: grayscale(1) brightness(0.45); }
+.overlay {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  background: rgba(16, 18, 24, 0.82);
+  color: #edeef2; font-size: 14px; text-align: center; padding: 24px;
+}
+.overlay[hidden] { display: none; }
+.shield {
+  margin: 12px 0 0; font-size: 13px; padding: 8px 10px;
+  border: 1px solid var(--hairline); border-radius: 8px;
+}
+.shield.refused { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+.shield.open { border-color: var(--ok); color: var(--ok); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+button {
+  font: inherit; padding: 10px 14px; border-radius: 8px;
+  border: 1px solid var(--hairline); background: var(--surface); color: var(--ink);
+  cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.danger { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+textarea {
+  width: 100%; font: inherit; padding: 8px; border-radius: 8px;
+  border: 1px solid var(--hairline); background: var(--ground); color: var(--ink);
+  resize: vertical;
+}
+label { display: block; font-size: 13px; color: var(--muted); margin: 14px 0 4px; }
+form button { margin-top: 8px; }
+#events { list-style: none; margin: 0; padding: 0; max-height: 58vh; overflow-y: auto; }
+#events li { padding: 8px 0; border-bottom: 1px solid var(--hairline); font-size: 14px; }
+#events li:last-child { border-bottom: 0; }
+#events .kind {
+  color: var(--muted); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; margin-bottom: 2px;
+}
+#events li.refusal { color: var(--danger); font-weight: 600; }

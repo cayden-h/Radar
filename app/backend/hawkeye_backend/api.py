@@ -60,6 +60,8 @@ from hawkeye_backend.models.incident import (
     RaisedBy,
     ReplayRecord,
 )
+from hawkeye_backend.models.events import NoticeEvent
+from hawkeye_backend.models.notice import Notice
 from hawkeye_backend.models.state import InteriorState
 from hawkeye_backend.replay import build_export, verify_entries
 from hawkeye_backend.replay.archive import ArchiveStatus
@@ -869,34 +871,80 @@ async def post_occupancy(request: Request, body: OccupancyRequest) -> OccupancyE
 
 @router.post("/shutter", status_code=202, summary="Move the physical shield")
 async def post_shutter(request: Request, body: ShutterRequest) -> ShieldEvent:
-    """Issue a grant, wait for the attestation, publish what happened.
+    """Challenge, sign, open, publish. Every outcome reaches every surface.
 
-    Every outcome reaches every surface, including the refusal, which is the one
-    that matters. A dispatch demo that works is unremarkable; a shutter that
-    refuses an impostor, visibly, on stage, is the submission.
+    Three messages cross the edge link, in this order, and the order is the
+    security property rather than an implementation detail:
 
-    Three failures, three different answers, none of them a guess:
+    1. **This process asks the shutter for a nonce.** The grant is bound to a
+       challenge the *verifier* issued, which is what makes a replayed grant
+       detectable. A nonce generated here would prove nothing.
+    2. **`master` signs a grant over that nonce**, and it crosses as an opaque
+       string. Nothing between here and the servo may reformat it.
+    3. **The shutter verifies and answers**, with an attestation or a refusal.
+
+    The refusal matters more than the success. A dispatch demo that works is
+    unremarkable; a shutter that declines a grant it cannot verify, visibly, on
+    every screen at once, is the submission.
+
+    Four outcomes, four different answers, none of them a guess:
 
     - **No edge connected** is a 503. There is no servo, and answering `opened`
       would be the worst possible response.
-    - **The shutter refused** is a 202 carrying `refused: true`. The system
-      worked; it just said no.
+    - **The shutter refused** is a 202 carrying `refused: true` and the reason.
+      The system worked; it said no.
     - **The shutter never answered** is a 504 and a position of `unknown`. An
       unknown shield position is a true statement and `open` would be a false
       one, and the difference is whether a camera is covered.
+    - **It moved** is a 202 with the attested position, always `commanded` and
+      never `measured`, because the servo has no position feedback.
     """
     runtime = _runtime(request)
     active = await runtime.store.get_active_incident()
     incident_id = active.incident_id if active else None
-    request_id = secrets.token_urlsafe(9)
+    timeout = runtime.settings.shutter_timeout_s
 
-    # Registered before the grant goes out, so an attestation that comes back
-    # faster than this coroutine resumes still has somewhere to land.
+    def refused(reason: str) -> ShieldEvent:
+        return ShieldEvent(
+            position="unknown",
+            requested_action=body.action,
+            reason=body.reason,
+            refused=True,
+            refusal_reason=reason,
+        )
+
+    # -- phase one: a nonce from the shutter itself --------------------------
+    challenge_id = secrets.token_urlsafe(9)
+    challenge_waiter = runtime.await_attestation(challenge_id)
+    try:
+        await runtime.request_challenge(challenge_id)
+    except EdgeUnavailable as exc:
+        runtime.cancel_attestation(challenge_id)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        challenge = await asyncio.wait_for(challenge_waiter, timeout=timeout)
+    except asyncio.TimeoutError:
+        runtime.cancel_attestation(challenge_id)
+        event = refused(f"the shutter did not answer a challenge within {timeout}s")
+        await runtime.emit(event, incident_id)
+        raise HTTPException(status_code=504, detail=event.refusal_reason)
+
+    if getattr(challenge, "failed", False) or not getattr(challenge, "nonce", ""):
+        event = refused(f"the shutter would not issue a nonce: {challenge.detail}")
+        await runtime.emit(event, incident_id)
+        return event
+
+    # -- phase two: a signed grant bound to that nonce ----------------------
+    request_id = secrets.token_urlsafe(9)
     waiter = runtime.await_attestation(request_id)
 
     try:
         grant_json = await runtime.client.issue_shutter_grant(
-            action=body.action, reason=body.reason
+            action=body.action,
+            reason=body.reason,
+            nonce=challenge.nonce,
+            incident_id=incident_id,
         )
     except MasterUnavailable as exc:
         runtime.cancel_attestation(request_id)
@@ -909,7 +957,7 @@ async def post_shutter(request: Request, body: ShutterRequest) -> ShieldEvent:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     try:
-        attestation = await asyncio.wait_for(waiter, timeout=runtime.settings.shutter_timeout_s)
+        attestation = await asyncio.wait_for(waiter, timeout=timeout)
     except asyncio.TimeoutError:
         runtime.cancel_attestation(request_id)
         event = ShieldEvent(
@@ -922,14 +970,19 @@ async def post_shutter(request: Request, body: ShutterRequest) -> ShieldEvent:
         raise HTTPException(
             status_code=504,
             detail=(
-                f"the shutter did not answer within {runtime.settings.shutter_timeout_s}s. "
+                f"the shutter did not answer within {timeout}s. "
                 "The shield position is unknown."
             ),
         )
 
     if attestation.refused:
         event = ShieldEvent(
-            position="unknown",
+            # A refused grant means the shield did not move, and the shutter
+            # still knows where it is. Carry that rather than `unknown`, which
+            # would throw away a true fact. `unknown` stays for the case where
+            # the shutter could not be reached at all.
+            position=attestation.position or "unknown",
+            commanded_angle=attestation.commanded_angle,
             requested_action=body.action,
             reason=body.reason,
             refused=True,
@@ -952,3 +1005,31 @@ async def post_shutter(request: Request, body: ShutterRequest) -> ShieldEvent:
 
     await runtime.emit(event, incident_id)
     return event
+
+
+@router.post(
+    "/notice/{notice_id}/dismiss",
+    status_code=202,
+    summary="Clear a notice everywhere at once",
+)
+async def post_dismiss_notice(request: Request, notice_id: str) -> Notice:
+    """One human clears it; every surface clears it.
+
+    Server-side rather than per-client on purpose. Before this existed the
+    phone kept its own opinion about what had been dismissed, so a resident who
+    cleared a banner on their phone still had it sitting on their wrist.
+
+    **Dismissing is not vouching.** It clears a banner and nothing else. It does
+    not suppress the next notice about this presence and it does not add anybody
+    to the roster; those are `/presences/{id}/approve` and `/household/remember`,
+    which are separate controls with separate words because a single control for
+    both would persist strangers because somebody wanted a banner to go away.
+
+    Idempotent, and it never 404s. A resident tapping twice under stress is not
+    a condition worth surfacing, and refusing an id this process no longer holds
+    would leave them with a banner they cannot get rid of.
+    """
+    runtime = _runtime(request)
+    notice = runtime.dismiss_notice(notice_id)
+    await runtime.emit(NoticeEvent(notice=notice))
+    return notice

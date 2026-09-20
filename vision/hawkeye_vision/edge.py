@@ -43,6 +43,13 @@ BACKOFF_MAX_S = 10.0
 #: Where the shutter agent listens on this same box.
 DEFAULT_SHUTTER_URL = "http://127.0.0.1:8106"
 
+#: The shutter's two A2A methods and the path they live on, from
+#: `agents/shutter/agent.py` and `agents/core/transport.py`. Named here rather
+#: than spelled inline so a rename upstream is one edit, not three.
+METHOD_CHALLENGE = "shutter.challenge"
+METHOD_OPEN = "shutter.open"
+CLAIM_TARGET_PATH = "/a2a"
+
 
 def open_source(kind: str, index: int, path: str | None) -> FrameSource:
     """Build the frame source named on the command line.
@@ -64,46 +71,71 @@ def open_source(kind: str, index: int, path: str | None) -> FrameSource:
     raise SystemExit(f"unknown source: {kind!r}. Use 'camera' or 'fixture'.")
 
 
+async def _rpc(shutter_url: str, method: str, params: dict) -> dict:
+    """One JSON-RPC 2.0 call to the shutter agent on this box.
+
+    Raises on a transport failure or a JSON-RPC error. A `result` comes back as
+    a plain dict.
+
+    **A refusal is not an error here.** `agents/shutter/agent.py` returns a
+    refusal as a signed *result*, deliberately: an error frame would make a
+    successful defence look like a malfunction, and would leave the reason in a
+    transport envelope the sealed record never sees. So a JSON-RPC error means
+    the call itself was wrong, which is our bug, not the shutter refusing.
+    """
+    import httpx
+
+    async with httpx.AsyncClient(timeout=5.0) as http:
+        response = await http.post(
+            f"{shutter_url}{CLAIM_TARGET_PATH}",
+            json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+            headers={"content-type": "application/json"},
+        )
+    response.raise_for_status()
+    body = response.json()
+    if "error" in body:
+        error = body["error"]
+        raise RuntimeError(f"{method} failed: {error.get('code')} {error.get('message')}")
+    return body.get("result") or {}
+
+
+async def _answer_challenge(socket, message, shutter_url: str) -> None:  # noqa: ANN001
+    """Ask the local shutter for a nonce and send it up."""
+    from hawkeye_backend.edge.wire import EdgeChallenge
+
+    try:
+        result = await _rpc(shutter_url, METHOD_CHALLENGE, {})
+        nonce = result.get("nonce", "")
+        if not nonce:
+            raise RuntimeError("the shutter returned no nonce")
+        await socket.send(
+            EdgeChallenge(request_id=message.request_id, nonce=nonce).model_dump_json()
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("edge: could not get a challenge from the shutter")
+        await socket.send(
+            EdgeChallenge(
+                request_id=message.request_id, failed=True, detail=str(exc)
+            ).model_dump_json()
+        )
+
+
 async def _forward_grant(socket, message, shutter_url: str) -> None:  # noqa: ANN001
     """Hand a grant to the shutter agent on this box, byte for byte.
 
     Verbatim is the whole requirement. `shutter` verifies the signature over
     exactly these bytes, so this process must not parse, reformat or
-    re-serialize the grant on its way through. It is a pipe, not a participant.
+    re-serialize the grant on its way through. It is a pipe, not a participant,
+    and `grant` is a JSON **string** inside the params for that reason.
 
     That is also why relaying a grant over an untrusted link costs nothing in
     trust: the signature is what `shutter` checks, and it checks it no matter
     how the bytes arrived.
     """
-    import httpx
-
     from hawkeye_backend.edge.wire import EdgeAttestation
 
     try:
-        async with httpx.AsyncClient(timeout=5.0) as http:
-            response = await http.post(
-                f"{shutter_url}/a2a",
-                content=message.grant_json,
-                headers={"content-type": "application/json"},
-            )
-        if response.status_code >= 400:
-            await socket.send(
-                EdgeAttestation(
-                    request_id=message.request_id,
-                    refused=True,
-                    refusal_reason=(
-                        f"shutter returned {response.status_code}: {response.text[:200]}"
-                    ),
-                ).model_dump_json()
-            )
-            return
-        await socket.send(
-            EdgeAttestation(
-                request_id=message.request_id,
-                attestation_json=response.text,
-                refused=False,
-            ).model_dump_json()
-        )
+        result = await _rpc(shutter_url, METHOD_OPEN, {"grant": message.grant_json})
     except Exception as exc:  # noqa: BLE001
         # Reported as a refusal rather than dropped. A hub waiting on an
         # attestation that never comes eventually reports the position unknown,
@@ -116,11 +148,51 @@ async def _forward_grant(socket, message, shutter_url: str) -> None:  # noqa: AN
                 refusal_reason=f"could not reach the shutter agent: {exc}",
             ).model_dump_json()
         )
+        return
+
+    # A refusal arrives as a result carrying `refusal`, not as an error frame.
+    if result.get("refusal"):
+        logger.warning(
+            "edge: the shutter refused the grant (%s): %s. The lens is still covered.",
+            result["refusal"],
+            result.get("detail", ""),
+        )
+        await socket.send(
+            EdgeAttestation(
+                request_id=message.request_id,
+                refused=True,
+                refusal_reason=f"{result['refusal']}: {result.get('detail', '')}".strip(": "),
+                # The shield did not move, and the shutter still knows where it
+                # is. That is a true fact and worth more than `unknown`.
+                position=result.get("position", ""),
+                commanded_angle=result.get("commanded_angle"),
+            ).model_dump_json()
+        )
+        return
+
+    await socket.send(
+        EdgeAttestation(
+            request_id=message.request_id,
+            attestation_json=result.get("attestation", ""),
+            refused=False,
+        ).model_dump_json()
+    )
 
 
 async def _receive(socket, shutter_url: str) -> None:  # noqa: ANN001
-    """Handle everything the hub sends down. Today that is grants and errors."""
-    from hawkeye_backend.edge.wire import EdgeError, EdgeGrant, decode_edge_message
+    """Handle everything the hub sends down: challenge requests, then grants.
+
+    Runs alongside the frame pump so a grant arriving downward is never stuck
+    behind the next frame going up. An unparseable message is logged and
+    skipped rather than killing the loop, because this task is the only way a
+    shutter grant reaches the servo.
+    """
+    from hawkeye_backend.edge.wire import (
+        EdgeChallengeRequest,
+        EdgeError,
+        EdgeGrant,
+        decode_edge_message,
+    )
 
     async for raw in socket:
         if isinstance(raw, bytes):
@@ -135,6 +207,12 @@ async def _receive(socket, shutter_url: str) -> None:  # noqa: ANN001
         if isinstance(message, EdgeError):
             logger.error("edge: the hub refused us (%s): %s", message.code, message.message)
             continue
+
+        if isinstance(message, EdgeChallengeRequest):
+            logger.info("edge: asking the shutter at %s for a nonce", shutter_url)
+            await _answer_challenge(socket, message, shutter_url)
+            continue
+
         if not isinstance(message, EdgeGrant):
             logger.info("edge: ignoring %s, which this side does not handle", message.kind)
             continue

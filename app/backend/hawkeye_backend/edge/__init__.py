@@ -13,6 +13,8 @@ password and this hub's mDNS name.
 from hawkeye_backend.edge.camera import LiveCamera
 from hawkeye_backend.edge.wire import (
     EdgeAttestation,
+    EdgeChallenge,
+    EdgeChallengeRequest,
     EdgeError,
     EdgeFrameHeader,
     EdgeGrant,
@@ -23,6 +25,8 @@ from hawkeye_backend.edge.wire import (
 
 __all__ = [
     "EdgeAttestation",
+    "EdgeChallenge",
+    "EdgeChallengeRequest",
     "EdgeError",
     "EdgeFrameHeader",
     "EdgeGrant",
