@@ -232,6 +232,17 @@ No claim without a current verified attestation. `Unknown(reason="shield_closed"
 
 **Done when** three tests pass: absent attestation, stale attestation, valid attestation, and only the third produces a description.
 
+**The occupancy half landed 2026-09-20**, on `t20-hub-integration`. `hawkeye_vision/live_occupancy.py` is
+the real `OccupancySource` T15b left open: it holds a capture thread, pulls frames from the hub's relay,
+runs the tracker, and answers `VisionAgent` with a measured verdict. Seven tests, and the ones that matter
+are the three ways it must refuse to answer - nothing arrived yet, the verdict aged out, the source died -
+all of which come back `tracker_unavailable` rather than `no_person`, because `master` closes a verified
+grant on `no_person` and a blind camera reporting an empty room fires this system's privacy mechanism at
+random. `HAWKEYE_VISION_SOURCE=synthetic` is now the opt-in and the real path is the default; failing to
+build the real one reports blindness rather than falling back to a script.
+
+The attestation gate and `vision.description` are still open.
+
 ### T17 - Gemini Live narration
 **Lane** A · **Skill** py · **Needs** T15 · **Blocks** T40 · **Who** ___
 
@@ -256,12 +267,37 @@ POST observations to `/v1/internal/observations/import`: an agent that described
 
 *Optional-but-valuable. Take it only if the critical path is clear.*
 
-### T20 - `master` wiring: grant issuance and the new classification table
-**Lane** A · **Skill** py · **Needs** T01, T14, T16 · **Blocks** T30, T40 · **Who** ___
+### ~~T20 - `master` wiring: grant issuance and the hub-facing surface~~ **Done 2026-09-20.**
+**Lane** A · **Skill** py · **Blocks** T30, T40 · **Branch** `t20-hub-integration`
 
-The five-row table in `agents/CLAUDE.md`. The shutter grant on an unaccounted verdict. `traceparent` generated at incident open and propagated.
+`HAWKEYE_MODE=live` had nowhere to point. `LiveMasterClient` had posted to `/v1/state`, `/v1/sensor`,
+`/v1/agents`, `/v1/incident`, `/v1/stream` and `/v1/shutter/grant` since it was written, against a
+`TODO(master)` block calling those paths its own proposal; master served none of them. Every surface
+therefore ran off the scripted incident in `master/simulated.py` no matter what was on the table.
 
-**Done when** the row "unaccounted motion + shutter refused to open" produces a system event and **no incident and no visual claim**, with a test asserting master does not reach for the radio to fill the gap.
+Delivered:
+
+- **`agents/master/hub_api.py`** - the agreement that TODO block was waiting for. Composes master's
+  admitted claims into `InteriorState`, pushes state plus every fresh verification verdict - acceptances
+  and discards alike - down `WS /v1/stream`, and signs grants over the shutter's own nonce
+- **`A2AShutterClient`** - master had no way to reach the real shutter over the wire. `LocalShutterClient`
+  signed real grants against the real gate in-process, which verifies a signature and nothing about a
+  transport. `HAWKEYE_PEERS` now turns the shutter hop on the same way it turns the mesh on, and a
+  missing shutter means no grant rather than a silent in-process substitute
+- **`build_app` hooks** - `routers`, `on_start`, `on_stop`, used by exactly one agent. What differs
+  between agents should be `tick`, and a hook the other six pass nothing to keeps that visible
+- **`scripts/up.sh`** - seven processes in dependency order, with a port wait rather than a guessed
+  sleep. The failure it exists for is master starting before shutter can serve its trust card, which
+  leaves master refusing every grant as `unregistered_issuer`, correctly, and looking like a gate bug
+
+**Verified end to end**, not merely tested: the full mesh up, the Brio at 7.6 fps across the edge link,
+`vision` pulling real frames off the hub's relay and running YOLO11m on them, and master composing a
+`person_present` verdict for the living room into the state document all three surfaces read.
+
+**What it left open.** `presence` still runs on RuView's synthetic generator and says so in every claim
+(`source: ruview-sim`): `sensor/` holds no capture code, and the Pi's radio path and its camera path want
+the WiFi interface in two different modes. The RSSI detector in `wifi-rssi-motion-template/` is the real
+motion source when someone wires it in - it is a live process with a real signal today and nothing reads it.
 
 ### ~~T25 - The edge link: camera and servo on the Pi, compute on the Mac~~ **Done 2026-09-20.**
 **Lane** A/B · **Skill** py · **Blocks** T33, T60 · **Branch** `t20-hub-integration`

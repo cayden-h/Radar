@@ -420,11 +420,33 @@ def _to_assertion(raw_claim: bytes, peer: Peer, result: ObserveResult) -> Assert
     """Rebuild the assertion from a claim that has already verified.
 
     Parsed after verification, never before. The envelope carries the asserted
-    field, value, zone and ceiling; confidence, basis, provenance and presence
-    id are producer context rather than authorization, so they are reconstructed
-    here from what the envelope proves plus what the peer reported.
+    field, value, zone, ceiling **and source**; confidence and basis are producer
+    context rather than authorization, so they are reconstructed here from what
+    the envelope proves.
+
+    **`source` is taken from the envelope and never invented.** It was hardcoded
+    to `agent-inference` here until 2026-09-20, on the reasoning that provenance
+    was producer context rather than authorization. That reasoning was wrong in
+    one specific and damaging way: `Source` is the field the app renders a
+    "simulated" badge from, so hardcoding it meant a fixture video and a live
+    camera arrived at `master` indistinguishable from one another, and every
+    surface downstream showed the same label for both. The honesty rule requires
+    a limit to be carried in the data itself, and a limit dropped in transit is
+    not carried anywhere.
+
+    It is safe to believe because it is inside the signature. A compromised
+    producer can lie about its own source - it could always lie about its own
+    value too - but it cannot lie about anybody else's, and it cannot have the
+    label rewritten in flight, which is exactly what a transport-side default
+    allowed.
+
+    `confidence` stays 1.0, deliberately rather than by omission. What survived
+    the wire is a claim that verified; deciding what a verified claim may
+    trigger is the gate's job, and a producer-supplied number here would be one
+    `master` cannot check, doing work the severity ceiling already does
+    honestly.
     """
-    from hawkeye_backend.models.common import Provenance, Source
+    from hawkeye_backend.models.common import Provenance
 
     envelope = SignedClaim.model_validate_json(raw_claim).envelope
     return Assertion(
@@ -438,7 +460,7 @@ def _to_assertion(raw_claim: bytes, peer: Peer, result: ObserveResult) -> Assert
             f"answering this master's challenge."
         ),
         provenance=Provenance(
-            source=Source.AGENT_INFERENCE,
+            source=envelope.source,
             producer=result.agent,
             ansname=envelope.issuer,
             detail=f"claim {envelope.claim_id}, expires {envelope.expires_at.isoformat()}",

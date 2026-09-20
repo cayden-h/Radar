@@ -18,8 +18,14 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from hawkeye_backend.models.common import Source
 from hawkeye_backend.models.incident import IncidentType
-from hawkeye_backend.verification import ClaimVerifier, TrustStore, VerifierPolicy
+from hawkeye_backend.verification import (
+    ClaimVerifier,
+    TrustStore,
+    VerificationRejected,
+    VerifierPolicy,
+)
 from hawkeye_backend.verification.trust import KnownAgent
 
 from agents.caller import CallerAgent
@@ -293,3 +299,85 @@ def test_the_trust_store_can_be_built_from_a_published_card(people_key):
 
     assert known.ansname == PEOPLE.ansname
     assert known.thumbprint == ClaimSigner(PEOPLE, people_key).thumbprint
+
+
+def test_the_source_label_survives_the_wire(people_app, people_key):
+    """The honesty rule has to hold across a hop, or it does not hold at all.
+
+    Until 2026-09-20 it did not. `_to_assertion` rebuilt every arriving claim
+    with `source=agent-inference`, so the label the app renders its "simulated"
+    badge from was destroyed in transit: a fixture video and a live camera
+    reached `master` looking identical, and every surface downstream showed the
+    same thing for both.
+
+    Root CLAUDE.md requires limits to be carried in the data itself rather than
+    only in a comment, and a limit that is dropped by the transport is not
+    carried anywhere. `presence` runs on RuView's synthetic generator, so its
+    claims must arrive saying so.
+    """
+    source = source_over(people_app, store_with(people_key))
+    fetched = source.fetch("presence")
+
+    assert fetched.observation.assertions, "the producer said something"
+    sources = {a.provenance.source for a in fetched.observation.assertions}
+    assert Source.RUVIEW_SIM in sources, (
+        f"a simulated claim arrived labelled {sources}. The transport is inventing "
+        "a provenance again, and a generated reading can now present as measured."
+    )
+    assert all(
+        a.provenance.simulated for a in fetched.observation.assertions
+    ), "simulated is derived from source, so it must follow it across the wire"
+
+
+def test_the_source_is_covered_by_the_signature(people_key):
+    """Relabelling a claim in flight has to break it, not merely be unusual.
+
+    The reason it is safe to believe an arriving `source` is that it is inside
+    the envelope. A claim whose source is edited after signing must fail
+    verification exactly like any other tampering, or the label is a suggestion
+    rather than a binding.
+    """
+    from hawkeye_backend.models.common import Source as S
+    from hawkeye_backend.verification.envelope import SignedClaim
+
+    signer = ClaimSigner(PEOPLE, people_key)
+    pair = signer.sign(
+        _assertion(S.RUVIEW_SIM),
+        audience=MASTER.ansname,
+        incident_id="steady-state",
+        nonce="chal-test",
+        target=TARGET,
+    )
+    claim = SignedClaim.model_validate_json(pair.raw_claim)
+    assert claim.envelope.source is S.RUVIEW_SIM, "the signer carried the producer's own label"
+
+    forged = claim.model_copy(
+        update={"envelope": claim.envelope.model_copy(update={"source": S.NEXMON_CSI})}
+    )
+    verifier = ClaimVerifier(
+        policy=VerifierPolicy(audience=MASTER.ansname, target=TARGET),
+        trust=store_with(people_key),
+    )
+    with pytest.raises(VerificationRejected):
+        verifier.verify(
+            forged.model_dump_json().encode(),
+            pair.raw_proof,
+            expected_nonce="chal-test",
+        )
+
+
+def _assertion(source):  # noqa: ANN001, ANN202 - Source, Assertion
+    from hawkeye_backend.models.common import Provenance
+    from hawkeye_backend.verification.envelope import Severity
+
+    from agents.core.observations import Assertion
+
+    return Assertion(
+        field="presence.motion",
+        value="true",
+        zone_scope="living_room",
+        severity_ceiling=Severity.CORROBORATING,
+        confidence=0.5,
+        basis="fixture",
+        provenance=Provenance(source=source, producer="agents/presence", ansname=PEOPLE.ansname),
+    )

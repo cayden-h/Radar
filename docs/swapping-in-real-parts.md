@@ -431,6 +431,26 @@ These are the combinations that waste an evening, because most of them look like
 | `HAWKEYE_COURIER=resend` | Key or From address empty | No courier is built at all. The startup log says so and every record reads `skipped`, which is correct and looks exactly like the courier being off. Read the boot line, not the record. |
 | `HAWKEYE_COURIER=resend` | `HAWKEYE_COURIER_TO` empty | The automatic send on seal is skipped for want of an address, and the chain says exactly that. The manual endpoint still works, because it carries its own. |
 
+## The source label, which used to be destroyed in transit
+
+**Fixed 2026-09-20**, and it is worth reading even though nothing needs flipping, because it was the quietest
+failure on this page and it defeated every other entry on it.
+
+`Source` is the field the app renders its "simulated" badge from, and the whole of this document assumes a
+reader can look at a running system and tell a fixture from a camera. They could not. The A2A transport
+rebuilt every arriving claim with `source=agent-inference`, so `camera-sim` and `camera-uvc` reached `master`
+identical, and so did `ruview-sim` and `nexmon-csi`.
+
+**Every flip described on this page was invisible one hop downstream.**
+
+`source` is now a signed field on `ClaimEnvelope` and the transport reads it rather than inventing one. It is
+safe to believe because it is inside the signature: relabelling a claim in flight breaks it like any other
+tampering, and `agents/tests/test_wire.py` asserts both halves.
+
+**How to tell it is working:** `curl localhost:8900/v1/state | jq '.presences[].provenance.source'`. Frames
+off the Brio read `camera-uvc`; the fixture reads `camera-sim`; anything reading `agent-inference` for a
+sensed field means a producer did not label its own claim.
+
 ## Which mode for which demo
 
 **Laptop only, no hardware.** iOS `useMocks = true`. Nothing else running. This is the fallback that must work on Sunday morning regardless of what else broke.
@@ -492,6 +512,24 @@ Three values, and the third one is the entire point.
 | `tracker_unavailable` | The detector could not look at all | Nothing. The lens stays open and the resident is told |
 
 **The seam** is the same `StubTracker` to `YoloBotSortTracker` swap as the section below, chosen by `build_tracker`.
+
+**The adapter above it landed 2026-09-20** and changed which way this seam defaults.
+`hawkeye_vision/live_occupancy.py` is the real `OccupancySource`: a capture thread that pulls frames from
+the hub's relay, runs the tracker on them, and hands `VisionAgent` a measured verdict. Until it existed the
+only thing implementing that Protocol was the test fake, so `agents/vision` answered from a script no matter
+what was in front of the lens.
+
+`HAWKEYE_VISION_SOURCE` chooses: `relay` is the default and `synthetic` is the opt-in. That is the reverse of
+how it started, and deliberately so - a synthetic default is how you arrive at a judging table with a camera
+pointed at a room and an agent answering from a fixture, with nothing on any screen to tell you which.
+
+**Failing to build the real path is not a fallback to the synthetic one.** It returns a source that reports
+`tracker_unavailable` forever, which is the honest answer: this process could not look. A silent downgrade
+would let a demo with no camera present as a demo with one.
+
+**Staleness is treated as blindness, not as emptiness.** A verdict older than three seconds describes a room
+that no longer exists, so it comes back `tracker_unavailable`. Handing `no_person` to `master` on the
+strength of an aged verdict closes a shield on evidence nobody has.
 
 **How to tell the flip worked:** the verdict changes when you walk in front of the camera, and the shield physically closes a few seconds after you leave frame.
 A verdict that never leaves `no_person` while somebody is visibly in the room is the failure to look for.
@@ -595,6 +633,14 @@ That is the hub standing in for `agents/master`, not two independent agents, and
 What is simulated is which process holds the key. The signature is real, and `shutter` checks it and refuses it if it does not match.
 
 In live mode `LiveMasterClient` asks the real master to sign and this process never touches a private key.
+**That other end exists as of 2026-09-20**: `POST /v1/shutter/grant` on `agents/master`, from
+`agents/master/hub_api.py`. Before that date live mode had nowhere to post and the simulated path was the
+only one that worked, which is why this section could only ever describe half a seam.
+
+**How to tell which one signed.** Simulated logs `simulated mode: this hub is signing shutter grants with
+master's own key` once, at the first grant. Live logs nothing here, and `master`'s own console shows the
+`POST /v1/shutter/grant`. A grant that verifies proves the key was right; it does not prove which process
+held it, and only the log says that.
 
 **The grant is built through `agents.shutter.grant`, never by hand.**
 A hand-built dict serializes datetimes differently from pydantic and produces a signature mismatch indistinguishable from an attack, which is battery probe #13.

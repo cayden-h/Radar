@@ -25,7 +25,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hawkeye_backend.models.common import utc_now
+from hawkeye_backend.models.common import Source, utc_now
 
 
 class Severity(StrEnum):
@@ -70,6 +70,23 @@ class ClaimEnvelope(BaseModel):
     field: str = Field(description="Interior-state field asserted, e.g. 'biometrics.respiration'.")
     value: str = Field(description="The asserted value.")
     severity_ceiling: Severity = Field(description="The most this claim may ever trigger.")
+    source: Source = Field(
+        default=Source.AGENT_INFERENCE,
+        description=(
+            "What physically produced the reading this claim asserts.\n\n"
+            "**Signed, because the honesty rule is worth exactly as much as its "
+            "weakest carrier.** `Source` is the field the app renders a "
+            "'simulated' badge from, and before this lived in the envelope it "
+            "did not survive the wire: the transport rebuilt every arriving "
+            "claim with `agent-inference`, so a fixture video and a real camera "
+            "reached `master` indistinguishable from one another. A limit that "
+            "is dropped in transit is not a limit.\n\n"
+            "Inside the signature rather than beside it, so a claim cannot be "
+            "relabelled measured in flight. Defaults to `agent-inference`, which "
+            "classes as DERIVED: a producer that says nothing about its source "
+            "is never read as having measured anything."
+        ),
+    )
     proof_key_thumbprint: str = Field(description="Thumbprint of the key that must present the proof.")
     issued_at: datetime = Field(default_factory=utc_now)
     expires_at: datetime = Field(description="After this, the claim is stale and refused.")
