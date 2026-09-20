@@ -40,7 +40,11 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 
-from hawkeye_backend.master.base import EventSink, assert_human_released
+from hawkeye_backend.master.base import (
+    EventSink,
+    ParticipationModeRefused,
+    assert_human_released,
+)
 from hawkeye_backend.master.scenario import (
     ANSNAME,
     PROFILE,
@@ -179,6 +183,10 @@ GUIDANCE = Provenance(
     source=Source.AGENT_INFERENCE, producer="agents/caller", ansname=ANSNAME["agents/caller"]
 )
 RESIDENT = Provenance(source=Source.USER_INPUT, producer="app/ios")
+
+#: Ordering for the "automation may only move quieter" rule in
+#: set_participation_mode. See the mode table in app/CLAUDE.md.
+_MODE_LEVEL = {"watching": 0, "whisper": 1, "full_voice": 2}
 
 
 class SimulatedMasterClient:
@@ -382,6 +390,18 @@ class SimulatedMasterClient:
     async def set_participation_mode(
         self, incident_id: str, mode: str, *, by_human: bool
     ) -> str:
+        # Automation may only ever move toward quieter (app/CLAUDE.md). Going
+        # louder without a human hand is refused, structurally, in simulated
+        # mode too: this is the same guard LiveMasterClient's counterpart
+        # leaves to master's A2A endpoint to enforce (a 403 there becomes
+        # ParticipationModeRefused here); the simulated client has no such
+        # endpoint to defer to, so it holds the rule itself.
+        current = self._participation_mode or "watching"
+        if not by_human and _MODE_LEVEL[mode] > _MODE_LEVEL[current]:
+            raise ParticipationModeRefused(
+                f"automation may only move participation toward quieter; refusing "
+                f"{current!r} -> {mode!r} for incident {incident_id} without a human hand"
+            )
         self._participation_mode = mode
         label = {
             "watching": "Listening only.",
