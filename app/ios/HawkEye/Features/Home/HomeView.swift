@@ -2,14 +2,33 @@ import SwiftUI
 
 /// Stage 2. The product.
 ///
-/// Live interior view at the top, the presence roster under it, three incident
-/// buttons at the bottom. No tabs, no settings, no history. When an incident is
-/// open this screen hands over to `IncidentView` and does not compete with it.
+/// A persistent bottom tab bar (`RadarTabBar`) switches between three pages —
+/// Camera, Videos, and People — without tearing any of them down, so the
+/// resident can add a family member or glance at a past recording mid-call
+/// without losing anything. Videos and People used to be modal pop-ups
+/// reached from header icons; they are real pages now, reached from the bar,
+/// and their own content is unchanged.
+///
+/// A live 911 call is deliberately **not** one of those tabs. It is the one
+/// screen in this app that still bleeds full-screen with nothing competing
+/// with it, exactly as before — see `IncidentView`. The bar's own Back
+/// button leaves the call screen without ending the call (typing to the
+/// operator and the transcript both keep running underneath), and
+/// `LiveCallBanner` is how the resident gets back to it: a thin bar, the
+/// same idea as iOS's own "tap to return to call," shown on every tab
+/// whenever a call is live but not on screen.
+///
+/// Notices and the household are a separate axis from all of that: a notice
+/// is the sensing layer flagging an unexpected presence, and it never raises
+/// an incident on its own — a human tap still does that, on the Camera page,
+/// same as ever.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     var hubName: String
 
-    @State private var pendingIncident: IncidentType?
+    @State private var selectedTab: RadarTab = .camera
+    @State private var showingCall = false
+    @State private var locallyEndedIncidentID: String?
     /// The notice whose "Remember this visitor" was tapped. Presenting the
     /// sheet off the notice itself, rather than a bare `Bool`, is what lets
     /// the save action know which presence to approve alongside naming it.
@@ -18,7 +37,92 @@ struct HomeView: View {
 
     private var client: any HawkEyeClienting { model.client }
 
+    /// `nil` once the resident has locally dismissed this incident, even if
+    /// the backend hasn't sent `resolved` yet — see `IncidentView`'s note on
+    /// why ending a call is front-end-only for now.
+    private var activeIncident: Incident? {
+        guard let incident = client.incident, incident.id != locallyEndedIncidentID else { return nil }
+        return incident
+    }
+
     var body: some View {
+        VStack(spacing: 0) {
+            Group {
+                switch selectedTab {
+                case .camera: cameraPage
+                case .videos: VideoLibraryView()
+                case .people: AddFamilyMemberView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if let incident = activeIncident, !showingCall {
+                LiveCallBanner(incident: incident) {
+                    showingCall = true
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            RadarTabBar(
+                selection: $selectedTab,
+                onBack: { model.disconnectAndForget() }
+            )
+            // The bar's own background stops at its content frame; this
+            // extends the same fill through the home-indicator strip so the
+            // bar reads as anchored to the bottom edge, like a native tab bar.
+            .background(Palette.surface.ignoresSafeArea(edges: .bottom))
+        }
+        .task { await client.refreshHousehold() }
+        .sheet(item: $rememberingNotice) { notice in
+            RememberVisitorSheet(unclaimedDevices: client.unclaimedDevices) { name, kind, deviceID in
+                Task {
+                    try? await client.rememberVisitor(name: name, kind: kind, deviceID: deviceID)
+                    // The resident has just said who this is, which answers the
+                    // question the banner exists to raise. Approving and
+                    // dismissing here, rather than making them also tap
+                    // "This is expected", is the point: remembering someone is
+                    // a stronger fact than merely vouching for them.
+                    if let presenceID = notice.presenceID {
+                        try? await client.approvePresence(presenceID)
+                    }
+                    withAnimation(Motion.standard) {
+                        client.dismissNotice(notice.id)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingHousehold) {
+            HouseholdList(members: client.household) { memberID in
+                Task { try? await client.forgetMember(memberID) }
+            }
+        }
+        .onChange(of: client.incident?.id) { _, newID in
+            guard let newID, newID != locallyEndedIncidentID else { return }
+            showingCall = true
+        }
+        .fullScreenCover(item: Binding<Incident?>(
+            get: { showingCall ? activeIncident : nil },
+            set: { newValue in if newValue == nil { showingCall = false } }
+        )) { incident in
+            IncidentView(
+                incident: incident,
+                onBack: { showingCall = false },
+                onEndCall: {
+                    locallyEndedIncidentID = incident.id
+                    showingCall = false
+                    // Without this, `client.incident` stays set forever (the
+                    // backend has no stand-down route to actually clear it),
+                    // and `raiseIncident`'s `guard incident == nil` silently
+                    // blocks every hold-to-call after the first one.
+                    client.dismissIncident()
+                }
+            )
+        }
+    }
+
+    // MARK: Camera page
+
+    private var cameraPage: some View {
         VStack(spacing: Space.lg) {
             header
 
@@ -46,92 +150,27 @@ struct HomeView: View {
             }
 
             VStack(spacing: Space.xs) {
-                // The panel flexes to whatever height is going spare rather
-                // than locking to the plan's aspect ratio. This plan is wider
-                // than it is deep, so an aspect-locked panel is limited by the
-                // screen's width and strands a dead band above the incident
-                // buttons. `planRect` aspect-fits and centres the drawing, so a
-                // taller panel simply frames it with more margin, and the panel
-                // gives the height back when a fourth roster row arrives.
-                InteriorView(state: client.interior)
+                CameraFeedView()
                     .frame(maxWidth: .infinity)
-                    .aspectRatio(client.interior.floorplan.cardAspect, contentMode: .fit)
 
-                // The honesty rule applied to the drawing. The plan is
-                // authored, not discovered: walls are the static baseline the
-                // system subtracts to see people, and it never maps them.
-                Text("Floor plan set up once, by hand. Hawk Eye does not map walls.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Palette.inkFaint)
+                if let co = client.interior.coPpm, co > 9 {
+                    CoAlertRow(coPpm: co, simulated: client.interior.coSourceIsSimulated)
+                }
             }
 
-            PresenceRoster(state: client.interior)
+            IncidentBar(client: client)
 
-            IncidentBar { type in
-                pendingIncident = type
-            }
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, Space.gutter)
-        .padding(.bottom, Space.lg)
-        .task { await client.refreshHousehold() }
-        .sheet(item: $rememberingNotice) { notice in
-            RememberVisitorSheet(unclaimedDevices: client.unclaimedDevices) { name, kind, deviceID in
-                Task {
-                    try? await client.rememberVisitor(name: name, kind: kind, deviceID: deviceID)
-                    // The resident has just said who this is, which answers the
-                    // question the banner exists to raise. Approving and
-                    // dismissing here, rather than making them also tap
-                    // "This is expected", is the point: remembering someone is
-                    // a stronger fact than merely vouching for them.
-                    if let presenceID = notice.presenceID {
-                        try? await client.approvePresence(presenceID)
-                    }
-                    withAnimation(Motion.standard) {
-                        client.dismissNotice(notice.id)
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showingHousehold) {
-            HouseholdList(members: client.household) { memberID in
-                Task { try? await client.forgetMember(memberID) }
-            }
-        }
-        .fullScreenCover(item: Binding(
-            get: { client.incident },
-            set: { _ in }
-        )) { incident in
-            IncidentView(incident: incident)
-                .environment(model)
-        }
-        .confirmationDialog(
-            pendingIncident.map { "Call 911 for \($0.title.lowercased())?" } ?? "",
-            isPresented: Binding(
-                get: { pendingIncident != nil },
-                set: { if !$0 { pendingIncident = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let type = pendingIncident {
-                Button("Raise \(type.title)", role: .destructive) {
-                    let raise = type
-                    pendingIncident = nil
-                    Task { try? await client.raiseIncident(raise) }
-                }
-            }
-            Button("Cancel", role: .cancel) { pendingIncident = nil }
-        } message: {
-            // One confirmation, because a misfired 911 call is a real-world
-            // harm. One tap raises it; the confirmation is the tap.
-            Text("Hawk Eye will call 911 and tell them what it can verify.")
-        }
+        .padding(.top, Space.sm)
     }
 
     // MARK: Header
 
     private var header: some View {
         HStack(alignment: .center, spacing: Space.md) {
-            Wordmark(size: 20, breathing: false)
+            Wordmark(size: 28, breathing: false)
 
             Spacer(minLength: Space.sm)
 
@@ -176,233 +215,92 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Roster
+// MARK: - Live call banner
 
-/// The list under the map. It exists so the three states are named in words as
-/// well as drawn, because a judge across a table cannot see a blur radius.
-private struct PresenceRoster: View {
-    var state: InteriorState
+/// The way back to a call that's still running behind whichever tab is on
+/// screen. Tapping it re-presents the same full-screen `IncidentView` —
+/// nothing about the call (transcript, typed context, the operator on the
+/// line) was ever paused while this bar was showing instead of it.
+private struct LiveCallBanner: View {
+    var incident: Incident
+    var action: () -> Void
 
     var body: some View {
-        VStack(spacing: Space.sm) {
-            HStack {
-                Text(summary)
-                    .eyebrowStyle(Palette.inkMuted)
-                    // Three clauses at full tracking just overrun an iPhone
-                    // width. Shrink the line rather than wrap it: a summary
-                    // that breaks mid-count reads as a layout accident.
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
-                Spacer()
-                if let co = state.coPpm, co > 9 {
-                    HStack(spacing: 5) {
-                        Image(systemName: "aqi.medium")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text("CO \(Int(co)) ppm")
-                            .font(TypeScale.numeric)
-                        if state.coSourceIsSimulated {
-                            // The honesty rule, enforced in the UI. A simulated
-                            // reading cannot be shown as a measured one.
-                            Text("SIM")
-                                .font(.system(size: 9, weight: .bold))
-                                .padding(.horizontal, 4).padding(.vertical, 1)
-                                .background(Capsule().fill(Palette.inkFaint.opacity(0.3)))
-                        }
-                    }
-                    .foregroundStyle(Palette.fire)
-                }
-            }
-
-            ForEach(state.presences) { presence in
-                PresenceRow(presence: presence, floorplan: state.floorplan)
-                    .transition(.opacity.combined(with: .offset(y: 8)))
-            }
+        Button(action: action) {
+            Text("Return to Call")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Palette.ink)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(Palette.live)
         }
-        .animation(Motion.arrive, value: state.presences)
-    }
-
-    /// Counts, in the order a person would want them. The unexpected person is
-    /// named in the summary as well as in their own row, because the summary is
-    /// the line someone reads first and it must not say "2 people inside" as
-    /// though that were unremarkable.
-    private var summary: String {
-        let people = state.peopleCount
-        let unexpected = state.unexpectedCount
-        let others = state.presences.count - people
-        var text = people == 1 ? "1 person inside" : "\(people) people inside"
-        if unexpected > 0 {
-            text += unexpected == 1 ? " · 1 not expected" : " · \(unexpected) not expected"
-        }
-        if others > 0 { text += " · \(others) unconfirmed" }
-        return text
+        .buttonStyle(.pressable)
+        .accessibilityLabel("Live call in progress, \(incident.type.title). Return to call.")
     }
 }
 
-private struct PresenceRow: View {
-    var presence: Presence
-    var floorplan: Floorplan
-    @State private var pulse = false
+// MARK: - CO alert
 
-    /// The two person states, crossed with the one orthogonal axis. An
-    /// unexpected person takes the violet whichever state they are in.
-    private var tint: Color {
-        if presence.isUnexpected { return Palette.personUnexpected }
-        switch presence.state {
-        case .personMoving: return Palette.personMoving
-        case .personUnresponsive: return Palette.personUnresponsive
-        case .unconfirmed, .unresolved: return Palette.unconfirmed
-        }
-    }
-
-    /// True for the two rows that must not read as routine.
-    private var emphasised: Bool {
-        presence.state == .personUnresponsive || presence.isUnexpected
-    }
-
-    /// The headline, factual and not morbid. "Unexpected person" is what
-    /// `agents/intruder` actually concluded: a confirmed person whose being
-    /// here is not accounted for. It is not a recognition result and the words
-    /// must not imply one.
-    private var headline: String {
-        presence.isUnexpected ? "Unexpected person" : presence.state.headline
-    }
-
-    /// The unexpected row carries its colour in the headline as well as the
-    /// border, because the headline is the part read across a table. The
-    /// lost-signature row keeps white type: it is already the loudest thing on
-    /// the screen and does not need to compete with itself.
-    private var headlineTint: Color {
-        if presence.isUnexpected { return Palette.personUnexpected }
-        return emphasised ? Palette.ink : Palette.ink.opacity(0.9)
-    }
-
-    private var roomName: String {
-        floorplan.room(named: presence.zone)?.name ?? presence.zone
-    }
+/// The one piece of roster-adjacent information that was never about "people
+/// and where they are": elevated CO is an environment reading, not a
+/// presence, so it keeps its own row rather than living inside a presence's
+/// tap card. Shown only when elevated — see `HomeView.body`.
+private struct CoAlertRow: View {
+    var coPpm: Double
+    var simulated: Bool
 
     var body: some View {
-        HStack(spacing: Space.md) {
-            Circle()
-                .fill(tint)
-                .frame(width: 8, height: 8)
-                .opacity(presence.state == .personUnresponsive ? (pulse ? 1 : 0.25) : 0.9)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(headline)
-                        .font(emphasised ? TypeScale.bodyStrong : TypeScale.body)
-                        .foregroundStyle(headlineTint)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    Text("· \(roomName)")
-                        .font(TypeScale.body)
-                        .foregroundStyle(Palette.inkMuted)
-                        .lineLimit(1)
-                }
-                Text(detail)
-                    .font(TypeScale.caption)
-                    .foregroundStyle(Palette.inkFaint)
-            }
-
-            Spacer(minLength: Space.sm)
-
-            if presence.isUnexpected {
-                // Reads as tracked, in one glyph, and leaves the headline and
-                // the room name their full width. A badge spelling out "NOT
-                // EXPECTED" said the same thing as the headline beside it and
-                // pushed the room name into an ellipsis, which is worse.
-                Image(systemName: "viewfinder")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Palette.personUnexpected)
-                    .accessibilityHidden(true)
-            }
-
-            if let lost = presence.respirationLostS, lost > 0 {
-                // How long since the last resolvable signature is the number a
-                // dispatcher acts on, not a diagnostic detail, so it gets the
-                // largest type on this row. The caption says what the clock is
-                // measuring: a signature we no longer have, never a body.
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(Self.duration(lost))
-                        .font(.system(size: 15, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Palette.personUnresponsive)
-                    Text("no signature")
-                        .eyebrowStyle(Palette.inkFaint)
-                }
+        HStack(spacing: 5) {
+            Image(systemName: "aqi.medium")
+                .font(.system(size: 10, weight: .semibold))
+            Text("CO \(Int(coPpm)) ppm")
+                .font(TypeScale.numeric)
+            if simulated {
+                // The honesty rule, enforced in the UI. A simulated reading
+                // cannot be shown as a measured one.
+                Text("SIM")
+                    .font(.system(size: 9, weight: .bold))
+                    .padding(.horizontal, 4).padding(.vertical, 1)
+                    .background(Capsule().fill(Palette.inkFaint.opacity(0.3)))
             }
         }
-        .padding(.horizontal, Space.lg)
-        .padding(.vertical, Space.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(emphasised ? tint.opacity(0.10) : Palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .strokeBorder(emphasised ? tint.opacity(0.45) : Palette.hairline, lineWidth: 1)
-        )
-        .onAppear {
-            guard presence.state == .personUnresponsive else { return }
-            withAnimation(Motion.urgent) { pulse = true }
-        }
-    }
-
-    private var detail: String {
-        var parts: [String] = []
-        // First, so it survives truncation. This is a statement that the
-        // household has no account of this person, not a claim about who they
-        // are: the system does no recognition and must not imply that it does.
-        if presence.isUnexpected { parts.append("Not accounted for") }
-        parts.append(presence.state.detail)
-        if let bpm = presence.breathingBpm { parts.append("\(Int(bpm.rounded())) breaths/min") }
-        if presence.state.isPerson, presence.presenceClass != .unknown {
-            parts.append(presence.presenceClass.label.lowercased())
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private static func duration(_ seconds: Double) -> String {
-        let s = max(0, Int(seconds))
-        return s < 60 ? "\(s)s" : String(format: "%d:%02d", s / 60, s % 60)
+        .foregroundStyle(Palette.fire)
     }
 }
 
 // MARK: - Incident bar
 
-/// Two buttons. One tap raises an incident.
+/// One button, held rather than tapped, because a misfired 911 call is a
+/// real-world harm and a hold is release-to-cancel on the target the resident
+/// already found — see `HoldToConfirmButton`. Raising it presents the
+/// full-screen call automatically — see `HomeView.body`'s `onChange` and
+/// `.fullScreenCover`.
 private struct IncidentBar: View {
-    var raise: (IncidentType) -> Void
+    var client: any HawkEyeClienting
 
     var body: some View {
         VStack(spacing: Space.sm) {
-            Text("Call 911")
+            Text("Hold to call")
                 .eyebrowStyle(Palette.inkFaint)
 
-            HStack(spacing: Space.sm) {
-                ForEach(IncidentType.allCases) { type in
-                    Button { raise(type) } label: {
-                        VStack(spacing: 7) {
-                            Image(systemName: type.symbol)
-                                .font(.system(size: 19, weight: .medium))
-                            Text(type.title)
-                                .font(.system(size: 14, weight: .semibold))
-                        }
-                        .foregroundStyle(type.tint)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 74)
-                        .background(
-                            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                                .fill(type.tint.opacity(0.10))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                                .strokeBorder(type.tint.opacity(0.32), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.pressable)
-                    .accessibilityLabel("Raise \(type.title) incident")
+            VStack(spacing: 8) {
+                HoldToConfirmButton(
+                    tint: Palette.ground,
+                    circular: true,
+                    accessibilityLabel: "Hold to raise incident"
+                ) {
+                    Task { try? await client.raiseIncident(.burglary) }
+                } label: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 36, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .frame(width: 108, height: 108)
+                        .background(Circle().fill(IncidentType.burglary.tint))
                 }
+
+                Text("Call 911")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(IncidentType.burglary.tint)
             }
         }
     }

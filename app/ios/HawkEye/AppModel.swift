@@ -57,4 +57,13 @@ final class AppModel {
         }
         verifyingHubID = nil
     }
+
+    /// The Home screen's back control. Leaves the current hub and returns to
+    /// the Connect stage, per `app/CLAUDE.md`'s two-stage model — this is a
+    /// transition between the two existing stages, not a third one.
+    func disconnectAndForget() {
+        client.disconnect()
+        stage = .connect
+        startDiscovery()
+    }
 }

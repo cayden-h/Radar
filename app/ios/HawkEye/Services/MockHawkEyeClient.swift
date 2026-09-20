@@ -219,6 +219,16 @@ final class MockHawkEyeClient: HawkEyeClienting {
         open(type, raisedBy: .user)
     }
 
+    func dismissIncident() {
+        scriptTask?.cancel(); scriptTask = nil
+        respirationLostAt = nil
+        enteredAt = nil
+        incident = nil
+        transcript = []
+        instructions = []
+        verifications = []
+    }
+
     func dismissNotice(_ id: String) {
         notices.removeAll { $0.id == id }
     }
@@ -703,7 +713,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         }
         await step(2.4) {
             self.appendInstruction(
-                "Hawk Eye is on the line with 911. Stay on this screen.",
+                "Radar is on the line with 911. Stay on this screen.",
                 origin: .systemStatus, urgent: false
             )
         }
@@ -807,7 +817,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         }
         await step(2.0) {
             self.appendInstruction(
-                "Hawk Eye is on the line with 911. This screen is silent: no sound, no vibration.",
+                "Radar is on the line with 911. This screen is silent: no sound, no vibration.",
                 origin: .systemStatus, urgent: false
             )
         }
@@ -859,7 +869,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
         }
         await step(1.6) {
             self.appendInstruction(
-                "Police are on the way, about six minutes out. Hawk Eye is telling them which room the person is in, as it changes.",
+                "Police are on the way, about six minutes out. Radar is telling them which room the person is in, as it changes.",
                 origin: .relayedOperator, urgent: true
             )
         }

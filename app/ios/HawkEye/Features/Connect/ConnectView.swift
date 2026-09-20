@@ -26,7 +26,7 @@ struct ConnectView: View {
 
     private var header: some View {
         VStack(spacing: Space.md) {
-            Wordmark(size: 30, breathing: true)
+            Wordmark(size: 42, breathing: false)
                 .padding(.top, Space.xxl)
 
             Text(statusLine)
@@ -101,13 +101,6 @@ struct ConnectView: View {
                     .multilineTextAlignment(.center)
                     .transition(.opacity)
             }
-            // Said plainly, because it is true and because it is the thing a
-            // user will otherwise be confused by.
-            Text("Hawk Eye finds hubs on the network this phone is already on. It does not scan for Wi-Fi networks.")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(Palette.inkFaint)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, Space.lg)
         }
         .animation(Motion.standard, value: model.connectError)
     }
@@ -123,68 +116,45 @@ private struct HubRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: Space.md) {
-                icon
+            VStack(spacing: 6) {
+                Text(hub.name)
+                    .font(.custom("Oswald-Bold", size: 24))
+                    .foregroundStyle(Palette.ink)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(hub.name)
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(Palette.ink)
-
-                    HStack(spacing: Space.sm) {
-                        if hub.paired {
-                            Text("Paired")
-                                .font(TypeScale.caption)
-                                .foregroundStyle(Palette.calm)
-                        }
-                        if let ans = hub.ansName {
-                            Text(ans)
-                                .font(TypeScale.numeric)
-                                .foregroundStyle(Palette.inkFaint)
-                                .lineLimit(1)
-                                .truncationMode(.head)
-                        }
-                    }
-                }
-
-                Spacer(minLength: Space.sm)
-
-                if verifying {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(Palette.inkMuted)
-                } else {
-                    SignalBars(level: hub.signalBars,
-                               tint: hub.paired ? Palette.calm : Palette.inkMuted)
+                if hub.paired {
+                    Text("Paired")
+                        .font(.custom("Oswald-Bold", size: 13))
+                        .foregroundStyle(Palette.calm)
                 }
             }
-            .padding(.horizontal, Space.lg)
-            .frame(height: 68)
             .frame(maxWidth: .infinity)
+            .frame(height: 220)
+            .overlay(alignment: .trailing) {
+                Group {
+                    if verifying {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(Palette.inkMuted)
+                    } else {
+                        SignalBars(level: hub.signalBars,
+                                   tint: hub.paired ? Palette.calm : Palette.inkMuted)
+                    }
+                }
+                .padding(.trailing, Space.md)
+            }
         }
         .buttonStyle(.pressable)
         .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
                 .fill(Palette.surface)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
                 .strokeBorder(verifying ? Palette.calm.opacity(0.55) : Palette.hairline, lineWidth: 1)
         )
         .opacity(dimmed ? 0.35 : 1)
         .disabled(dimmed || verifying)
         .accessibilityLabel("\(hub.name), \(hub.paired ? "paired" : "not paired"), signal \(hub.signalBars) of 4")
-    }
-
-    private var icon: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                .fill(Palette.surfaceRaised)
-                .frame(width: 38, height: 38)
-            Image(systemName: "house.fill")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(hub.paired ? Palette.calm : Palette.inkMuted)
-        }
     }
 }
 

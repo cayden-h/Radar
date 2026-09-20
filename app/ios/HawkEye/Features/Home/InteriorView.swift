@@ -37,39 +37,98 @@ import SwiftUI
 /// For burglary this is the frame the whole project is built around: the
 /// intruder and the resident as two distinct tracked presences, in different
 /// rooms, both moving.
+///
+/// **Every presence is a tap target.** The map used to carry a roster list
+/// underneath it that repeated every dot in words. That list does not scale —
+/// eleven rooms and a handful of presences already crowd a 6.3" screen — so
+/// the detail moved onto the dot itself: tap one and its card appears beside
+/// it, tap it again (or the card's close button, or empty floor) to dismiss.
+/// Exactly one presence's detail is ever showing, tracked by `selectedID`
+/// alone; nothing about the drawing loop needs to know about it beyond a
+/// highlight ring.
 struct InteriorView: View {
     var state: InteriorState
 
+    @State private var selectedID: String?
+
+    /// The popup's assumed footprint, used only to clamp its position on
+    /// screen. The card hugs its actual content, so this is deliberately a
+    /// touch generous rather than exact — a few points of slack beats a
+    /// clamp computed from a size we do not have yet.
+    private static let popupSize = CGSize(width: 232, height: 132)
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            Canvas(opaque: false, rendersAsynchronously: false) { context, size in
-                let plan = Self.planRect(in: size, aspect: Self.aspect(of: state.floorplan))
-                drawGrid(&context, plan: plan)
-                drawRooms(&context, plan: plan)
-                drawPresences(&context, plan: plan, t: t)
+        GeometryReader { geo in
+            let plan = Self.planRect(in: geo.size, aspect: Self.aspect(of: state.floorplan))
+
+            ZStack(alignment: .topLeading) {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { timeline in
+                    let t = timeline.date.timeIntervalSinceReferenceDate
+                    Canvas(opaque: false, rendersAsynchronously: false) { context, _ in
+                        drawGrid(&context, plan: plan)
+                        drawRooms(&context, plan: plan)
+                        drawPresences(&context, plan: plan, t: t, selectedID: selectedID)
+                    }
+                    .drawingGroup()
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                        .fill(Palette.surface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                        .strokeBorder(Palette.hairline, lineWidth: 1)
+                )
+                .contentShape(Rectangle())
+                .onTapGesture { dismiss() }
+
+                // One invisible, generously-sized tap target per presence,
+                // positioned at the same anchor the drawing wanders around.
+                // Hit-testing a blurred, animated blob directly would make
+                // low-confidence presences — the ones a person most needs to
+                // ask about — the hardest to tap.
+                ForEach(state.presences) { presence in
+                    let center = Self.anchorPoint(for: presence, plan: plan, floorplan: state.floorplan)
+                    Color.clear
+                        .frame(width: Hit.min, height: Hit.min)
+                        .contentShape(Circle())
+                        .position(center)
+                        .onTapGesture { toggle(presence.id) }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel(Self.accessibilityLabel(for: presence, floorplan: state.floorplan))
+                }
+
+                if let selected = state.presences.first(where: { $0.id == selectedID }) {
+                    let anchor = Self.anchorPoint(for: selected, plan: plan, floorplan: state.floorplan)
+                    let center = Self.clampedPopupCenter(near: anchor, cardSize: Self.popupSize, in: geo.size)
+                    PresenceDetailCard(presence: selected, floorplan: state.floorplan) { dismiss() }
+                        .frame(width: Self.popupSize.width, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .onTapGesture {} // absorb taps so the card never triggers the dismiss-on-empty-floor gesture beneath it
+                        .position(center)
+                        .transition(.scale(scale: 0.92, anchor: .center).combined(with: .opacity))
+                        .zIndex(10)
+                }
             }
-            .drawingGroup()
         }
-        .background(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .fill(Palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .strokeBorder(Palette.hairline, lineWidth: 1)
-        )
-        .accessibilityElement()
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityElement(children: .contain)
     }
 
-    private var accessibilitySummary: String {
-        guard !state.presences.isEmpty else { return "Nothing detected inside." }
-        return state.presences.map { p in
-            let room = state.floorplan.room(named: p.zone)?.name ?? p.zone
-            let headline = p.isUnexpected ? "Unexpected person, \(p.state.headline.lowercased())," : p.state.headline
-            return "\(headline) in the \(room)."
-        }.joined(separator: " ")
+    private func toggle(_ id: String) {
+        withAnimation(Motion.snappy) {
+            selectedID = (selectedID == id) ? nil : id
+        }
+    }
+
+    private func dismiss() {
+        guard selectedID != nil else { return }
+        withAnimation(Motion.snappy) { selectedID = nil }
+    }
+
+    private static func accessibilityLabel(for presence: Presence, floorplan: Floorplan) -> String {
+        let room = floorplan.room(named: presence.zone)?.name ?? presence.zone
+        let headline = presence.isUnexpected ? "Unexpected person, \(presence.state.headline.lowercased())," : presence.state.headline
+        return "\(headline) in the \(room). Double tap for details."
     }
 
     // MARK: Geometry
@@ -107,6 +166,30 @@ struct InteriorView: View {
             width: normalized.width * plan.width,
             height: normalized.height * plan.height
         )
+    }
+
+    /// The still point a presence's drawn position wanders around, and what
+    /// both the tap target and the detail popup anchor to. Deliberately not
+    /// the animated, drifting position `drawPresences` actually paints: a tap
+    /// target that chases a sine wave is a tap target nobody can hit.
+    private static func anchorPoint(for presence: Presence, plan: CGRect, floorplan: Floorplan) -> CGPoint {
+        let anchor = floorplan.normalizedPoint(presence.position)
+        return CGPoint(x: plan.minX + anchor.x * plan.width, y: plan.minY + anchor.y * plan.height)
+    }
+
+    /// Places the popup beside the tapped dot, preferring above it, flipping
+    /// below when there is not enough headroom, and clamped so it never runs
+    /// off the card on any edge.
+    private static func clampedPopupCenter(near point: CGPoint, cardSize: CGSize, in bounds: CGSize) -> CGPoint {
+        let margin: CGFloat = 10
+        let gap: CGFloat = 30
+        var y = point.y - cardSize.height / 2 - gap
+        if y - cardSize.height / 2 < margin {
+            y = point.y + cardSize.height / 2 + gap
+        }
+        let x = min(max(point.x, cardSize.width / 2 + margin), bounds.width - cardSize.width / 2 - margin)
+        let clampedY = min(max(y, cardSize.height / 2 + margin), bounds.height - cardSize.height / 2 - margin)
+        return CGPoint(x: x, y: clampedY)
     }
 
     // MARK: Layers
@@ -194,7 +277,7 @@ struct InteriorView: View {
         }
     }
 
-    private func drawPresences(_ context: inout GraphicsContext, plan: CGRect, t: Double) {
+    private func drawPresences(_ context: inout GraphicsContext, plan: CGRect, t: Double, selectedID: String?) {
         for presence in state.presences {
             // The hub sends a zone centroid in metres. It is not a fix, so the
             // drawing treats it as an anchor and lets uncertainty wander around
@@ -205,6 +288,7 @@ struct InteriorView: View {
                 ?? CGRect(x: 0, y: 0, width: 0.25, height: 0.25)
             let center = Self.position(for: presence, anchor: anchor, extent: extent,
                                        in: plan, t: t)
+            let selected = presence.id == selectedID
 
             switch presence.state {
             case .personMoving, .personUnresponsive:
@@ -220,8 +304,14 @@ struct InteriorView: View {
                 if presence.isUnexpected {
                     drawTrackingBrackets(&context, at: center, presence: presence, t: t)
                 }
+                if selected {
+                    drawSelectionRing(&context, at: center, radius: signatureLost ? 28 : 24, tint: tint)
+                }
             case .unconfirmed, .unresolved:
                 drawUnconfirmed(&context, at: center, presence: presence, t: t)
+                if selected {
+                    drawSelectionRing(&context, at: center, radius: 22, tint: Palette.unconfirmed)
+                }
             }
         }
     }
@@ -265,14 +355,17 @@ struct InteriorView: View {
         let bpm = presence.breathingBpm ?? 14
         let breath = sin(t * (bpm / 60) * 2 * .pi + presence.phase)
 
-        let baseRadius: CGFloat = alarm ? 26 : 22
+        // A touch larger than before, and a floor on opacity/blur rather than
+        // letting either run all the way to "barely there": a dot someone is
+        // meant to find and tap needs a visible edge even at low confidence.
+        let baseRadius: CGFloat = alarm ? 28 : 24
         let radius = baseRadius * (1 + 0.05 * breath)
 
         // Halo. Blurred proportionally to uncertainty: a 0.4 presence is a
         // smear, a 0.95 presence is nearly a disc.
         var halo = context
-        halo.addFilter(.blur(radius: CGFloat(10 + (1 - c) * 26)))
-        halo.opacity = 0.34 + 0.4 * c
+        halo.addFilter(.blur(radius: CGFloat(8 + (1 - c) * 22)))
+        halo.opacity = 0.4 + 0.4 * c
         halo.fill(
             Path(ellipseIn: CGRect(
                 x: center.x - radius * 2.1, y: center.y - radius * 2.1,
@@ -308,14 +401,26 @@ struct InteriorView: View {
         let jy = CGFloat(cos(t * 13 + presence.phase)) * jitter
         var core = context
         core.addFilter(.blur(radius: CGFloat(1.2 + (1 - c) * 6)))
-        core.opacity = 0.55 + 0.45 * c
-        core.fill(
-            Path(ellipseIn: CGRect(
-                x: center.x + jx - radius * 0.44,
-                y: center.y + jy - radius * 0.44,
-                width: radius * 0.88, height: radius * 0.88
-            )),
-            with: .color(tint)
+        core.opacity = 0.65 + 0.35 * c
+        let coreRect = CGRect(
+            x: center.x + jx - radius * 0.44,
+            y: center.y + jy - radius * 0.44,
+            width: radius * 0.88, height: radius * 0.88
+        )
+        core.fill(Path(ellipseIn: coreRect), with: .color(tint))
+
+        // A crisp, unblurred edge at the core's boundary. The halo and core
+        // above are deliberately soft — that softness *is* the confidence
+        // signal — but a dot with no hard edge anywhere is genuinely difficult
+        // to pick out against the grid, especially at low confidence. This
+        // ring gives every presence one readable boundary regardless of how
+        // uncertain the system is about it.
+        var edge = context
+        edge.opacity = 0.55 + 0.35 * c
+        edge.stroke(
+            Path(ellipseIn: coreRect.insetBy(dx: 0.5, dy: 0.5)),
+            with: .color(tint),
+            style: StrokeStyle(lineWidth: 1.4)
         )
     }
 
@@ -387,12 +492,12 @@ struct InteriorView: View {
                          width: r * 2, height: r * 1.44)
 
         var ctx = context
-        ctx.opacity = 0.35 + 0.35 * presence.confidence
+        ctx.opacity = 0.45 + 0.35 * presence.confidence
 
         ctx.stroke(
             Path(roundedRect: box, cornerRadius: r * 0.72, style: .continuous),
             with: .color(Palette.unconfirmed),
-            style: StrokeStyle(lineWidth: 1.2, dash: [3, 3],
+            style: StrokeStyle(lineWidth: 1.6, dash: [3, 3],
                                dashPhase: CGFloat(t.truncatingRemainder(dividingBy: 6)) * 6)
         )
 
@@ -410,5 +515,131 @@ struct InteriorView: View {
                                       y: center.y + sin(angle) * outer * 0.8))
         }
         ctx.stroke(ticks, with: .color(Palette.unconfirmed), lineWidth: 1)
+    }
+
+    /// A static ring around whichever presence's card is currently open, so
+    /// the dot the card belongs to stays identifiable even after it has
+    /// drifted away from where the tap landed.
+    private func drawSelectionRing(_ context: inout GraphicsContext, at center: CGPoint, radius: CGFloat, tint: Color) {
+        var ring = context
+        ring.opacity = 0.9
+        ring.stroke(
+            Path(ellipseIn: CGRect(x: center.x - radius * 1.7, y: center.y - radius * 1.7,
+                                   width: radius * 3.4, height: radius * 3.4)),
+            with: .color(Palette.ink),
+            style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [1, 4])
+        )
+    }
+}
+
+// MARK: - Detail popup
+
+/// What used to be one row in the roster underneath the map, now surfaced on
+/// demand for exactly the dot someone tapped. Works identically for a
+/// confirmed person, an unexpected one, and an unconfirmed perturbation —
+/// the same three states the drawing distinguishes, described here in words
+/// instead of blur and colour.
+private struct PresenceDetailCard: View {
+    var presence: Presence
+    var floorplan: Floorplan
+    var onDismiss: () -> Void
+
+    private var tint: Color {
+        if presence.isUnexpected { return Palette.personUnexpected }
+        switch presence.state {
+        case .personMoving: return Palette.personMoving
+        case .personUnresponsive: return Palette.personUnresponsive
+        case .unconfirmed, .unresolved: return Palette.unconfirmed
+        }
+    }
+
+    private var emphasised: Bool {
+        presence.state == .personUnresponsive || presence.isUnexpected
+    }
+
+    private var headline: String {
+        presence.isUnexpected ? "Unexpected person" : presence.state.headline
+    }
+
+    private var roomName: String {
+        floorplan.room(named: presence.zone)?.name ?? presence.zone
+    }
+
+    private var detailText: String {
+        var parts: [String] = []
+        // First, so it survives truncation. This is a statement that the
+        // household has no account of this person, not a claim about who they
+        // are: the system does no recognition and must not imply that it does.
+        if presence.isUnexpected { parts.append("Not accounted for") }
+        parts.append(presence.state.detail)
+        if let bpm = presence.breathingBpm { parts.append("\(Int(bpm.rounded())) breaths/min") }
+        if presence.state.isPerson, presence.presenceClass != .unknown {
+            parts.append(presence.presenceClass.label.lowercased())
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 8) {
+                Circle()
+                    .fill(tint)
+                    .frame(width: 9, height: 9)
+                    .padding(.top, 4)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(headline)
+                        .font(TypeScale.bodyStrong)
+                        .foregroundStyle(presence.isUnexpected ? tint : Palette.ink)
+                    Text(roomName)
+                        .font(TypeScale.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                }
+
+                Spacer(minLength: 4)
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Palette.inkMuted)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(Palette.surfaceRaised))
+                }
+                .accessibilityLabel("Close")
+            }
+
+            Text(detailText)
+                .font(TypeScale.caption)
+                .foregroundStyle(Palette.inkFaint)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let lost = presence.respirationLostS, lost > 0 {
+                // How long since the last resolvable signature is the number a
+                // dispatcher acts on, not a diagnostic detail, so it gets its
+                // own line rather than folding into the detail sentence above.
+                HStack(spacing: 5) {
+                    Text(Self.duration(lost))
+                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Palette.personUnresponsive)
+                    Text("no signature")
+                        .eyebrowStyle(Palette.inkFaint)
+                }
+            }
+        }
+        .padding(Space.md)
+        .background(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .fill(Palette.surfaceRaised)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                .strokeBorder(emphasised ? tint.opacity(0.55) : Palette.hairline, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.45), radius: 14, y: 8)
+    }
+
+    private static func duration(_ seconds: Double) -> String {
+        let s = max(0, Int(seconds))
+        return s < 60 ? "\(s)s" : String(format: "%d:%02d", s / 60, s % 60)
     }
 }
