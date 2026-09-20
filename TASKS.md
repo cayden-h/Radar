@@ -163,14 +163,26 @@ before you touch the neighbouring tasks:
 does, which is T20.
 
 ### T15 - `vision` against a fixture video file
-**Lane** A · **Skill** py · **Needs** T02 · **Blocks** T16 · **Who** ___
+**Lane** A · **Skill** py · **Needs** T02 · **Blocks** T16 · **Who** Cayden · **DONE 2026-09-19**
 
 Frame source reading an mp4 at real time, the luminance guard, and the segment writer producing closed, hashable 10s files.
 
-**Done when** running `vision` against a fixture produces segment files with correct hashes, and a deliberately dark fixture produces `frame_too_dark` rather than a description.
+**Delivered more than the line asked for.** The task assumed a fixture file; the package also drives the live Logitech Brio, and it grew a measured person tracker, because `people_visible` as a generated number was too weak to corroborate anything.
+Spec in `docs/superpowers/specs/2026-09-19-vision-tracking-design.md`, plan in `docs/superpowers/plans/2026-09-19-vision-camera-and-tracking.md`. 104 tests.
+
+Three findings worth carrying forward:
+
+- **`dark_threshold` was 25 and is now 10.** Measured over 675 frames of real footage: YOLO11m found people in 100% of frames from luma 10 upward, at *higher* mean confidence (0.81) than above luma 40 (0.78). The old floor discarded 72 frames in which four people were plainly visible. Recalibrate at the venue anyway.
+- **On the Mac, camera index 0 is the Brio.** Every index opens and reports 1280x720, so "it works" proves nothing. `docs/hardware/logitech-camera.md` has the identification procedure.
+- **There is no night vision and there cannot be.** The Brio 101 has no IR sensor and no illuminator is owned. See the limits in `vision/CLAUDE.md`.
+
+**Still open here:** track identities churn in the dark. 14 identities persisted past 20 frames for at most 5 people. Some of that is correct, since `track_buffer` is 2 seconds and we claim no re-identification, but ReID on `model: auto` is weak at luma 12. Expect new ids for anyone who leaves frame.
 
 ### T16 - `vision` claims, gated on the shutter attestation
-**Lane** A · **Skill** py · **Needs** T14, T15 · **Blocks** T20 · **Who** ___
+**Lane** A · **Skill** py · **Needs** T14, T15 · **Blocks** T20 · **Who** ___ · **Unblocked: T14 and T15 are both done**
+
+The measured inputs are ready and named: `TrackBook.people_visible` and `.active` feed `vision.people_visible` and `vision.tracks`; `LightingClassifier.mode` and `mean_luminance` feed `vision.lighting` and `vision.mean_luminance`; `LightingMode.TOO_DARK` is the `frame_too_dark` trigger; `Tracker.available` and `.reason` are the `tracker_unavailable` trigger.
+This task will also need a `Source.GEMINI_LIVE` and a new `SourceClass.GENERATED` in `hawkeye_backend/models/common.py`, plus the matching case in `app/ios/HawkEye/Models/Provenance.swift` or the app will fail to decode the claim.
 
 No claim without a current verified attestation. `Unknown(reason="shield_closed")` otherwise.
 
@@ -384,7 +396,12 @@ Four limits, said out loud before anyone asks: no face recognition against any d
 - **T60** - Full hardware integration run at the house, end to end, three times · hw · needs T21-T24, T50
 - **T61** - mTLS at the reverse proxy, and `x-security-note` updated in the same commit · ops · needs T11
 - **T62** - DANE for Silver, stapled receipt for Gold · ops · needs T12
-- **T63** - MongoDB Atlas behind `HAWKEYE_STORE_BACKEND`, for the stackable track · py
+- ~~**T63** - MongoDB Atlas behind `HAWKEYE_STORE_BACKEND`, for the stackable track · py~~ **Done differently, and deliberately.**
+  The MongoDB Atlas track is served by `HAWKEYE_REPLAY_ARCHIVE=mongodb`, which persists **sealed replay records** - one collection, one document per record, written once when a call ends and read by `/replay` afterwards.
+  `HAWKEYE_STORE_BACKEND` stays `memory` and `MongoStore` stays unimplemented on purpose: the store is on the incident path, where motion has to reach a wrist in about three seconds, and there is no room in that for a round trip to Atlas.
+  See `hawkeye_backend/replay/archive.py` and the archive section of `docs/swapping-in-real-parts.md`.
+  **Verified against the real Atlas cluster on 2026-09-19**: sealed a 32-entry record, confirmed the document in Atlas, killed the hub, restarted, and got the record back with the chain verifying INTACT under the server check, the exported standalone `verify.py`, and the in-browser verifier.
+  **One recurring gotcha, not a code problem:** Atlas refuses the TLS handshake before authentication when the client IP is not on the project's Network Access list. Expect to re-add it at the venue, whose egress IP will differ.
 - **T64** - Blender hero loop: a shield rotating off a lens with the grant's signature resolving alongside · any
 
 ---
