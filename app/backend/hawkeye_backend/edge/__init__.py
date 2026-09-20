@@ -10,6 +10,7 @@ changes, and the only two things it needs to know about the world are a WiFi
 password and this hub's mDNS name.
 """
 
+from hawkeye_backend.edge.camera import LiveCamera
 from hawkeye_backend.edge.wire import (
     EdgeAttestation,
     EdgeError,
@@ -27,5 +28,6 @@ __all__ = [
     "EdgeGrant",
     "EdgeHello",
     "EdgeMessage",
+    "LiveCamera",
     "decode_edge_message",
 ]
