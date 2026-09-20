@@ -100,6 +100,15 @@ class Settings(BaseSettings):
     elevenlabs_voice_id: str = ""
     public_base_url: str = ""
 
+    # Twilio Voice Access Tokens, for the app's own leg of the conference (the
+    # resident's phone joining as a WebRTC leg; see app/CLAUDE.md's mode table).
+    # A separate credential pair from the REST credentials above: minting a
+    # client Access Token needs an API Key/Secret, not the account auth token,
+    # and a TwiML Application SID to route the connecting client into.
+    twilio_api_key_sid: str = ""
+    twilio_api_key_secret: SecretStr = SecretStr("")
+    twilio_application_sid: str = ""
+
     # Replay recording. The record opens on a human tap and seals when the 911
     # call ends; these bound what goes into it in between.
     #
@@ -161,6 +170,16 @@ class Settings(BaseSettings):
             self.elevenlabs_api_key.get_secret_value(),
             self.elevenlabs_voice_id,
             self.public_base_url,
+        ))
+
+    @property
+    def twilio_call_token_configured(self) -> bool:
+        """True only when every value needed to mint a client Access Token is present."""
+        return all((
+            self.twilio_account_sid,
+            self.twilio_api_key_sid,
+            self.twilio_api_key_secret.get_secret_value(),
+            self.twilio_application_sid,
         ))
 
 

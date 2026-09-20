@@ -32,6 +32,8 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from pydantic import BaseModel
+from twilio.jwt.access_token import AccessToken
+from twilio.jwt.access_token.grants import VoiceGrant
 
 from hawkeye_backend import __version__
 from hawkeye_backend.household import DeviceAlreadyClaimed, UnknownDevice
@@ -289,6 +291,56 @@ async def set_mode(
     except ParticipationModeRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"announcement": announcement}
+
+
+class CallTokenResponse(BaseModel):
+    access_token: str
+
+
+@router.get(
+    "/incident/{incident_id}/call-token",
+    response_model=CallTokenResponse,
+    summary="A Twilio Voice Access Token for the resident's leg of the call",
+)
+async def get_call_token(request: Request, incident_id: str) -> CallTokenResponse:
+    """Mints a short-lived Access Token so the app can join the conference as a
+    live WebRTC audio leg (`CallAudioSession` on the client, `app/CLAUDE.md`'s
+    mode table for what each participation mode does with it).
+
+    Access Tokens are self-contained signed JWTs; minting one is a local
+    operation and never calls Twilio, which is why this needs no
+    `MasterUnavailable` handling the way the mesh-backed routes above do.
+
+    404 for an incident this hub never raised, matching `post_context`'s
+    validation above. 503 when the API Key/Secret/Application SID trio is
+    missing, matching the all-or-none `twilio_*_configured` pattern in
+    `hawkeye_backend.config`: a half-configured credential set is treated as
+    unconfigured rather than as a token that fails at the moment it matters.
+    """
+    runtime = _runtime(request)
+    existing = await runtime.store.get_incident(incident_id)
+    if existing is None:
+        active = await runtime.store.get_active_incident()
+        if active is None or active.incident_id != incident_id:
+            raise HTTPException(status_code=404, detail=f"unknown incident: {incident_id}")
+
+    settings = runtime.settings
+    if not settings.twilio_call_token_configured:
+        raise HTTPException(
+            status_code=503, detail="twilio voice access token minting is not configured"
+        )
+
+    token = AccessToken(
+        settings.twilio_account_sid,
+        settings.twilio_api_key_sid,
+        settings.twilio_api_key_secret.get_secret_value(),
+        identity=f"resident-{incident_id}",
+        ttl=3600,
+    )
+    token.add_grant(
+        VoiceGrant(outgoing_application_sid=settings.twilio_application_sid)
+    )
+    return CallTokenResponse(access_token=token.to_jwt())
 
 
 @router.get("/replay", response_model=ReplayIndex, summary="Index of recorded incidents")
