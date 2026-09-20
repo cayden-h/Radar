@@ -21,7 +21,12 @@ import logging
 import httpx
 from pydantic import ValidationError
 
-from hawkeye_backend.master.base import AutonomousDialRefused, EventSink, MasterUnavailable
+from hawkeye_backend.master.base import (
+    AutonomousDialRefused,
+    EventSink,
+    MasterUnavailable,
+    ParticipationModeRefused,
+)
 from hawkeye_backend.master.scenario import AGENT_ROSTER
 from hawkeye_backend.models.events import EnvelopeAdapter
 from hawkeye_backend.models.hub import AgentReachability, Reachability, SensorLiveness
@@ -53,6 +58,8 @@ PATH_SENSOR = "/v1/sensor"
 PATH_AGENTS = "/v1/agents"
 PATH_INCIDENT = "/v1/incident"
 PATH_STREAM = "/v1/stream"
+PATH_START_CALL = "/a2a/start-call"
+PATH_SET_MODE = "/a2a/set-mode"
 
 
 class LiveMasterClient:
@@ -204,3 +211,55 @@ class LiveMasterClient:
         except MasterUnavailable:
             return None
         return ReplayRecord.model_validate(payload)
+
+    async def start_call(self, incident: Incident) -> None:
+        # Same guard as raise_incident above, and for the same reason: this
+        # process cannot lean on agents/master's in-process
+        # `release_for_call` check across the network boundary, so it holds
+        # its own copy. Hawk Eye never calls 911 on its own, settled
+        # 2026-09-19.
+        if incident.raised_by is not RaisedBy.USER:
+            raise AutonomousDialRefused(
+                f"the hub will not start a call for a {incident.raised_by.value!r}-raised "
+                "incident. A detection surfaces as interior state; a human tap releases the call."
+            )
+        body: dict[str, object] = {"incident_id": incident.incident_id}
+        try:
+            response = await self._require().post(PATH_START_CALL, json=body)
+        except httpx.HTTPError as exc:
+            raise MasterUnavailable(f"POST {PATH_START_CALL} failed: {exc}") from exc
+        if response.status_code == 403:
+            raise AutonomousDialRefused(
+                f"master refused to start the call for incident {incident.incident_id}: "
+                f"{response.text}"
+            )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise MasterUnavailable(f"POST {PATH_START_CALL} failed: {exc}") from exc
+
+    async def set_participation_mode(
+        self, incident_id: str, mode: str, *, by_human: bool
+    ) -> str:
+        body: dict[str, object] = {
+            "incident_id": incident_id,
+            "mode": mode,
+            "by_human": by_human,
+        }
+        try:
+            response = await self._require().post(PATH_SET_MODE, json=body)
+        except httpx.HTTPError as exc:
+            raise MasterUnavailable(f"POST {PATH_SET_MODE} failed: {exc}") from exc
+        if response.status_code == 403:
+            raise ParticipationModeRefused(
+                f"master refused to switch incident {incident_id} to mode {mode!r}: "
+                f"{response.text}"
+            )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise MasterUnavailable(f"POST {PATH_SET_MODE} failed: {exc}") from exc
+        payload = response.json()
+        if not isinstance(payload, dict) or not isinstance(payload.get("announcement"), str):
+            raise MasterUnavailable(f"POST {PATH_SET_MODE} returned no announcement string")
+        return payload["announcement"]

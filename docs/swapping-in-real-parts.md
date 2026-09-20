@@ -286,6 +286,12 @@ It is a mock-only switch and has no effect when `useMocks = false`, where `shutt
 
 **Verify it flipped:** the watch's Idle screen reads "Shield held closed" with the refusal in plain English under it, and **the notice arrives with no picture at all**, saying so. A notice that still carries a frame while this is on means the frame was cached from an earlier run.
 
+**The refusal, in the app:** `Config.mockShutterRefuses` makes `master`'s grant fail verification, so the shield stays closed and the apps show the fourth state.
+It is a mock-only switch and has no effect when `useMocks = false`, where `shutter` decides for itself.
+**The refusal path matters more than the happy path**, so this switch is worth exercising before every rehearsal rather than on the night.
+
+**Verify it flipped:** the watch's Idle screen reads "Shield held closed" with the refusal in plain English under it, and **the notice arrives with no picture at all**, saying so. A notice that still carries a frame while this is on means the frame was cached from an earlier run.
+
 **`vision`** is developed against a fixture video file played at real time.
 The claim shape, the shutter gate, the luminance guard and the segment writer are all exercised without a camera.
 Flipping it is one class: V4L2 instead of the file reader.
