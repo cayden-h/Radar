@@ -14,42 +14,41 @@ enum RadarTab: Hashable {
 
 /// The bottom tab bar for the Radar main screen.
 ///
-/// A fixed-height row, not a floating or absolutely-positioned bar — the
-/// parent is expected to place this at the bottom of a `VStack` and handle
-/// safe-area insets itself, per the surrounding screen's layout.
+/// A floating glass pill, inset from both edges, rather than a bar docked
+/// flush to them — the same frosted-material language `glassPanel` gives
+/// every other surface now, so the bar reads as one more pane held up to the
+/// ambient gradient instead of a hard shelf across the bottom of the screen.
+/// Camera — the page a resident lands on and returns to most — is raised out
+/// of the row into its own circular button carrying the mascot, the way the
+/// wordmark already stands in for "Radar" everywhere else in the app; Back,
+/// Videos and People stay inline. Same three destinations plus Back as
+/// before, just regrouped around that one raised button.
+///
+/// Still expects its parent to place it at the bottom of a `VStack` and
+/// handle safe-area insets itself, per the surrounding screen's layout — the
+/// bar supplies its own bottom padding, not a full-bleed background, so
+/// whatever is behind the parent (the ambient gradient) shows through around
+/// the pill rather than being papered over.
 struct RadarTabBar: View {
     @Binding var selection: RadarTab
     var onBack: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            backButton
+        ZStack {
+            HStack(spacing: 0) {
+                backButton
+                tabButton(tab: .videos, systemImage: "play.rectangle.fill", label: "Videos")
+                Color.clear.frame(width: 68)
+                tabButton(tab: .people, systemImage: "person.badge.plus", label: "People")
+            }
+            .padding(.horizontal, Space.sm)
+            .frame(height: 68)
+            .glassPanel(cornerRadius: Radius.pill)
 
-            tabButton(
-                tab: .camera,
-                systemImage: "video.fill",
-                label: "Camera"
-            )
-
-            tabButton(
-                tab: .videos,
-                systemImage: "play.rectangle.fill",
-                label: "Videos"
-            )
-
-            tabButton(
-                tab: .people,
-                systemImage: "person.badge.plus",
-                label: "People"
-            )
+            cameraButton
         }
-        .frame(height: Hit.min + Space.lg)
-        .background(Palette.surface)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Palette.hairline)
-                .frame(height: 1)
-        }
+        .padding(.horizontal, Space.gutter)
+        .padding(.bottom, Space.xs)
     }
 
     // MARK: Buttons
@@ -76,11 +75,10 @@ struct RadarTabBar: View {
     private func tabButton(
         tab: RadarTab,
         systemImage: String,
-        label: String,
-        alwaysTint: Color? = nil
+        label: String
     ) -> some View {
         let isSelected = selection == tab
-        let tint = alwaysTint ?? (isSelected ? Palette.calm : Palette.inkMuted)
+        let tint = isSelected ? Palette.calm : Palette.inkMuted
 
         return Button {
             withAnimation(Motion.snappy) {
@@ -102,6 +100,34 @@ struct RadarTabBar: View {
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
+
+    /// The raised centre button. Bigger than a `Hit.min` tap target on
+    /// purpose — it is the button a resident reaches for without looking.
+    private var cameraButton: some View {
+        let isSelected = selection == .camera
+
+        return Button {
+            withAnimation(Motion.snappy) {
+                selection = .camera
+            }
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(isSelected ? Palette.calm.opacity(0.24) : Color.clear)
+                Image("Mascot")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 32, height: 32)
+            }
+            .frame(width: 62, height: 62)
+            .glassPanel(cornerRadius: Radius.pill, tint: isSelected ? Palette.calm : .clear)
+            .shadow(color: Palette.calm.opacity(isSelected ? 0.35 : 0.18), radius: 14, y: 6)
+        }
+        .buttonStyle(.pressable)
+        .offset(y: -16)
+        .accessibilityLabel("Camera")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
 }
 
 #Preview("Tab bar") {
@@ -109,7 +135,7 @@ struct RadarTabBar: View {
         @State private var selection: RadarTab = .camera
         var body: some View {
             ZStack {
-                Palette.ground.ignoresSafeArea()
+                Palette.groundGradient.ignoresSafeArea()
                 VStack {
                     Spacer()
                     RadarTabBar(selection: $selection, onBack: {})

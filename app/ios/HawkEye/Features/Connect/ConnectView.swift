@@ -118,13 +118,12 @@ private struct HubRow: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Text(hub.name)
-                    .font(.custom("Oswald-Bold", size: 24))
+                    .font(TypeScale.title)
                     .foregroundStyle(Palette.ink)
 
                 if hub.paired {
                     Text("Paired")
-                        .font(.custom("Oswald-Bold", size: 13))
-                        .foregroundStyle(Palette.calm)
+                        .eyebrowStyle(Palette.calm)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -145,14 +144,7 @@ private struct HubRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .fill(Palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .strokeBorder(verifying ? Palette.calm.opacity(0.55) : Palette.hairline, lineWidth: 1)
-        )
+        .glassPanel(tint: verifying ? Palette.calm : .clear)
         .opacity(dimmed ? 0.35 : 1)
         .disabled(dimmed || verifying)
         .accessibilityLabel("\(hub.name), \(hub.paired ? "paired" : "not paired"), signal \(hub.signalBars) of 4")

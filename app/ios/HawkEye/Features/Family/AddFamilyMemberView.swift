@@ -162,10 +162,7 @@ struct AddFamilyMemberView: View {
             }
         }
         .padding(Space.md)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(Palette.surface)
-        )
+        .glassPanel(cornerRadius: Radius.md)
     }
 
     private var canSave: Bool {
@@ -215,9 +212,6 @@ struct AddFamilyMemberView: View {
         }
         .padding(.horizontal, Space.lg)
         .padding(.vertical, Space.md)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(Palette.surface)
-        )
+        .glassPanel(cornerRadius: Radius.md)
     }
 }

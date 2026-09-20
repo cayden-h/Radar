@@ -18,6 +18,33 @@ enum Palette {
     /// Hairlines. Always this, never an opacity guess.
     static let hairline = Color(hex: 0x282030)
 
+    // MARK: Ground, as a gradient
+
+    /// The dusk-toned three-stop gradient `AmbientBackground` paints instead
+    /// of a flat `ground` fill. Stays dark enough that every ink/state colour
+    /// above still reads at the same contrast it was tuned against — this is
+    /// a quieter version of `ground`, not a competing background.
+    static let duskTop = Color(hex: 0x150F24)
+    static let duskMid = Color(hex: 0x241A3E)
+    static let duskBase = Color(hex: 0x120C1E)
+
+    static var groundGradient: LinearGradient {
+        LinearGradient(
+            colors: [duskTop, duskMid, duskBase],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    // MARK: Glass
+
+    /// The border every frosted panel uses in place of `hairline` — see
+    /// `View.glassPanel` in `Components.swift`.
+    static let glassBorder = Color.white.opacity(0.12)
+    /// The faint purple cast tinting every frosted panel, so a blurred
+    /// material reads as *this* product's glass rather than any blur.
+    static let glassTint = calm.opacity(0.05)
+
     // MARK: Ink
 
     /// Primary text.

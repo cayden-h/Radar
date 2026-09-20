@@ -63,14 +63,14 @@ struct HomeView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
+            // No extending background here on purpose: the bar is a floating
+            // glass pill now, not a shelf docked to the edge, so the ambient
+            // gradient behind the whole screen (`RootView`) is meant to show
+            // through around it rather than being papered over.
             RadarTabBar(
                 selection: $selectedTab,
                 onBack: { model.disconnectAndForget() }
             )
-            // The bar's own background stops at its content frame; this
-            // extends the same fill through the home-indicator strip so the
-            // bar reads as anchored to the bottom edge, like a native tab bar.
-            .background(Palette.surface.ignoresSafeArea(edges: .bottom))
         }
         .task { await client.refreshHousehold() }
         .sheet(item: $rememberingNotice) { notice in

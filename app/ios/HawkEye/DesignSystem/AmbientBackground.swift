@@ -22,7 +22,7 @@ struct AmbientBackground: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                Palette.ground
+                Palette.groundGradient
 
                 Canvas { context, size in
                     let spacing: CGFloat = 30

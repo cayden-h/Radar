@@ -15,10 +15,7 @@ struct CameraFeedView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .fill(Palette.surface)
-            RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                .strokeBorder(Palette.hairline, lineWidth: 1)
+            Color.clear.glassPanel()
 
             Image(systemName: "video.fill")
                 .font(.system(size: 40, weight: .regular))

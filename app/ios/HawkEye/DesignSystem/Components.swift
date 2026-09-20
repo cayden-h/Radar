@@ -52,20 +52,40 @@ struct SignalBars: View {
 }
 
 /// A card. One corner radius, one border, used everywhere so nothing drifts.
+///
+/// Backed by `View.glassPanel` — a frosted material over the ambient
+/// gradient, rather than an opaque fill, so a card reads as a pane held up
+/// to the dusk behind it instead of a solid slab dropped on top of it.
 struct Card<Content: View>: View {
     var tint: Color = .clear
     @ViewBuilder var content: Content
 
     var body: some View {
-        content
+        content.glassPanel(tint: tint)
+    }
+}
+
+extension View {
+    /// The frosted-glass panel every surface in Radar now shares: a blurred
+    /// material tinted faintly with the brand purple, bordered with
+    /// `Palette.glassBorder` instead of a flat fill bordered with
+    /// `Palette.hairline`. One corner radius and one border recipe, applied
+    /// everywhere a `RoundedRectangle` used to just fill `Palette.surface`,
+    /// so no panel in the app quietly reverts to the old opaque look.
+    func glassPanel(cornerRadius: CGFloat = Radius.lg, tint: Color = .clear) -> some View {
+        self
             .background(
-                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
-                    .fill(Palette.surface)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Palette.glassTint)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: Radius.lg, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(
-                        tint == .clear ? Palette.hairline : tint.opacity(0.35),
+                        tint == .clear ? Palette.glassBorder : tint.opacity(0.45),
                         lineWidth: 1
                     )
             )

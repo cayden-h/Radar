@@ -85,14 +85,7 @@ private struct RecordingRow: View {
             }
         }
         .padding(Space.md)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(Palette.surface)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .strokeBorder(Palette.hairline, lineWidth: 1)
-        )
+        .glassPanel(cornerRadius: Radius.md)
     }
 
     private static func duration(_ seconds: TimeInterval) -> String {
