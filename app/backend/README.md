@@ -15,7 +15,7 @@ Human to agent is plain English over a REST and websocket API, and that is this 
 Nothing crosses the human boundary that was not verified first, and the verification results cross with it so the app can show them.
 
 ```
-  iOS app  ──HTTP + WS──►  app/backend (this)  ──ANS──►  agents/master  ──ANS──►  the other eight
+  iOS app  ──HTTP + WS──►  app/backend (this)  ──ANS──►  agents/master  ──ANS──►  the other four
 ```
 
 ## Running it
@@ -47,8 +47,43 @@ uv pip install -e '.[dev]'
 .venv/bin/python -m pytest -q
 ```
 
-37 tests, all of them security. `tests/test_battery.py` is the local reimplementation of the
-`fraud.webmesh.ai` attack battery; `tests/test_card.py` covers agent-card hardening.
+184 tests.
+
+The original 37 are security: `tests/test_battery.py` is the local reimplementation of the `fraud.webmesh.ai` attack battery, and `tests/test_card.py` covers agent-card hardening.
+
+The rest cover the sealed replay record, the two-type incident roster, and the unexpected-presence notice and household roster added 2026-09-19.
+`test_notice_detector.py` is the notice trigger rule and is the one to read first, because the rule is what decides whether the feature can be trusted.
+`test_notice_sinks.py` covers delivery and its failure isolation, `test_notice_models.py` the wire shape, `test_notice_runtime.py` the hook at `HubRuntime.emit`, `test_notice_config.py` the Twilio settings, and `test_notice_wiring.py` the seam in `build_runtime` where those settings become a live sink.
+The `test_household_*.py` files cover the roster, the device accounting rule, the hashed device identity, and the approval path.
+
+`test_notice_wiring.py` is worth its own sentence.
+Everything below it is unit-tested in isolation, so a mistake in the wiring itself would pass every other test and surface only in production as "the banner appears and no text ever arrives" - which is also the signature of a half-configured Twilio account, and therefore indistinguishable from it.
+
+## Household
+
+Who the house is not surprised by.
+`hawkeye_backend/household/` is standalone, with no FastAPI and no hub imports, the way `verification/` is, so it moves into `agents/intruder` as an import change.
+
+| Route | What it does |
+|---|---|
+| `GET /v1/household` | The roster. |
+| `GET /v1/household/unclaimed-devices` | Devices seen associated that no member claims. |
+| `POST /v1/household/remember` | Name a person, optionally bind a device. 404 if the device was never observed, 409 if it already belongs to someone. |
+| `DELETE /v1/household/members/{id}` | Forget a member; their devices become unclaimed. |
+| `POST /v1/presences/{id}/approve` | Vouch for a presence. Session-scoped, never persisted. |
+
+Device identifiers are stored as HMAC-SHA256 under the site salt, never in the clear.
+A roster is a list of which humans were in a building and what they carry, which is exactly the file that should not be useful to whoever steals it.
+`identity.py` says plainly what that does and does not buy, since the salt today is the site id and is not a secret.
+
+`household/accounting.py` holds the surplus rule and is the only copy of it.
+`agents/intruder` imports this when it exists rather than reimplementing it, because two versions of the rule that decides whether someone is an intruder will drift.
+
+**`known_devices_present` counts members, not devices**, and that distinction is load-bearing.
+The number is subtracted from a count of people, so it has to be a count of people: a resident carrying a phone and a watch is one human, and counting two would let them account for two presences, which is how an intruder reads as accounted for.
+
+One device has exactly one owner.
+`remember` refuses a device another member already claims, for the same reason.
 
 ## `hawkeye_backend/verification/`
 
@@ -123,6 +158,15 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_SIM_AUTOSTART` | `false` | Simulated mode only. Run the **detection** on boot, so a demo rig comes up already showing the lost breathing signature. It cannot start a call. |
 | `HAWKEYE_STORE_BACKEND` | `memory` | `memory` or `mongodb`. See the storage seam below. |
 | `HAWKEYE_MONGODB_URI` | empty | MongoDB Atlas connection string, when that lands. |
+| `HAWKEYE_NOTICE_HOLD_S` | `5` | Seconds an unexpected presence must hold before it becomes a notice. |
+| `HAWKEYE_NOTICE_FORGET_AFTER_S` | `900` | Seconds of absence after which a fired notice mark lapses, so a real re-entry notifies again. |
+| `HAWKEYE_TWILIO_ACCOUNT_SID` | empty | Twilio console. All four Twilio values are required together or none are used. |
+| `HAWKEYE_TWILIO_AUTH_TOKEN` | empty | Twilio console. Held as a `SecretStr`, so it cannot reach a log or a repr. |
+| `HAWKEYE_TWILIO_FROM_NUMBER` | empty | The Twilio number itself, E.164. |
+| `HAWKEYE_TWILIO_TO_NUMBER` | empty | The resident's phone, E.164. On a trial account it must be verified in the console first. |
+| `HAWKEYE_TWILIO_MIN_INTERVAL_S` | `60` | Floor between sends, so a rehearsal loop cannot burn trial credit. |
+| `HAWKEYE_TWILIO_MAX_PER_INSTANCE` | `5` | Hard cap for the life of the sink. |
+| `HAWKEYE_SITE_TIMEZONE` | `America/New_York` | Renders the local time in an SMS. |
 
 ## The replay console
 
@@ -172,6 +216,13 @@ What the system refused to repeat to a dispatcher is the interesting number, not
 An unexpected presence that holds for `HAWKEYE_NOTICE_HOLD_S` seconds raises a notice: a banner in the app, and an SMS if Twilio is configured.
 A notice is information the resident acts on.
 It never creates an incident and never dials.
+
+`app/backend/.env.example` lists every variable this service reads, with placeholders.
+Copy it to `app/backend/.env` and fill it in; `.env` is gitignored and the example must never carry a real value.
+
+**Every name is prefixed `HAWKEYE_`**, because `Settings` sets `env_prefix="HAWKEYE_"`.
+A variable without that prefix is read by nothing, and nothing warns you: `TWILIO_ACCOUNT_SID` does nothing, `HAWKEYE_TWILIO_ACCOUNT_SID` works.
+That is the most likely reason a correctly-credentialled Twilio account still sends no text.
 
 Twilio is optional and the service runs normally without it.
 All four values are required together:
@@ -321,7 +372,7 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
     "co_ppm": 186.0,
     "smoke_detected": false,
     "confidence": 0.88,
-    "provenance": { "source": "demo-trigger", "producer": "agents/master", "source_class": "simulated", "simulated": true }
+    "provenance": { "source": "demo-trigger", "producer": "agents/master", "ansname": "master.hawkeye.invalid", "source_class": "simulated", "simulated": true }
   },
   "floorplan": { "site_id": "site-demo-01", "name": "Chestnut", "units": "m", "width_m": 14.8, "depth_m": 6.8, "wall_height_m": 2.5, "rooms": [] },
   "active_incident_id": "inc-0001"
@@ -343,7 +394,7 @@ Full example: [`schema/state.json`](schema/state.json). Abridged:
 `respiration_lost_s` is the field that decides whether a dispatcher should expect an answer from a room.
 It is the seconds since a breathing signature was last resolvable on a presence that **previously had one**: the transition is the signal, and a presence that never resolved a signature carries none, because shallow breathing, breath-holding and range limits are indistinguishable from an empty room.
 It is never a finding that breathing has stopped. Surface it, with that limit attached.
-It replaced `still_down_s` on 2026-09-19, when fall detection was cut.
+It replaced the fall clock on 2026-09-19, when fall detection was cut.
 
 Returns 503 when the agent mesh is unreachable in live mode.
 
@@ -398,7 +449,7 @@ This is the part the project is judged on, so it is a first-class API concept ra
     "claim": {
       "claim_id": "clm-005",
       "statement": "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
-      "field": "biometrics.respiration",
+      "field": "people.respiration",
       "value": "no respiration, building corridor",
       "presence_id": null
     },
@@ -412,17 +463,37 @@ This is the part the project is judged on, so it is a first-class API concept ra
         "solvency": null,
         "behavior": null,
         "safety": null,
-        "unimplemented_dimensions": ["solvency", "behavior", "safety"]
+        "unimplemented_dimensions": [
+          "solvency",
+          "behavior",
+          "safety"
+        ]
       },
       "recommended_profile": "UNTRUSTED"
     },
     "decision": "DISCARDED",
     "reason": "DISCARDED. The claim would have sent an armed response into a room where no sensor sees anybody. It was not relayed to the operator and it was not used in classification.",
     "checks": [
-      { "name": "ans.resolve", "passed": false, "detail": "people.hawkeye-secure.invalid is not the ANSName registered for agents/people." },
-      { "name": "cert.version_binding", "passed": false, "detail": "Code fingerprint differs from the version-bound certificate issued at registration." },
-      { "name": "trust_index.profile", "passed": false, "detail": "Trust Index recommendedProfile = UNTRUSTED." },
-      { "name": "corroboration.sensor", "passed": false, "detail": "The corridor outside the front door is outside the sensed volume, so no agent in this mesh can see it." }
+      {
+        "name": "ans.resolve",
+        "passed": false,
+        "detail": "people.hawkeye-secure.invalid is not the ANSName registered for agents/people. The registered name is people.hawkeye.invalid."
+      },
+      {
+        "name": "cert.version_binding",
+        "passed": false,
+        "detail": "Code fingerprint differs from the version-bound certificate issued at registration. The agent presenting this claim is not running the code it registered."
+      },
+      {
+        "name": "trust_index.profile",
+        "passed": false,
+        "detail": "Trust Index recommendedProfile = UNTRUSTED."
+      },
+      {
+        "name": "corroboration.sensor",
+        "passed": false,
+        "detail": "The corridor outside the front door is not part of the unit and is outside the sensed volume, so no agent in this mesh can see it, and no other agent reports a third occupant."
+      }
     ],
     "will_be_spoken": false
   }
@@ -590,7 +661,7 @@ An investigator asking for the record mid-incident is a real scenario, and refus
 
 Drives the scripted detection and then stops. **Simulated mode only; 404s in live mode, deliberately.**
 
-`?scenario=burglary|faint`, defaulting to `burglary`.
+`?scenario=burglary|fire`, defaulting to `burglary`.
 
 **`burglary`** is the frame the project is built around.
 A perturbation appears in the living room with no respiration signature, which makes it `unconfirmed` and at that instant indistinguishable from the curtain over the dryer vent already sitting in that same room.
@@ -601,10 +672,11 @@ That stopping point is not squeamishness, it is the hardware.
 A 1x1 radio has no spatial diversity, and two people within about a metre resolve as one presence.
 Walking the intruder into the resident's room would draw a separation this link cannot measure, so the script stops at the doorway and the call says the limit out loud as a `CORROBORATION_ONLY` claim.
 
-**`faint`** is the collapse: an adult goes down in the main bedroom, `still_down_s` climbs and does not reset, and the CO reading rises.
+**`fire`** takes the breathing signature off the adult in the main bedroom, so `respiration_lost_s` climbs and does not reset, and the CO reading rises alongside it.
+It is never a finding that breathing has stopped, here or anywhere else; it is a measurement and a clock.
 
 `?simulate_human_tap=true` raises the incident type that matches the scenario.
-A person who has just watched a stranger cross their living room does not press Faint, and a demo whose scripted tap disagrees with its scripted detection is showing a house that contradicts itself.
+A person who has just watched a stranger cross their living room does not press Fire, and a demo whose scripted tap disagrees with its scripted detection is showing a house that contradicts itself.
 
 The default is detection only, because that is what the system does on its own.
 The lost signature appears in `state`, `respiration_lost_s` climbs, CO rises, and no `incident` or `transcript` event is emitted at all.
@@ -615,7 +687,7 @@ curl -X POST localhost:8787/v1/demo/run
 # {"started":true,"detail":"scripted detection started; no incident raised, waiting on a human tap","raised_incident_id":null}
 ```
 
-`?simulate_human_tap=true` additionally raises a Fire incident exactly as `POST /v1/incident` would, with `raised_by: user`, so one curl exercises detection and call end to end.
+`?simulate_human_tap=true` additionally raises the incident type matching the scenario, exactly as `POST /v1/incident` would, with `raised_by: user`, so one curl exercises detection and call end to end.
 The parameter is named for what it is standing in for, which is a person.
 Without it this endpoint cannot start a call, and with it the thing being faked is the tap, not the system's authority to dial.
 

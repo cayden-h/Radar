@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from hawkeye_backend.models.events import Envelope
+from hawkeye_backend.models.household import HouseholdMember, ObservedDevice
 from hawkeye_backend.models.incident import (
     ContextNote,
     Incident,
@@ -68,6 +69,16 @@ class Store(Protocol):
 
     async def next_seq(self) -> int: ...
 
+    async def put_member(self, member: HouseholdMember) -> None: ...
+
+    async def list_members(self) -> list[HouseholdMember]: ...
+
+    async def delete_member(self, member_id: str) -> bool: ...
+
+    async def put_observed_device(self, device: ObservedDevice) -> None: ...
+
+    async def list_observed_devices(self) -> list[ObservedDevice]: ...
+
 
 def _hash_entry(payload: dict[str, object], prev_hash: str | None) -> str:
     """SHA-256 over canonical JSON plus the previous hash. A tamper-evident chain.
@@ -98,6 +109,8 @@ class InMemoryStore:
         self._context: dict[str, list[ContextNote]] = {}
         self._events: deque[Envelope] = deque(maxlen=event_buffer)
         self._seq: int = 0
+        self._members: dict[str, HouseholdMember] = {}
+        self._observed: dict[str, ObservedDevice] = {}
 
     async def put_state(self, state: InteriorState) -> None:
         self._state = state
@@ -163,6 +176,28 @@ class InMemoryStore:
     async def next_seq(self) -> int:
         self._seq += 1
         return self._seq
+
+    async def put_member(self, member: HouseholdMember) -> None:
+        # dict preserves insertion order and replaces in place, so an update
+        # does not reshuffle the Household list under the reader.
+        self._members[member.member_id] = member
+
+    async def list_members(self) -> list[HouseholdMember]:
+        return list(self._members.values())
+
+    async def delete_member(self, member_id: str) -> bool:
+        return self._members.pop(member_id, None) is not None
+
+    async def put_observed_device(self, device: ObservedDevice) -> None:
+        # Keyed by hash rather than by device_id: the same phone seen across two
+        # frames is one unclaimed device, and the router may renumber its table.
+        existing = self._observed.get(device.identifier_hash)
+        if existing is not None:
+            return
+        self._observed[device.identifier_hash] = device
+
+    async def list_observed_devices(self) -> list[ObservedDevice]:
+        return list(self._observed.values())
 
     async def build_replay(
         self, incident_id: str, caller_ansname: str, site_address: str
@@ -270,6 +305,16 @@ class MongoStore:
             "To implement: add motor>=3.6 to pyproject, map each Store method onto a collection "
             "keyed by incident_id, and make `events` capped at the same size as the in-memory buffer."
         )
+
+    async def put_member(self, member: HouseholdMember) -> None: ...
+
+    async def list_members(self) -> list[HouseholdMember]: ...
+
+    async def delete_member(self, member_id: str) -> bool: ...
+
+    async def put_observed_device(self, device: ObservedDevice) -> None: ...
+
+    async def list_observed_devices(self) -> list[ObservedDevice]: ...
 
 
 def build_store(backend: str, mongodb_uri: str, mongodb_database: str) -> Store:

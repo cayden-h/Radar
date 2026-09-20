@@ -9,10 +9,12 @@ The idea is locked as of 2026-09-18; the demo format was settled 2026-09-19.
 
 Written as of 2026-09-19:
 
-- **`app/ios/`** - the full iOS app. Generate with `cd app/ios && xcodegen generate`. Every file passes `swiftc -parse -swift-version 6`.
-  Xcode 27.0 is installed as of 2026-09-19, so the app can now be built and run on the simulator and on a device; see the environment section below for the one-time `xcode-select` step.
+- **`app/ios/`** - the full iOS app. Generate with `cd app/ios && xcodegen generate`.
+  **Built and run on the simulator as of 2026-09-19**, against Xcode 27.0. `xcodebuild ... build` succeeds and all three UI tours pass on an iPhone 17 simulator: `ScreenshotTour` walks Connect to an open incident, `VerificationTour` covers the refusal path, and `NoticeTour` covers the unexpected-presence banner and its dismissal.
+  `swiftc -parse -swift-version 6` over every file remains the fast check; the tours are the real one. See the environment section below for the one-time `xcode-select` step.
 - **`agents/`** - all five agents, with their domain logic, their identities, their two cards each, **the A2A transport between them**, and a 74-test suite. `cd agents && python -m pytest -q`. Run the mesh with `python -m agents people --port 8101` and `HAWKEYE_PEERS=people=http://127.0.0.1:8101 python -m agents master --port 8100`.
 - **`app/backend/`** - the app-facing edge service. It now also **records incidents as they happen**: `hawkeye_backend/replay/` opens a hash-chained record the moment a person raises an incident and seals it when the 911 call ends, rather than reconstructing one at read time.
+- **The unexpected-presence notice** - shipped 2026-09-19. When `agents/intruder` cannot account for a confirmed person, the resident gets a dismissible banner in the app and an SMS through Twilio, which is the only path that reaches a phone that is locked with the app closed. It never raises an incident and never dials. Trigger rule in `app/backend/hawkeye_backend/notices/detector.py`, seams in `docs/swapping-in-real-parts.md`.
 - **`app/web/replay/`** - the replay console, served at `/replay`. The record a detective reads: floor-plan scrubber, the entry log with discards given equal weight, the radio telemetry, an in-browser chain check, and a zip export carrying its own standalone verifier. See `app/backend/README.md`.
 - **`docs/hardware/`** - step-by-step guides for every hardware item and a bring-up checklist.
 - **`docs/research/`**, `docs/fraud-13.md`, `docs/geo.md`, `docs/threat-landscape.md` - the three assigned research deliverables, plus the incident data.
@@ -184,9 +186,9 @@ That keeps the ANS-verified agent mesh on one side of a line and the human surfa
 
 - **`app/ios/`** is the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. There is no `.xcodeproj` in the repo; `app/ios/project.yml` is an XcodeGen spec. Two stages: a Connect screen listing Hawk Eye hubs found over Bonjour, then the main screen. It is not a WiFi picker and cannot be, because enumerating SSIDs needs the `NEHotspotHelper` entitlement. See `app/CLAUDE.md`.
 - **`app/backend/`** is the edge service the app talks to. See `app/backend/README.md`.
-  It also holds **`hawkeye_backend/verification/`**, the claim-envelope defence: the thirteen `fraud.webmesh.ai` shapes, agent-card signing and drift, and the dispatch-address commitment. Standalone package, no FastAPI imports, so it moves into `agents/master` as an import change. `cd app/backend && python -m pytest -q` is 37 security tests.
+  It also holds **`hawkeye_backend/verification/`**, the claim-envelope defence: the thirteen `fraud.webmesh.ai` shapes, agent-card signing and drift, and the dispatch-address commitment. Standalone package, no FastAPI imports, so it moves into `agents/master` as an import change. `cd app/backend && .venv/bin/python -m pytest -q` is 184 tests: the 37 security tests, plus the sealed replay record, the two-type incident roster, and the unexpected-presence notice and household roster added 2026-09-19.
 
-The hub's scripted detection now covers **both** demo cases, selected with `POST /v1/demo/run?scenario=burglary|faint` and defaulting to burglary.
+The hub's scripted detection now covers **both** demo cases, selected with `POST /v1/demo/run?scenario=burglary|fire` and defaulting to burglary.
 Burglary is the frame the project is built around: an unexplained perturbation enters the living room with no respiration signature, respiration resolves it into a person no registered device accounts for, and it crosses the unit to the hallway outside the second bedroom.
 It stops at the doorway because a 1x1 radio merges two people within about a metre, and the call states that limit rather than drawing a separation the link cannot measure.
 
@@ -340,7 +342,7 @@ Register through GoDaddy Registry and the MLH "Best Domain Name" prize comes alo
 Read it before wiring anything real in.
 
 Some capabilities are demonstrated rather than measured.
-The gas reading is the clear case: no gas sensor exists, so `agents/master` reads a simulated one. It was `agents/environment` until 2026-09-19.
+The gas reading is the clear case: no gas sensor exists, so `agents/master` reads a simulated one. It was its own agent, `environment`, until 2026-09-19, when that agent was merged into `master`.
 **The floor plan is the second case:** the system does not map walls and cannot, because walls are the static baseline it subtracts to see people. The room model is drawn once and room labels come from a one-time enrollment walk. See `sensor/CLAUDE.md`.
 **The headcount is the third case:** a 1x1 radio resolves presence, not an exact number of people. Two people within about a metre merge into one. The count on screen and on the call comes from device association against the known roster; the radio answers which room and whether that presence is breathing. Limits under `agents/people`.
 **Responsiveness is the fourth case, and it is a limit rather than a simulation:** a breathing signature that is no longer resolvable is reported as exactly that, never as a person who has stopped breathing. Shallow breathing, breath-holding and range limits all produce the same reading.
@@ -444,12 +446,15 @@ See `media/CLAUDE.md`.
 
 Headless invocation: `blender --background --python script.py`
 
-`xcode-select` may still point at `/Library/Developer/CommandLineTools`, in which case `xcodebuild` refuses to run with a message about the active developer directory rather than anything about the project.
-Point it at the full install once, which needs sudo and so is a human step:
+`xcode-select` was pointed at the full install on 2026-09-19 and `xcodebuild -version` reports Xcode 27.0, so the app builds and its UI tours run.
+If a fresh machine or a reinstall leaves it on `/Library/Developer/CommandLineTools`, `xcodebuild` refuses with a message about the active developer directory rather than anything about the project.
+Repointing needs sudo and so is a human step:
 
 ```sh
 sudo xcode-select -s /Applications/Xcode.app
 ```
+
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in front of a single command does the same thing without sudo and without changing anything system-wide, which is the better option on a shared machine.
 
 ## Working agreements
 

@@ -58,6 +58,7 @@ from hawkeye_backend.models.events import (
     TranscriptEvent,
     VerificationEvent,
 )
+from hawkeye_backend.models.household import ObservedDevice
 from hawkeye_backend.models.hub import AgentReachability, Reachability, SensorLiveness
 from hawkeye_backend.models.incident import (
     CallState,
@@ -161,6 +162,14 @@ GAS = Provenance(
     producer="agents/master",
     ansname=ANSNAME["agents/master"],
     detail="no gas sensor was purchased; an MQ-7 on GPIO through an MCP3008 drops in behind this",
+)
+# The router's association table, simulated. No router integration exists yet,
+# so this is labelled rather than presented as measured. Swapping in the real
+# table is a producer change behind a field that already exists.
+ROUTER = Provenance(
+    source=Source.RUVIEW_SIM,
+    producer="master/simulated",
+    detail="association table, simulated; no router integration exists yet",
 )
 CALLER_VOICE = Provenance(
     source=Source.AGENT_INFERENCE, producer="agents/caller", ansname=ANSNAME["agents/caller"]
@@ -414,6 +423,28 @@ class SimulatedMasterClient:
         presence.position.y = round(cy + self._rng.uniform(-0.5, 0.5), 2)
         return presence
 
+    def _resident_devices(self) -> list[ObservedDevice]:
+        """Two resident phones, always associated.
+
+        The intruder deliberately has no device: that surplus is what makes the
+        presence unexpected, and it is what the resident later resolves by
+        remembering a visitor.
+        """
+        return [
+            ObservedDevice(
+                device_id="obs-resident-1",
+                identifier_hash="1" * 64,
+                fingerprint="a4:..:1c",
+                provenance=ROUTER,
+            ),
+            ObservedDevice(
+                device_id="obs-resident-2",
+                identifier_hash="2" * 64,
+                fingerprint="b8:..:7e",
+                provenance=ROUTER,
+            ),
+        ]
+
     def _build_state(self) -> InteriorState:
         presences = [self._jitter(p) for p in self._presences.values()]
         return InteriorState(
@@ -425,6 +456,7 @@ class SimulatedMasterClient:
                 note="Rolling percentile baseline, slow adaptation. No calibration ritual.",
             ),
             presences=presences,
+            associated_devices=self._resident_devices(),
             environment=EnvironmentReading(
                 co_ppm=round(self._co_ppm, 1),
                 smoke_detected=self._smoke,

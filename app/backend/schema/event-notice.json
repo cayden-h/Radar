@@ -3,8 +3,8 @@
   "$generated_by": "tools/gen_schema.py",
   "example": {
     "seq": 48,
-    "at": "2026-09-20T04:13:21Z",
-    "incident_id": "inc-0001",
+    "at": "2026-09-20T04:12:43Z",
+    "incident_id": null,
     "payload": {
       "kind": "notice",
       "notice": {

@@ -22,6 +22,10 @@ Everything here is already owned.
 - TP-Link Archer AX1450 dual-band Wi-Fi 6 router, bought for this project
 - The MacBook, used as the traffic generator and as the dev machine
 
+**If the router ends up with Wi-Fi but no uplink**, read "What actually needs internet, and what
+survives without it" in [assembly-and-placement.md](assembly-and-placement.md) before assuming the
+demo is dead. The sensing path, the app, and the SMS all survive it. The 911 call does not.
+
 There is no gas sensor.
 `agents/master` reads a simulated gas sensor, labeled `demo-trigger` in the data itself.
 See `sensor/CLAUDE.md`.

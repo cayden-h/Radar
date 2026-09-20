@@ -14,6 +14,7 @@ from enum import StrEnum
 from pydantic import BaseModel, Field
 
 from hawkeye_backend.models.common import Provenance, utc_now
+from hawkeye_backend.models.household import ObservedDevice
 
 
 class PresenceState(StrEnum):
@@ -190,6 +191,13 @@ class InteriorState(BaseModel):
     sensor_identity: str = Field(description="ANSName of the sensing device.")
     calibration: Calibration
     presences: list[Presence]
+    associated_devices: list[ObservedDevice] = Field(
+        default_factory=list,
+        description=(
+            "Devices the router reports associated, hashed by the producer. An "
+            "absent field means not reported, never that nobody is here."
+        ),
+    )
     environment: EnvironmentReading | None = Field(
         default=None, description="Null when agents/master has not reported."
     )

@@ -20,9 +20,12 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     private(set) var transcript: [TranscriptLine] = []
     private(set) var instructions: [Instruction] = []
     private(set) var verifications: [VerificationResult] = []
+    private(set) var notices: [Notice] = []
     private(set) var hello: HubHello?
     private(set) var link: LinkState = .offline
     private(set) var missedFrames = false
+    private(set) var household: [HouseholdMember] = []
+    private(set) var unclaimedDevices: [ObservedDevice] = []
 
     @ObservationIgnored private var baseURL: URL = Config.fallbackBaseURL
     @ObservationIgnored private let session = URLSession(configuration: .default)
@@ -61,6 +64,10 @@ final class LiveHawkEyeClient: HawkEyeClienting {
         openStream()
     }
 
+    func dismissNotice(_ id: String) {
+        notices.removeAll { $0.id == id }
+    }
+
     func disconnect() {
         pump?.cancel()
         pump = nil
@@ -89,6 +96,60 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             path: "\(Config.incidentPath)/\(incident.id)/context",
             body: ContextRequest(text: trimmed)
         )
+    }
+
+    // MARK: Household
+
+    /// Vouches for a presence for this session only. Nothing persists: the
+    /// backend suppresses that presence's notices and the client re-syncs the
+    /// roster in case the vouch changed anything recognisable there, though it
+    /// normally will not.
+    func approvePresence(_ presenceID: String) async throws {
+        _ = try await post(path: "\(Config.presencesPath)/\(presenceID)/approve")
+    }
+
+    /// Names a visitor and optionally binds the device that just joined.
+    /// Permanent, unlike `approvePresence`.
+    ///
+    /// On success the returned member is appended locally and, if a device was
+    /// bound, dropped from `unclaimedDevices`, so the household list and the
+    /// remember sheet's device picker both update without a refetch.
+    func rememberVisitor(name: String, kind: HouseholdMember.Kind, deviceID: String?) async throws {
+        let data = try await post(
+            path: Config.rememberPath,
+            body: RememberRequest(name: name, kind: kind, deviceID: deviceID)
+        )
+        let member = try HawkEyeCoding.decoder.decode(HouseholdMember.self, from: data)
+        household.removeAll { $0.id == member.id }
+        household.append(member)
+        if let deviceID {
+            unclaimedDevices.removeAll { $0.id == deviceID }
+        }
+    }
+
+    /// Removes a member. Their devices become unclaimed again on the backend;
+    /// `refreshHousehold` is what would pick that back up, since a forgotten
+    /// device is not implied by anything this call returns.
+    func forgetMember(_ memberID: String) async throws {
+        try await delete(path: "\(Config.householdMembersPath)/\(memberID)")
+        household.removeAll { $0.id == memberID }
+    }
+
+    /// Refreshes both the roster and the unclaimed device list. Called once on
+    /// `HomeView` appearing, and again after any change that might have moved a
+    /// device between the two lists in a way the mutating call did not already
+    /// account for locally.
+    func refreshHousehold() async {
+        // Both routes wrap their array under a named key rather than returning
+        // it bare, so the response is decoded into a one-field container
+        // rather than `[HouseholdMember].self` / `[ObservedDevice].self`.
+        struct MembersResponse: Decodable { var members: [HouseholdMember] }
+        struct DevicesResponse: Decodable { var devices: [ObservedDevice] }
+
+        async let members = try? get(MembersResponse.self, path: Config.householdPath)
+        async let devices = try? get(DevicesResponse.self, path: Config.unclaimedDevicesPath)
+        if let members = await members { household = members.members }
+        if let devices = await devices { unclaimedDevices = devices.devices }
     }
 
     // MARK: Stream
@@ -164,6 +225,9 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             // Newest first. Discards included, and they are the point.
             verifications.removeAll { $0.id == result.id }
             verifications.insert(result, at: 0)
+        case .notice(let notice):
+            notices.removeAll { $0.id == notice.id }
+            notices.insert(notice, at: 0)
         case .context(let note):
             // Echoed back so the app can confirm delivery. The incident carries
             // the authoritative list.
@@ -243,6 +307,26 @@ final class LiveHawkEyeClient: HawkEyeClienting {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try HawkEyeCoding.encoder.encode(body)
+        return try await send(request)
+    }
+
+    /// A POST with no body, e.g. `/v1/presences/{id}/approve`, which acts on
+    /// the id in the path and needs nothing else.
+    @discardableResult
+    private func post(path: String) async throws -> Data {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.httpMethod = "POST"
+        return try await send(request)
+    }
+
+    private func delete(path: String) async throws {
+        var request = URLRequest(url: baseURL.appendingPathComponent(path))
+        request.httpMethod = "DELETE"
+        _ = try await send(request)
+    }
+
+    @discardableResult
+    private func send(_ request: URLRequest) async throws -> Data {
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

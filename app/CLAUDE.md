@@ -24,8 +24,30 @@ One tap raises the incident to `agents/master`, which classifies, verifies, and 
 
 **This is the only path.** Hawk Eye never calls 911 on its own; settled 2026-09-19. A human tap is what releases `agents/caller` to dial.
 
-`agents/people` senses continuously and `agents/master` reads the gas sensor, and what they find surfaces here as **alerts**: "the breathing signature in the second bedroom went missing four minutes ago." An alert is information a person acts on. It is not a call.
-Neither of those is its own agent any more: `collapse` was deleted with fall detection on 2026-09-19, and `environment` was merged into `master` the same day.
+`agents/people` and `agents/intruder` still detect, and `agents/master` still reads the gas sensor, and what they find surfaces here as **notices**: "the breathing signature in the main bedroom went missing four minutes ago", "an unexpected person is in the living room".
+A notice is information a person acts on.
+It is not a call.
+Neither of the agents that used to own those two jobs still exists: `collapse` was deleted with fall detection on 2026-09-19, and `environment` was merged into `master` the same day.
+
+A notice reaches the resident two ways: a dismissible banner in the app, and an SMS through Twilio, which is the only one of the two that arrives when the phone is locked and the app is closed.
+There is deliberately no local notification.
+One would only fire while the app holds the socket, which is exactly the case the resident does not need help with, and on stage it is indistinguishable from a real push.
+APNs is the third sink and is not implemented; it is a driver behind `NoticeSink`, which already exists.
+
+The trigger rule lives in `app/backend/hawkeye_backend/notices/detector.py` and is deliberately conservative: a confirmed person only, five seconds of continuous hold, suppressed entirely when the baseline is unhealthy, and once per presence while it is here.
+A notice is unrecallable once it is an SMS on someone's phone.
+
+A notice is answerable, not just readable.
+**This is expected** vouches for that presence for this session and nothing persists.
+**Remember this visitor** names the person and optionally binds the device that just joined the network, so the next visit raises nothing at all.
+They are separate controls with separate words on purpose: one is a mute button and the other changes what the house believes, and a single control for both would persist strangers because someone wanted a banner to go away.
+
+The roster is reached through the notice and through a read-only Household list in the header.
+There is still no settings screen, and that rule still holds: adding someone happens by approving a real detection, which is also the only moment the system has a device to bind.
+
+**The identifier is a phone on the Wi-Fi, because CSI cannot recognise a person and must never claim to.**
+iOS randomises the Wi-Fi address per network and then keeps it stable for that network, which is what makes a guest recognisable on a later visit.
+A guest who never joins the Wi-Fi can be named and approved but will never be auto-recognised, and the Household list says so rather than leaving the line blank.
 
 The value is not that the system dials for you. It is that when you do tap, the dispatcher is told how many people are in the house, which rooms they are in, whether each is breathing, and how long since a breathing signature that was resolvable in a room stopped being resolvable.
 That last one is never phrased as somebody having stopped breathing, in this app or anywhere else in the system. It is a measurement and a clock.
@@ -230,7 +252,8 @@ Two sources, and the UI should not distinguish them because the user does not ca
 There is no patient-care protocol, and the absence is deliberate: neither incident type is one where staying to help is correct guidance. CPR and the recovery position went with the cut incident type on 2026-09-19.
 See the safety rules in `agents/CLAUDE.md` before writing any of this path. A bad safety instruction is a real-world harm, not a demo bug.
 
-Notifications must arrive when the app is backgrounded. The resident will not be staring at the screen.
+Something must reach the resident when the app is backgrounded, because they will not be staring at the screen.
+**That is an SMS, not a push.** See the notices paragraph under "Raising an incident": APNs is a sink behind `NoticeSink` and is not implemented, and a local notification was considered and rejected because it only fires while the app holds the socket, which is exactly the case this requirement is about.
 
 ## What this app is not
 
@@ -273,7 +296,9 @@ Target Best UI/UX Hack while you are here. It is stackable and this view is the 
 
 ## Platform note
 
-Native iOS is now justified, where it was not before: push notifications, background delivery, and live transcription are the core of the experience, and a home-screen web app does them badly.
+Native iOS is justified by live transcription, the interior view, and an audio path the app controls precisely enough to keep a phone silent while someone is hiding. A home-screen web app does all three badly.
+
+**Push notifications are not part of that justification, because we did not ship them.** They were the original argument and it did not survive contact: APNs needs a paid developer account and a push server, a local notification only fires while the app already holds the socket, and what actually reaches a locked phone with the app closed is an SMS, which needs no iOS capability at all. Stated here rather than left as a claim nobody checked, since a reader who takes this paragraph at face value and then greps for `UNUserNotificationCenter` finds nothing.
 
 Budget for it. If iOS becomes a time sink, the fallback is a web app on the home screen with polling instead of push, and the demo video narrates over the gap.
 

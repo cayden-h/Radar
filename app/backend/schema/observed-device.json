@@ -1,0 +1,18 @@
+{
+  "$note": "An ObservedDevice, as it appears in GET /v1/household/unclaimed-devices.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "device_id": "obs-01",
+    "identifier_hash": "9999999999999999999999999999999999999999999999999999999999999999",
+    "fingerprint": "a4:..:91",
+    "first_seen_at": "2026-09-20T04:12:33Z",
+    "provenance": {
+      "source": "ruview-sim",
+      "producer": "master/simulated",
+      "ansname": null,
+      "detail": "association table, simulated; no router integration exists yet",
+      "source_class": "simulated",
+      "simulated": true
+    }
+  }
+}

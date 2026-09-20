@@ -46,9 +46,17 @@ final class MockHawkEyeClient: HawkEyeClienting {
     private(set) var transcript: [TranscriptLine] = []
     private(set) var instructions: [Instruction] = []
     private(set) var verifications: [VerificationResult] = []
+    private(set) var notices: [Notice] = []
     private(set) var hello: HubHello?
     private(set) var link: LinkState = .offline
     private(set) var missedFrames = false
+    private(set) var household: [HouseholdMember] = []
+    private(set) var unclaimedDevices: [ObservedDevice] = [MockHawkEyeClient.seededVisitorDevice]
+
+    /// Presences vouched for this session only. Nothing here persists across
+    /// `disconnect()`/`resolve()`, which is the point: "this is expected" is a
+    /// session-scoped fact, unlike remembering a visitor.
+    @ObservationIgnored private var approvedPresences: Set<String> = []
 
     @ObservationIgnored private var sensorLoop: Task<Void, Never>?
     @ObservationIgnored private var scriptTask: Task<Void, Never>?
@@ -67,11 +75,35 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// not expect, then a track moving room to room toward the resident.
     @ObservationIgnored private var enteredAt: Date?
 
+    /// Set once the burglary notice has been raised, so dismissing it from the
+    /// UI does not make `raiseNoticeIfDue` fire again on the next tick. The
+    /// array being non-empty is not a fit signal for "already raised": a
+    /// dismissal empties it, and the sensor loop runs at 4 Hz.
+    @ObservationIgnored private var hasRaisedNotice = false
+
     @ObservationIgnored private var tick: Double = 0
     @ObservationIgnored private var lineCounter = 0
 
     private static let siteID = "site-demo-01"
     private static let address = "1872 Ridgeview Lane, Blacksburg VA 24060"
+
+    /// The one unclaimed device the mock seeds: the phone that walked in with
+    /// the intruder. Present from the start so "Remember this visitor" has a
+    /// binding candidate to offer without waiting on any network path that
+    /// does not exist here.
+    private static let seededVisitorDevice = ObservedDevice(
+        deviceID: "obs-visitor",
+        fingerprint: "a4:3c:91:0d:7e:22",
+        firstSeenAt: Date(),
+        provenance: Provenance(
+            source: .ruviewSim,
+            producer: "master/simulated",
+            ansName: nil,
+            detail: "association table, simulated; no router integration exists yet",
+            sourceClass: .simulated,
+            simulated: true
+        )
+    )
 
     // MARK: Connect
 
@@ -100,12 +132,83 @@ final class MockHawkEyeClient: HawkEyeClienting {
         detectionTask?.cancel(); detectionTask = nil
         respirationLostAt = nil
         enteredAt = nil
+        hasRaisedNotice = false
         incident = nil
         transcript = []
         instructions = []
         verifications = []
+        notices = []
         hello = nil
         link = .offline
+        household = []
+        unclaimedDevices = [MockHawkEyeClient.seededVisitorDevice]
+        approvedPresences = []
+    }
+
+    // MARK: Household
+
+    /// Vouches for a presence for this session only. Nothing is written to
+    /// `household`: `approvePresence` and `rememberVisitor` are deliberately
+    /// different actions, and only the latter persists.
+    func approvePresence(_ presenceID: String) async throws {
+        approvedPresences.insert(presenceID)
+    }
+
+    func rememberVisitor(name: String, kind: HouseholdMember.Kind, deviceID: String?) async throws {
+        var devices: [KnownDevice] = []
+        if let deviceID, let observed = unclaimedDevices.first(where: { $0.id == deviceID }) {
+            devices.append(
+                KnownDevice(
+                    deviceID: observed.deviceID,
+                    fingerprint: observed.fingerprint,
+                    label: nil,
+                    addedAt: Date(),
+                    lastSeenAt: Date()
+                )
+            )
+        }
+        let member = HouseholdMember(
+            memberID: "mem-\(household.count + 1)",
+            name: name,
+            kind: kind,
+            devices: devices,
+            addedAt: Date(),
+            addedBy: .approval,
+            provenance: Provenance(
+                source: .userInput,
+                producer: "app/ios",
+                ansName: nil,
+                detail: nil,
+                sourceClass: .human,
+                simulated: false
+            ),
+            isRecognisable: !devices.isEmpty
+        )
+        household.append(member)
+        if let deviceID {
+            unclaimedDevices.removeAll { $0.id == deviceID }
+        }
+    }
+
+    func forgetMember(_ memberID: String) async throws {
+        guard let member = household.first(where: { $0.id == memberID }) else { return }
+        household.removeAll { $0.id == memberID }
+        // Their devices become unclaimed again, matching the live contract.
+        for device in member.devices {
+            unclaimedDevices.append(
+                ObservedDevice(
+                    deviceID: device.deviceID,
+                    fingerprint: device.fingerprint,
+                    firstSeenAt: device.addedAt,
+                    provenance: MockHawkEyeClient.seededVisitorDevice.provenance
+                )
+            )
+        }
+    }
+
+    func refreshHousehold() async {
+        // Nothing to fetch: the mock's household is already the ground truth
+        // in process, and there is no round trip that could be behind it.
     }
 
     // MARK: Commands
@@ -114,6 +217,10 @@ final class MockHawkEyeClient: HawkEyeClienting {
         guard incident == nil else { return }
         detectionTask?.cancel()
         open(type, raisedBy: .user)
+    }
+
+    func dismissNotice(_ id: String) {
+        notices.removeAll { $0.id == id }
     }
 
     func sendContext(_ text: String) async throws {
@@ -152,6 +259,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
                 guard let self else { return }
                 self.tick += 0.25
                 self.interior = self.state(at: self.tick)
+                self.raiseNoticeIfDue()
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
@@ -412,6 +520,65 @@ final class MockHawkEyeClient: HawkEyeClienting {
         }
 
         return position(plan, legs[legs.count - 1].zone)
+    }
+
+    // MARK: The notice
+
+    /// The burglary scenario's one notice.
+    ///
+    /// Scripted against the same elapsed-time constants the presence generator
+    /// uses, so it lands `Config.mockNoticeHoldSeconds` after the intruder
+    /// acquires respiration, which is what the hub's detector does given the
+    /// same frames. The mock does not re-implement the rule.
+    ///
+    /// Guarded by `hasRaisedNotice` rather than `notices.isEmpty`: dismissing
+    /// the notice from the UI (`dismissNotice`) empties `notices`, and this
+    /// runs every 250ms off the sensor loop, so an emptiness check would raise
+    /// it right back on the very next tick. Once raised, it stays raised for
+    /// the rest of this entry, same as `enteredAt` staying set once the
+    /// intruder is inside.
+    private func raiseNoticeIfDue() {
+        guard Config.mockScenario == .burglary else { return }
+        guard !hasRaisedNotice else { return }
+        guard let entry = enteredAt else { return }
+        let elapsed = Date().timeIntervalSince(entry)
+        let due = Config.mockIntruderIdentifiedAfter + Config.mockNoticeHoldSeconds
+        guard elapsed >= due else { return }
+        guard let intruder = interior.presences.first(where: \.isUnexpected) else { return }
+        // Approved this session: the resident already vouched for them, so the
+        // notice this branch exists to raise would just be re-litigating a
+        // question that is settled for the rest of this connection.
+        guard !approvedPresences.contains(intruder.presenceID) else { return }
+
+        // The floorplan's authored name, read directly. `roomName(of:)`
+        // lowercases for spoken transcript lines, and reconstructing the
+        // original casing from that is lossy: it only works for names whose
+        // capitals happen to be leading. One place decides what a room is
+        // called, and it is the plan.
+        let room = interior.floorplan.room(named: intruder.zone)?.name ?? intruder.zone
+
+        hasRaisedNotice = true
+        notices.insert(
+            Notice(
+                noticeID: "ntc-\(intruder.presenceID)",
+                severity: .attention,
+                title: "Unexpected person",
+                body: "Not accounted for. \(room).",
+                zone: intruder.zone,
+                room: room,
+                presenceID: intruder.presenceID,
+                raisedAt: Date(),
+                provenance: Provenance(
+                    source: .agentInference,
+                    producer: "agents/intruder",
+                    ansName: "intruder.hawkeye.invalid",
+                    detail: "presence surplus against roster and device association",
+                    sourceClass: .derived,
+                    simulated: false
+                )
+            ),
+            at: 0
+        )
     }
 
     // MARK: The detection
@@ -1080,8 +1247,13 @@ final class MockHawkEyeClient: HawkEyeClienting {
         transcript = []
         instructions = []
         verifications = []
+        notices = []
         respirationLostAt = nil
         enteredAt = nil
+        hasRaisedNotice = false
+        household = []
+        unclaimedDevices = [MockHawkEyeClient.seededVisitorDevice]
+        approvedPresences = []
         // The house keeps being watched. Resolving an incident does not stop
         // the sensing layer, because nothing spawns on incident.
         startDetectionTimer()

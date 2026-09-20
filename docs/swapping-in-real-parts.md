@@ -74,7 +74,10 @@ This switch is mock-only and has no effect when `useMocks = false`, where the hu
 The backend does not register a `_hawkeye._tcp` service, so with `useMocks = false` the Connect screen will wait forever and show no error, because that is what "no hub found" correctly looks like.
 Until Bonjour advertisement exists, point `Config.fallbackBaseURL` at the hub directly.
 
-**Also not real yet on this side:** push notifications. `remote-notification` is declared in the Info.plist but no `UNUserNotificationCenter` registration is wired up, so a backgrounded app will not alert the resident.
+**Push notifications on this side: not implemented, and not the plan.**
+`remote-notification` is declared in the Info.plist but nothing registers with `UNUserNotificationCenter`, and nothing will.
+A backgrounded or closed app is still reached, by SMS rather than by push. See "The unexpected-presence notice" below for the seam and its half-flipped states.
+The Info.plist declaration is now misleading on its own and should be removed when someone is next in that file; it costs nothing but it reads as a capability that exists.
 
 ## Hub backend
 
@@ -150,6 +153,76 @@ The iOS app reads that field and renders a `SIM` chip next to the CO number, so 
 Adding a real sensor is a driver behind an interface that already exists, and nothing above it changes.
 
 **Never claim a sensing capability the physics does not support.** CSI cannot measure gas composition. Oxygen absorption is a roughly 60 GHz phenomenon and the BCM43455c0 is a 2.4/5 GHz radio.
+
+## The unexpected-presence notice
+
+**Nothing about the notice itself is simulated.** The detector in
+`hawkeye_backend/notices/detector.py` runs on whatever `InteriorState` it is given, with no branch
+for mode: on the mock path it fires off `ruview-sim` frames, on the live path it fires off
+`nexmon-csi` frames, and it cannot tell which one it is looking at.
+
+**What is not implemented: APNs.** "The phone buzzes with the app closed" is true today because of
+Twilio, not because of push. Say which, on stage, before anyone asks. `NoticeSink` is an interface
+with one method, so adding APNs later is a driver behind it and changes nothing above the seam.
+
+**To flip Twilio on:** set `HAWKEYE_TWILIO_ACCOUNT_SID`, `HAWKEYE_TWILIO_AUTH_TOKEN`,
+`HAWKEYE_TWILIO_FROM_NUMBER`, and `HAWKEYE_TWILIO_TO_NUMBER`.
+
+**Verify it flipped:** the startup log line reads `notices: twilio sms sink enabled`, and a fired
+notice logs `twilio sent ntc-p4` rather than staying silent.
+
+**The half-flipped state that looks like something else:** three of the four Twilio variables set
+reads as unconfigured. The startup line is `notices: twilio not configured, in-app banner only`, and
+the in-app banner still appears, so the failure looks like Twilio being slow rather than Twilio being
+off. Check the startup line, not the banner.
+
+**A second half-flipped state worth naming:** a Twilio trial account only sends to numbers verified
+in its console, and US A2P 10DLC enforcement can begin refusing trial sends without warning. A
+refused send is logged and swallowed by design, the same as any other sink failure, so the in-app
+banner appears and no text arrives. The log line is `twilio refused ntc-p4: status=... code=...`.
+
+**The one that will surprise you on the hub path, and is owned elsewhere:** in simulated mode the
+notice arrives *after* the resident taps Burglary, not before it.
+
+That inverts the product story, where the notice is what informs a person so they can decide
+whether to call. The cause is not in the notice path: `SimulatedMasterClient` only creates the
+`expected: false` presence inside `_run_typed_call`, which runs after `assert_human_released`, so
+until a human taps there is no unaccounted-for person for the detector to see. It detects the
+presence that exists, when it exists, which is correct behaviour on an incorrect script.
+
+The iOS mock sequences it the right way round: `Config.mockIntruderIdentifiedAfter` is 5s and
+`mockDetectionAfter` is 14s, both well before any tap. So **the app demo tells the true story and
+the hub demo does not**, and the two disagree today.
+
+Fixing the hub scenario belongs to whoever owns `master/scenario.py` and `master/simulated.py` and
+is deliberately not done here. Until it lands, demo the notice off the app's mock path, and do not
+narrate the hub path as "the system told the resident, and then they decided".
+
+## The household roster
+
+**What is simulated: the association table.** No router integration exists, so `associated_devices`
+on a state frame comes from `master/simulated.py` with `Provenance` saying `ruview-sim` and a detail
+of "association table, simulated". Swapping in the real table is a producer change behind a field
+that already exists, and nothing above it moves.
+
+**What is real:** the roster itself, the hashing, the matching, the approval, and the record that a
+human made the decision. A roster entry carries `USER_INPUT` provenance, which computes to
+`SourceClass.HUMAN`, so `caller` can say "the resident says this person is expected" and cannot say
+"the system verified this person".
+
+**How to tell which you are looking at:** the Household list shows a device fingerprint per member.
+The simulated ones come from the fixed pair in `master/simulated.py`. Real ones will not.
+
+**The half-flipped state that looks like something else:** a member remembered with no device is
+legal and is not a bug. They were named by a resident and carry no phone the system can see, so they
+will never be auto-recognised, and the Household list says "no device, will not be recognised
+automatically" for exactly that reason. If every member reads that way, the association table is not
+arriving at all, which is a different problem: check `associated_devices` on a state frame.
+
+**The one that will look like the feature is broken:** remembering a visitor changes nothing until
+the devices present actually account for the people present. Two residents remembered, both phones
+associated, and a third presence in the house still raises a notice, because the surplus is one.
+That is the feature working, not failing.
 
 ## ANS identity
 

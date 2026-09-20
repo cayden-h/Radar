@@ -103,6 +103,7 @@
     "instruction",
     "verification",
     "context",
+    "notice",
     "error"
   ]
 }

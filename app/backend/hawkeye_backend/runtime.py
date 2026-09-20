@@ -15,6 +15,7 @@ import time
 
 from hawkeye_backend.bus import EventBus
 from hawkeye_backend.config import Settings
+from hawkeye_backend.household import Roster, unaccounted_count
 from hawkeye_backend.master.base import MasterClient
 from hawkeye_backend.models.events import (
     ContextEvent,
@@ -30,6 +31,7 @@ from hawkeye_backend.models.events import (
 from hawkeye_backend.master.base import MasterUnavailable
 from hawkeye_backend.notices import NoticeDetector, NoticeSink, StreamSink, deliver
 from hawkeye_backend.replay import ReplayRecorder
+from hawkeye_backend.notices.detector import PERSON_STATES
 from hawkeye_backend.store import InMemoryStore, Store
 
 logger = logging.getLogger(__name__)
@@ -57,9 +59,15 @@ class HubRuntime:
         self.bus = bus
         self.client = client
         self.started_at = time.monotonic()
+        # Presences the resident has vouched for, this session only. Deliberately
+        # not persisted: a new session reuses presence ids, so a stored approval
+        # would silently vouch for a stranger.
+        self.approved_presences: set[str] = set()
+        self.roster = Roster(store)
         self.detector = detector or NoticeDetector(
             hold_s=settings.notice_hold_s,
             forget_after_s=settings.notice_forget_after_s,
+            is_suppressed=self.approved_presences.__contains__,
         )
         # The stream sink is always present, so the in-app banner never depends
         # on Twilio being configured or on Twilio being up.
@@ -110,6 +118,31 @@ class HubRuntime:
         # must not be able to stop a transcript line or a verification result
         # reaching the resident during a live call.
         if isinstance(payload, StateEvent):
+            # Record before detecting. A device that arrived on this frame should
+            # be a binding candidate by the time the notice about it lands.
+            for device in payload.state.associated_devices:
+                await self.roster.observe(device)
+
+            # This is where remembering a visitor starts to mean something.
+            #
+            # `Presence.expected` is decided upstream and knows nothing about
+            # this hub's roster, so without this the roster would be a list
+            # nobody consults and "Remember this visitor" would change nothing
+            # about the next visit.
+            #
+            # The rule lives in household/accounting.py and is called rather
+            # than reimplemented, so `agents/intruder` and the hub cannot drift
+            # on whether someone is unaccounted for.
+            #
+            # It can only ever lower an alarm. With no devices reported,
+            # `known_devices_present` is 0, the surplus equals the headcount,
+            # and nothing is suppressed: an absent field means not reported,
+            # never that everyone is accounted for.
+            people = sum(1 for p in payload.state.presences if p.state in PERSON_STATES)
+            known = await self.roster.known_devices_present(payload.state.associated_devices)
+            if unaccounted_count(people=people, known_devices_present=known) == 0:
+                return
+
             try:
                 notices = self.detector.observe(payload.state)
             except Exception:
