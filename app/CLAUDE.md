@@ -48,13 +48,18 @@ The notice reaches the resident three ways now:
 
 | Sink | When it works | Status |
 |---|---|---|
-| Watch notification | Whenever the watch is on a wrist. **The primary path** | New with the pivot |
+| Watch notification | Whenever the watch is on a wrist. **The primary path** | Built. A **local** notification the watch raises itself, not a push |
 | In-app banner | While the app holds the socket | Built |
 | SMS through Twilio | Phone locked, app closed, watch not worn | Built |
 
-There is deliberately still no local notification on the phone.
+There is deliberately still no local notification **on the phone**.
 One would only fire while the app holds the socket, which is exactly the case the resident does not need help with, and on stage it is indistinguishable from a real push.
 APNs is a driver behind `NoticeSink`, which already exists.
+
+**The watch is the exception, and the reason is that the objection does not apply there.**
+The phone holds the socket and relays to the watch, so the watch raising a local notification does not require the *watch* app to be open, only the phone app to be running - which is the same condition the whole relay already depends on.
+It needs no APNs, no push server and no paid developer account, and it reaches the one surface that is physically on the resident while they sleep.
+`app/ios/HawkEyeWatch/README.md` has the mechanism, including why the still frame is not carried in the notification payload.
 
 The trigger rule lives in `app/backend/hawkeye_backend/notices/detector.py` and is deliberately conservative: unaccounted motion only, a hold before it fires, suppressed when the capture path is unhealthy, and once per presence while it is here.
 A notice is unrecallable once it is on someone's wrist.
@@ -90,12 +95,27 @@ New with the pivot. SwiftUI, watchOS 11, paired to the iOS app over WatchConnect
 That is a deliberate trade: a standalone watch app would survive the phone being out of range, and it would also need Bonjour discovery, its own WebSocket, and its own connection state machine on a platform with an aggressive background policy.
 On a weekend, paired is the boring working path. Say so if asked; it is a deployment property, not an architectural one.
 
-### Four screens, and that is all
+### Three screens, and that is all
 
-1. **Idle.** Armed or not, and when the shield last moved. One line
-2. **Notice.** The still frame, the camera's sentence, and three controls: **Start Incident**, **This is expected**, **Remember this visitor**
-3. **Incident live.** The current narration as it updates, an elapsed timer, and the transcript as scrolling text. One control: **Take over**
-4. **Transcribe.** Mic open, the resident's speech going to the operator. This is whisper mode on the wrist
+Cut from four on 2026-09-19, the same day the target was written.
+
+1. **Idle.** Armed or not, where the shield is, and when it last moved
+2. **Notice.** The still frame, the camera's sentence, and two controls: **Start Incident** and **This is expected**
+3. **Saved.** What the hub did with the answer the resident gave, and where to read it back
+
+**The live-incident screen and transcribe mode are gone from the watch**, and the cut is the point rather than a shortfall.
+
+The call, the transcript and **Take over** are the phone's, and a wrist that offers a second way to end a call is a misfire waiting to happen: "offer a second way to end the call" is already on the list of things the watch must never do, and a live-incident screen with a control on it is exactly that.
+The watch says an incident is open and points at the phone.
+
+Transcribe mode went with it. It was already the weakest of the four, it needs a microphone path and a server-side bridge that does not exist yet, and whisper mode on the phone covers the same need on a device the resident can actually read replies on.
+If it comes back it comes back as a fourth screen; nothing here forecloses it.
+
+**"Remember this visitor" is not on the watch either.** It names a person, naming needs a keyboard, and it changes what the house believes rather than muting one session.
+The two controls that remain are still deliberately separate words for separate things, and the Saved screen says to use the phone for naming rather than leaving the resident wondering where the control went.
+
+The watch app is a second target in `app/ios/`, not a sibling directory, so it can share `Models/`, `Shared/` and `DesignSystem/` by source path.
+`app/ios/HawkEyeWatch/README.md` has the reasoning and the build commands.
 
 ### Rules the watch inherits from the phone
 
@@ -369,7 +389,9 @@ Target Best UI/UX Hack while you are here. It is stackable and this view is the 
 
 Native iOS is justified by live transcription, the interior view, and an audio path the app controls precisely enough to keep a phone silent while someone is hiding. A home-screen web app does all three badly.
 
-**Push notifications are not part of that justification, because we did not ship them.** They were the original argument and it did not survive contact: APNs needs a paid developer account and a push server, a local notification only fires while the app already holds the socket, and what actually reaches a locked phone with the app closed is an SMS, which needs no iOS capability at all. Stated here rather than left as a claim nobody checked, since a reader who takes this paragraph at face value and then greps for `UNUserNotificationCenter` finds nothing.
+**Remote push notifications are not part of that justification, because we did not ship them.** They were the original argument and it did not survive contact: APNs needs a paid developer account and a push server, and what actually reaches a locked *phone* with the app closed is an SMS, which needs no iOS capability at all.
+
+**The watch does ship a local notification**, and a reader who greps for `UNUserNotificationCenter` will find it in `app/ios/HawkEyeWatch/Services/NoticeNotifier.swift`. It is not a push and nothing in this project talks to Apple's push service: the phone relays the notice over WatchConnectivity and the watch raises the notification itself. That is what carries the camera's first sentence to a wrist, and it is the one iOS-family capability the platform choice actually did buy.
 
 Budget for it. If iOS becomes a time sink, the fallback is a web app on the home screen with polling instead of push, and the demo video narrates over the gap.
 

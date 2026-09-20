@@ -23,7 +23,9 @@
           "detail": "presence surplus against roster and device association",
           "source_class": "derived",
           "simulated": false
-        }
+        },
+        "narration": null,
+        "still_frame": null
       }
     }
   }
