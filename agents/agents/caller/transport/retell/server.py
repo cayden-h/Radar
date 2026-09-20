@@ -8,6 +8,12 @@ fail-closed when unconfigured, mirroring the Twilio transport server:
   shared out of band. An unauthenticated route that can dial a phone is a
   swatting vector as direct as an unsigned Twilio webhook.
 
+- `/internal/inject-context` queues a resident-supplied note to be spoken,
+  attributed, on the next operator turn. Same bearer guard as
+  `/internal/start-call`. The note is context, never instruction: it never
+  widens what claims `answer_operator` trusts and never touches the dispatch
+  address.
+
 - `/retell/llm-websocket/{secret}/{call_id}` is the Custom LLM WebSocket Retell
   connects to. Retell does not sign the WS handshake, so it is gated two ways:
   a static secret path segment (registered as part of the URL Retell connects
@@ -32,6 +38,11 @@ class _InternalStartCallBody(BaseModel):
     incident_id: str
     incident_type: str
     address: str
+
+
+class _InternalInjectBody(BaseModel):
+    incident_id: str
+    text: str
 
 
 def build_retell_transport_app(
@@ -60,6 +71,15 @@ def build_retell_transport_app(
         incident_type = IncidentType(body.incident_type)
         call_id = await orchestrator.start_call(body.incident_id, incident_type, body.address)
         return {"call_id": call_id}
+
+    @app.post("/internal/inject-context")
+    async def internal_inject_context(request: Request, body: _InternalInjectBody) -> dict[str, bool]:
+        # Same bearer guard as /internal/start-call: an unauthenticated route
+        # that can put words in the caller's mouth is as dangerous as one that
+        # can dial a phone.
+        _verify_internal_token(request)
+        orchestrator.enqueue_resident_note(body.text)
+        return {"queued": True}
 
     @app.websocket("/retell/llm-websocket/{secret}/{call_id}")
     async def llm_websocket(websocket: WebSocket, secret: str, call_id: str) -> None:
