@@ -164,3 +164,20 @@ async def test_orchestrator_pushes_operator_and_reply_lines_to_sink(mesh):
         ("i1", "operator", "what colour is the front door?"),
         ("i1", "caller", orch.transcript[-1][1]),
     ]
+
+
+@pytest.mark.asyncio
+async def test_context_so_far_includes_transcript_and_notes(mesh):
+    orch, _ = _orchestrator(mesh)
+    orch.incident_id = "inc-1"
+    orch.enqueue_resident_note("child asthmatic")
+    await orch.handle_ws_message(
+        {
+            "interaction_type": "response_required",
+            "response_id": 1,
+            "transcript": [{"role": "user", "content": "anything else?"}],
+        }
+    )
+    ctx = orch.context_so_far()
+    assert "child asthmatic" in ctx["resident_notes"]
+    assert any(t == "caller" for t, _ in ctx["transcript"])

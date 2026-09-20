@@ -212,3 +212,11 @@ class RetellCallOrchestrator:
 
     def transcript_so_far(self) -> list[tuple[str, str]]:
         return list(self.transcript)
+
+    def context_so_far(self) -> dict:
+        """The running context for this call: transcript plus every resident
+        note actually spoken so far. Read-only - reviewing this never mutates
+        anything a claim is built from. Resident notes are context, never
+        instruction: they are carried here for review/sealing and never feed
+        back into what `answer_operator` verifies or trusts."""
+        return {"transcript": list(self.transcript), "resident_notes": list(self._context_resident_notes)}
