@@ -91,6 +91,87 @@ QUESTION_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
         "master.co_ppm",
         ("carbon monoxide", "co level", "co reading", "gas", "the air", "air quality", "smoke"),
     ),
+    # The camera routes sit above `intruder` and below the gas route, and the
+    # placement is the whole of their correctness.
+    #
+    # Above `intruder`, because after the pivot the camera is what answers "what
+    # is the intruder doing". That question names its subject, so a route table
+    # that matched on "intruder" first would hear a question about behaviour and
+    # answer it with device arithmetic - confidently, to a dispatcher, in a
+    # synthetic voice. The camera routes match only on phrases about *seeing*
+    # and *doing*, which "is there an intruder" does not contain, so the
+    # intruder route keeps every question that is actually about it.
+    #
+    # Below the gas route, because "can you see smoke" is a question about the
+    # air and this camera cannot answer it.
+    #
+    # `vision.people_visible` comes first inside the block: it is the narrow
+    # case of "how many", and the broad "how many" belongs to
+    # `people.headcount` further down. A count from the camera and a count from
+    # the device roster are different facts about different things - one room
+    # versus the building - and handing a dispatcher either one under the
+    # other's question is the mistake this ordering exists to prevent.
+    (
+        "vision.people_visible",
+        (
+            "how many can you see",
+            "how many do you see",
+            "how many people can you see",
+            "how many people do you see",
+            "how many on camera",
+            "how many are on camera",
+            "how many people on camera",
+        ),
+    ),
+    # Responder safety. A dispatcher asking this is deciding what to send, so it
+    # sits above the general description rather than inside it.
+    (
+        "vision.carrying",
+        (
+            "carrying",
+            "holding",
+            "weapon",
+            "armed",
+            "a gun",
+            "a knife",
+            "in his hand",
+            "in her hand",
+            "in their hand",
+        ),
+    ),
+    (
+        "vision.matches_resident",
+        (
+            "recognise",
+            "recognize",
+            "someone who lives",
+            "lives there",
+            "lives at",
+            "one of the residents",
+        ),
+    ),
+    (
+        "vision.description",
+        (
+            "what do you see",
+            "what can you see",
+            "what are you seeing",
+            "describe",
+            "what is he doing",
+            "what is she doing",
+            "what are they doing",
+            "what's he doing",
+            "what's she doing",
+            "what is the person doing",
+            "what is the intruder doing",
+            "on camera",
+            "on the camera",
+        ),
+    ),
+    (
+        "vision.lighting",
+        ("is it dark", "are the lights", "can you see anything", "is the camera working"),
+    ),
     ("intruder.unexpected_presence", ("intruder", "someone else", "stranger", "break in")),
     ("people.headcount", ("how many", "anyone else", "who else", "occupants", "people")),
     (
@@ -408,7 +489,15 @@ class CallerAgent(Agent):
 SPEAK_PRIORITY: tuple[str, ...] = (
     "people.respiration_lost",
     "people.respiration",
+    # The pivot's contribution to this list, and it is near the top on purpose.
+    # A dispatcher taking a burglary call already knows a system says someone is
+    # in the house. What nobody else can give them is a description of who,
+    # produced by a camera that could not have been watching a minute earlier,
+    # and whether that person is carrying something.
+    "vision.description",
+    "vision.carrying",
     "people.zone",
+    "vision.people_visible",
     "people.headcount",
     "intruder.unexpected_presence",
     "intruder.occupied_zones",
@@ -446,7 +535,12 @@ def route_question(question: str) -> str | None:
 #: system and noise on a live call. A dispatcher has seconds and needs what IS
 #: happening; a list of things that are not is how the one thing that matters
 #: gets buried. They stay in the verification feed, where they belong.
-NEGATIVE_VALUES = frozenset({"false", "at least 0", "0"})
+#
+# The empty string and "nothing" are here for `vision.carrying`, which is empty
+# most of the time: the model only reports an object when it sees one. "The
+# camera is describing them carrying nothing" is a sentence that sounds like a
+# finding and is not one.
+NEGATIVE_VALUES = frozenset({"false", "at least 0", "0", "", "none", "nothing"})
 
 
 def worth_reporting(assertion: Assertion) -> bool:
@@ -506,6 +600,39 @@ def _speak_value(field: str, value: str, *, zone: str | None = None) -> str:
             return f"The residents are in: {rooms}."
         case "master.co_ppm":
             return f"Carbon monoxide is at {float(value):.0f} parts per million."
+        # The camera. Every one of these leads with what produced it, because
+        # `vision/CLAUDE.md` requires the 911 script to say "the camera is
+        # describing a person in a dark jacket" and never "the intruder is
+        # wearing a dark jacket". The model describes; it does not identify, and
+        # the sentence a dispatcher hears has to carry that difference.
+        case "vision.description":
+            return f"The camera is describing{where}: {value}"
+        case "vision.people_visible":
+            people = "person" if value == "1" else "people"
+            return (
+                f"The camera can see {value} {people}{where}. That is a count of one room, "
+                "not of the building."
+            )
+        case "vision.carrying":
+            return f"The camera is describing them carrying {value}."
+        case "vision.matches_resident":
+            if value == "no_match":
+                return (
+                    "Not one of the people who live here, as far as the camera can tell. "
+                    "That is all it means - it is not a match against any database."
+                )
+            if value.startswith("match:"):
+                return "The camera matches them to someone enrolled as living at this address."
+            return "I cannot tell you whether that person lives here."
+        case "vision.lighting":
+            if value == "too_dark":
+                return (
+                    "The room is too dark for the camera to describe anything. I will not "
+                    "guess at what is in it."
+                )
+            if value == "low":
+                return "The room is dimly lit. The camera is describing what it can make out."
+            return "The room is lit and the camera can see it."
         case _:
             return f"{field.split('.', 1)[1].replace('_', ' ')}: {value}{where}."
 
