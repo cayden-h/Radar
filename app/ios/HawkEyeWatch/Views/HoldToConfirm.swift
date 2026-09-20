@@ -27,26 +27,20 @@ struct HoldToConfirm: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(tint.opacity(0.18))
-
             // The fill is the progress. It makes release-to-cancel discoverable
             // without a line of instructional text, which there is no room for.
             GeometryReader { geometry in
                 RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                    .fill(tint.opacity(0.62))
+                    .fill(tint.opacity(0.55))
                     .frame(width: geometry.size.width * progress)
             }
-
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .strokeBorder(tint.opacity(0.7), lineWidth: 1)
 
             VStack(spacing: 1) {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundStyle(Palette.ink)
                 Text(holding ? "Keep holding" : "Hold")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(Palette.ink.opacity(0.7))
                     .contentTransition(.opacity)
             }
@@ -54,6 +48,7 @@ struct HoldToConfirm: View {
             .multilineTextAlignment(.center)
         }
         .frame(minHeight: 48)
+        .glassPanel(cornerRadius: Radius.md, tint: tint)
         .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         .contentShape(Rectangle())
         .gesture(
@@ -103,11 +98,8 @@ struct TapControl: View {
                 .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundStyle(Palette.ink)
                 .frame(maxWidth: .infinity, minHeight: 40)
-                .background(
-                    RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                        .fill(Palette.surfaceRaised)
-                )
+                .glassPanel(cornerRadius: Radius.md)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.pressable)
     }
 }

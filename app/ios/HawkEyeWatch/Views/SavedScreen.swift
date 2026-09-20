@@ -36,7 +36,7 @@ struct SavedScreen: View {
                         .multilineTextAlignment(.center)
 
                     Text(detail)
-                        .font(.system(size: 12))
+                        .font(.system(size: 12, design: .rounded))
                         .foregroundStyle(Palette.inkMuted)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -44,15 +44,17 @@ struct SavedScreen: View {
 
                 if let recordedAt = outcome.recordedAt {
                     Text(recordedAt.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .font(TypeScale.numeric)
                         .foregroundStyle(Palette.inkFaint)
                 }
             }
-            .padding(.horizontal, Space.sm)
-            .padding(.bottom, Space.md)
+            .padding(Space.md)
+            .padding(.bottom, Space.xs)
             .frame(maxWidth: .infinity)
+            .glassPanel(tint: tint)
+            .padding(.horizontal, Space.sm)
+            .padding(.top, Space.sm)
         }
-        .background(Palette.ground)
     }
 
     // MARK: Copy

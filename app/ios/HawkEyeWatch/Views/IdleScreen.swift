@@ -16,51 +16,53 @@ struct IdleScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.md) {
+            VStack(alignment: .leading, spacing: Space.sm) {
 
-                HStack(spacing: Space.xs) {
-                    Circle()
-                        .fill(statusTint)
-                        .frame(width: 7, height: 7)
-                    Text(headline)
-                        .eyebrowStyle(statusTint)
-                    Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: Space.md) {
+                    HStack(spacing: Space.xs) {
+                        Circle()
+                            .fill(statusTint)
+                            .frame(width: 7, height: 7)
+                        Text(headline)
+                            .eyebrowStyle(statusTint)
+                        Spacer(minLength: 0)
+                    }
+
+                    VStack(alignment: .leading, spacing: Space.xs) {
+                        Text(shield?.state.label ?? "Shield not reported")
+                            .font(TypeScale.heading)
+                            .foregroundStyle(Palette.ink)
+
+                        Text(shield?.state.detail
+                             ?? "The shutter has not said where the shield is.")
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundStyle(Palette.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    if let shield, shield.changedAt > .distantPast {
+                        Text(movedLine(shield))
+                            .font(TypeScale.numeric)
+                            .foregroundStyle(Palette.inkFaint)
+                    }
                 }
-
-                VStack(alignment: .leading, spacing: Space.xs) {
-                    Text(shield?.state.label ?? "Shield not reported")
-                        .font(.system(size: 19, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Palette.ink)
-
-                    Text(shield?.state.detail
-                         ?? "The shutter has not said where the shield is.")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Palette.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if let shield, shield.changedAt > .distantPast {
-                    Text(movedLine(shield))
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Palette.inkFaint)
-                }
+                .padding(Space.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassPanel()
 
                 if let reason = shield?.refusalReason {
                     Text(reason)
-                        .font(.system(size: 12))
+                        .font(.system(size: 12, design: .rounded))
                         .foregroundStyle(Palette.inkMuted)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(Space.sm)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: Radius.sm, style: .continuous)
-                                .fill(Palette.personUnresponsive.opacity(0.14))
-                        )
+                        .glassPanel(cornerRadius: Radius.sm, tint: Palette.personUnresponsive)
                 }
 
                 if snapshot.incidentOpen {
                     Text("An incident is open. The call is on your phone.")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(Palette.live)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -69,7 +71,6 @@ struct IdleScreen: View {
             .padding(.bottom, Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Palette.ground)
     }
 
     // MARK: Copy
