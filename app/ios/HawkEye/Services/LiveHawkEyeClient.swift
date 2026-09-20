@@ -41,6 +41,12 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     @ObservationIgnored private var pump: Task<Void, Never>?
     @ObservationIgnored private var sequence = SequenceTracker()
 
+    /// The resident's own audio leg, per `app/CLAUDE.md`'s "Joining the call".
+    /// Owned here rather than by a view: it must live exactly as long as the
+    /// socket connection that decides when to join and leave it.
+    @ObservationIgnored private let callAudio = CallAudioSession()
+    @ObservationIgnored private var joinedCallID: String?
+
     // MARK: Connect
 
     func connect(to hub: Hub) async throws {
@@ -86,6 +92,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
         hello = nil
         link = .offline
         participationMode = .watching
+        leaveCallAudio()
     }
 
     // MARK: Commands
@@ -103,6 +110,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     func dismissIncident() {
         incident = nil
         participationMode = .watching
+        leaveCallAudio()
     }
 
     func sendContext(_ text: String) async throws {
@@ -134,6 +142,18 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             body: SetParticipationModeRequest(mode: mode)
         )
         participationMode = mode
+        applyParticipationModeToAudio(mode)
+    }
+
+    /// The two switches `CallAudioSession` exposes, driven by
+    /// `participationMode` per the mode table in `app/CLAUDE.md`: mic is open
+    /// in `.whisper` and `.fullVoice`, muted in `.watching` — mirroring
+    /// `Bridge.leg_state(Leg.RESIDENT)`'s send flag on the Python side. Output
+    /// is only ever un-silenced in `.fullVoice`; `.whisper`'s entire point is
+    /// that the resident is heard but hears nothing back.
+    private func applyParticipationModeToAudio(_ mode: ParticipationMode) {
+        callAudio.setMuted(mode == .watching)
+        callAudio.setOutputSilenced(mode != .fullVoice)
     }
 
     /// `TAKE OVER`. Always a human action, held for 1.5s in the UI before
@@ -286,6 +306,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     }
 
     private func apply(phase: IncidentPhase, incident value: Incident) {
+        let previousCallState = incident?.callState ?? .notPlaced
         if phase == .raised, incident?.id != value.id {
             // A new incident starts with a clean screen. Nothing from the last
             // one belongs on this one.
@@ -301,7 +322,51 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             instructions = []
             verifications = []
             participationMode = .watching
+            leaveCallAudio()
+            return
         }
+
+        // Join the moment the bridge reports the call connected, not before:
+        // there is nothing to be a leg of until then. See `join(accessToken:)`
+        // on `CallAudioSession` for why both switches start off regardless of
+        // `participationMode` at the moment of joining.
+        if value.callState == .connected, previousCallState != .connected {
+            joinCallAudio(incidentID: value.id)
+        } else if value.callState != .connected, previousCallState == .connected {
+            leaveCallAudio()
+        }
+    }
+
+    /// Fetches a fresh Access Token from `GET /v1/incident/{id}/call-token`
+    /// (`app/backend`'s token-vending route, see `hawkeye_backend/api.py`) and
+    /// joins the conference with it. Best-effort: a failure here means the
+    /// resident stays a watcher rather than a leg of the call, which is the
+    /// safe direction to fail in — the call to the operator itself is
+    /// unaffected either way, since that leg is `agents/caller`'s, not this
+    /// one's.
+    private func joinCallAudio(incidentID: String) {
+        guard joinedCallID != incidentID else { return }
+        joinedCallID = incidentID
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let response = try await self.get(
+                    CallTokenResponse.self,
+                    path: "\(Config.incidentPath)/\(incidentID)/call-token"
+                )
+                try await self.callAudio.join(accessToken: response.accessToken)
+                self.applyParticipationModeToAudio(self.participationMode)
+            } catch {
+                NSLog("LiveHawkEyeClient: could not join call audio: %@", error.localizedDescription)
+                if self.joinedCallID == incidentID { self.joinedCallID = nil }
+            }
+        }
+    }
+
+    private func leaveCallAudio() {
+        guard joinedCallID != nil else { return }
+        joinedCallID = nil
+        callAudio.leave()
     }
 
     /// Transcript lines arrive partial and are then revised in place, matched on
@@ -402,5 +467,15 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             throw HawkEyeClientError.badEndpoint
         }
         return url
+    }
+}
+
+/// `GET /v1/incident/{id}/call-token`'s response shape, verbatim against
+/// `hawkeye_backend.api.CallTokenResponse`.
+private struct CallTokenResponse: Decodable {
+    let accessToken: String
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
     }
 }
