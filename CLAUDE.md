@@ -13,7 +13,7 @@ What exists right now:
   The trust layer is complete and is the part of this project with the most work already banked. The roster is being reshaped by the pivot; see `agents/CLAUDE.md`.
 - **`app/backend/`** - the app-facing edge service. Holds `hawkeye_backend/verification/`, the claim-envelope defence, all thirteen `fraud.webmesh.ai` shapes implemented and passing. Also records incidents as they happen into a hash-chained replay record.
 - **`app/ios/`** - the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. `cd app/ios && xcodegen generate`. Builds and runs on an iPhone 17 simulator against Xcode 27.0.
-- **`app/watch/`** - the watchOS app. **New with the pivot, not yet written.** This is where a human starts an incident.
+- **`app/watch/`** - the watchOS app. **Written.** Three screens - Idle, Notice, Saved - on a phone-paired WatchConnectivity relay, plus the notification that carries the camera's first sentence to a wrist. A mock feed runs all three screens with no phone and no hub. It lives as a second XcodeGen target in `app/ios/` so it can share `Models/`, `Shared/` and `DesignSystem/` by source path; see `app/ios/HawkEyeWatch/README.md`. This is where a human starts an incident.
 - **`app/web/replay/`** - the replay console at `/replay`. Gains video playback with the pivot.
 - **`sensor/`** - the Pi 4B CSI capture path. Real, varying, non-zero CSI confirmed flowing end to end via `nexmon_csi`. Its output contract shrinks with the pivot.
 - **`vision/`** - the camera capture path. **New, not yet written.**
@@ -156,7 +156,7 @@ The app never talks to the seven agents directly.
 It talks to one app-facing edge service, which talks to `master`.
 That keeps the ANS-verified mesh on one side of a line and the human surface on the other, which is the same line the whole architecture is built on.
 
-- **`app/watch/`** is the actor. Notification, Start Incident, transcription controls. Pairs via WatchConnectivity through the phone.
+- **`app/watch/`** is the actor. Notification, Start Incident, and the confirmation that it was recorded. Pairs via WatchConnectivity through the phone. Transcription stayed on the phone; see `app/CLAUDE.md`.
 - **`app/ios/`** is the record. Connect, live camera view, the full transcript, the "what is happening" box, replay.
 - **`app/backend/`** is the edge service both of them talk to.
 

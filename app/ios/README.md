@@ -160,7 +160,31 @@ app/ios/
       Layout.swift             Spacing, radii, tap targets
       Motion.swift             Four curves. Nothing bounces.
       Components.swift         Wordmark, signal bars, card, press style
+    Shared/                    Compiled into BOTH the phone and the watch
+      WatchWire.swift          The whole phone-to-watch contract
+      WatchSessionLink.swift   WatchConnectivity, on both ends
+      WatchRouter.swift        Snapshot -> screen, as a pure function
+      LinkState.swift          Connection health, answered the same way on both
+      HawkEyeCoding.swift      The one JSON coder configuration
+      SimulatedCameraFrame.swift  The mock still frame. Never a photograph.
+  HawkEyeWatch/                The watchOS app. See its own README.
+  HawkEyeTests/                Unit tests for the wire codec and the router
+  HawkEyeUITests/              The screenshot and verification tours
 ```
+
+**The project generates three targets**, not one: `HawkEye` (iOS), `HawkEyeWatch` (watchOS, embedded in the phone app), and the two test bundles.
+`HawkEyeWatch` compiles `HawkEye/Models`, `HawkEye/Shared` and `HawkEye/DesignSystem` by source path, so there is exactly one definition of every wire type and one copy of the palette.
+
+Two schemes:
+
+```sh
+xcodebuild -scheme HawkEye      -destination 'platform=iOS Simulator,name=iPhone 17' build
+xcodebuild -scheme HawkEyeWatch -destination 'platform=watchOS Simulator,name=Apple Watch Series 12 (46mm)' build
+```
+
+The watchOS simulator runtime is a separate download from Xcode. If `xcrun simctl list runtimes` shows no watchOS entry, run `xcodebuild -downloadPlatform watchOS` once.
+
+`HawkEyeTests` is an iOS unit-test bundle on purpose, even though what it tests is shared with the watch: the rules in `WatchRouter` and `WatchWire` are platform-neutral, and the iOS runtime is the one that is always installed.
 
 ## The Bonjour constraint, said once more
 
