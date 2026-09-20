@@ -108,47 +108,79 @@ struct ConnectView: View {
 
 // MARK: - Row
 
+/// A hub, drawn as a ring rather than a card.
+///
+/// No fictional reading fills the ring — this isn't a mood dial standing in
+/// for data nobody measured. The arc is real: it sweeps to `hub.signalBars`
+/// out of 4, the same fact `SignalBars` already drew as bars, just told as
+/// an arc instead. The three static points on the ring carry no information
+/// of their own, the same as the dot grid already painted across the whole
+/// background — decoration in the same key as the rest of the screen, not a
+/// second copy of one.
 private struct HubRow: View {
     var hub: Hub
     var verifying: Bool
     var dimmed: Bool
     var action: () -> Void
 
+    private var signalFraction: CGFloat {
+        CGFloat(hub.signalBars) / 4
+    }
+
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 6) {
-                Text(hub.name)
-                    .font(TypeScale.title)
-                    .foregroundStyle(Palette.ink)
+            ZStack {
+                Circle()
+                    .strokeBorder(
+                        verifying ? Palette.calm.opacity(0.5) : Color.white.opacity(0.22),
+                        lineWidth: 1.5
+                    )
 
-                if hub.paired {
-                    Text("Paired")
-                        .eyebrowStyle(Palette.calm)
+                Circle()
+                    .trim(from: 0, to: signalFraction)
+                    .stroke(
+                        hub.paired ? Palette.calm : Palette.inkMuted,
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                    )
+                    .rotationEffect(.degrees(-90))
+                    .animation(Motion.arrive, value: signalFraction)
+
+                ForEach(Self.decorativePointAngles, id: \.self) { angle in
+                    Circle()
+                        .fill(Color.white.opacity(0.32))
+                        .frame(width: 6, height: 6)
+                        .offset(y: -108)
+                        .rotationEffect(.degrees(angle))
                 }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 220)
-            .overlay(alignment: .trailing) {
-                Group {
+
+                VStack(spacing: 8) {
+                    Text(hub.name)
+                        .font(TypeScale.title)
+                        .foregroundStyle(Palette.ink)
+
                     if verifying {
                         ProgressView()
                             .controlSize(.small)
                             .tint(Palette.inkMuted)
+                    } else if hub.paired {
+                        Text("Paired")
+                            .eyebrowStyle(Palette.calm)
                     } else {
-                        SignalBars(level: hub.signalBars,
-                                   tint: hub.paired ? Palette.calm : Palette.inkMuted)
+                        Text("Tap to connect")
+                            .eyebrowStyle(Palette.inkFaint)
                     }
                 }
-                .padding(.trailing, Space.md)
             }
-            .contentShape(Rectangle())
+            .frame(width: 240, height: 240)
+            .contentShape(Circle())
         }
         .buttonStyle(.pressable)
-        .glassPanel(tint: verifying ? Palette.calm : .clear)
         .opacity(dimmed ? 0.35 : 1)
         .disabled(dimmed || verifying)
         .accessibilityLabel("\(hub.name), \(hub.paired ? "paired" : "not paired"), signal \(hub.signalBars) of 4")
     }
+
+    private static let decorativePointAngles: [Double] = [-52, 96, 205]
 }
 
 // MARK: - Searching

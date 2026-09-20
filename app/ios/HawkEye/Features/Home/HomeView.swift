@@ -171,7 +171,13 @@ struct HomeView: View {
 
             IncidentBar(client: client)
 
-            quickActions
+            // Hidden once a call is live, even if the resident has stepped
+            // back to this tab via `LiveCallBanner` — shortcuts into People
+            // and Videos have no business competing with an active 911 call
+            // for attention.
+            if activeIncident == nil {
+                quickActions
+            }
 
             Spacer(minLength: 0)
         }
