@@ -301,3 +301,120 @@ def test_fire_guidance_never_tells_a_resident_to_stay_and_help():
     assert "get out now" in text
     assert "cpr" not in text
     assert "recovery position" not in text
+
+
+# ------------------------------------------------------ the camera on the call
+
+
+def test_a_question_about_behaviour_reaches_the_camera_not_the_roster():
+    """"What is the intruder doing" is a question the camera answers.
+
+    Before the pivot there was nothing that could answer it, so the word
+    "intruder" routing to device arithmetic cost nothing. It costs something
+    now: the dispatcher would be told that no registered device accounts for
+    someone, confidently, as the answer to a question about behaviour.
+    """
+    assert route_question("what is the intruder doing?") == "vision.description"
+    assert route_question("what do you see right now?") == "vision.description"
+    assert route_question("can you describe him?") == "vision.description"
+    assert route_question("what are they doing in there?") == "vision.description"
+
+
+def test_the_intruder_route_keeps_every_question_that_is_about_the_intruder():
+    """The camera routes must not eat the ones above and below them."""
+    assert route_question("is there an intruder?") == "intruder.unexpected_presence"
+    assert route_question("how long has the intruder been inside?") == "intruder.unexpected_presence"
+    assert route_question("can you see smoke?") == "master.co_ppm"
+
+
+def test_a_camera_count_and_a_roster_count_are_different_questions():
+    """One room versus the building. Handing over either one under the other's
+    question is a fact about a house that nothing measured."""
+    assert route_question("how many people can you see?") == "vision.people_visible"
+    assert route_question("how many on camera?") == "vision.people_visible"
+    assert route_question("how many people are inside?") == "people.headcount"
+    assert route_question("is anyone else in there?") == "people.headcount"
+
+
+def test_responder_safety_questions_reach_the_camera():
+    assert route_question("is he armed?") == "vision.carrying"
+    assert route_question("is he carrying anything?") == "vision.carrying"
+    assert route_question("has he got a weapon?") == "vision.carrying"
+
+
+def test_the_camera_describes_and_never_identifies():
+    """`vision/CLAUDE.md`: "the camera is describing a person in a dark jacket",
+    never "the intruder is wearing a dark jacket". The difference is the claim."""
+    spoken = _speak_value(
+        "vision.description",
+        "A person in a dark jacket is standing by the door.",
+        zone="living_room",
+    )
+
+    assert spoken.startswith("The camera is describing")
+    assert "living room" in spoken
+    assert "the intruder is" not in spoken.lower()
+
+
+def test_a_no_match_is_not_presented_as_a_stranger_to_the_world():
+    spoken = _speak_value("vision.matches_resident", "no_match")
+
+    assert "not a match against any database" in spoken
+    assert "offender" not in spoken.lower()
+
+
+def test_a_camera_count_says_out_loud_that_it_is_one_room():
+    spoken = _speak_value("vision.people_visible", "2", zone="living_room")
+
+    assert "2 people" in spoken
+    assert "not of the building" in spoken
+
+
+def test_a_dark_room_is_a_refusal_rather_than_a_description():
+    spoken = _speak_value("vision.lighting", "too_dark")
+
+    assert "too dark" in spoken
+    assert "will not guess" in spoken
+
+
+def test_carrying_nothing_is_not_worth_a_dispatchers_attention():
+    """`vision.carrying` is empty most of the time. "Carrying nothing" sounds
+    like a finding and is not one."""
+    from hawkeye_backend.models.common import Provenance, Source
+    from hawkeye_backend.verification.envelope import Severity
+
+    from agents.caller.agent import worth_reporting
+    from agents.core.observations import Assertion
+
+    def carrying(value: str) -> Assertion:
+        return Assertion(
+            field="vision.carrying",
+            value=value,
+            zone_scope="living_room",
+            severity_ceiling=Severity.INFORMATIONAL,
+            confidence=0.5,
+            basis="generated",
+            provenance=Provenance(
+                source=Source.AGENT_INFERENCE,
+                producer="agents/vision",
+                ansname="ans://v0.1.0.vision.batradar.club",
+            ),
+        )
+
+    assert worth_reporting(carrying("a crowbar")) is True
+    assert worth_reporting(carrying("")) is False
+    assert worth_reporting(carrying("nothing")) is False
+
+
+def test_the_camera_cannot_answer_until_it_is_wired_and_says_so(mesh):
+    """`vision` is not on the mesh yet. The route exists; the answer is honest.
+
+    This is the shape the whole system is built on, tested at the point it
+    matters most: a question the agent cannot answer becomes "I don't know"
+    rather than the nearest thing it has lying around.
+    """
+    caller = CallerAgent(mesh, MasterAgent(mesh))
+    answer = caller.answer_operator("what is he doing?")
+
+    assert answer.text.startswith("I don't know")
+    assert answer.claim_fields == ("vision.description",)

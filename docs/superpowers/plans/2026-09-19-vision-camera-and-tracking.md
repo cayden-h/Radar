@@ -70,7 +70,7 @@ def test_package_declares_a_version():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_package.py -v`
+Run: `cd vision && python3 -m pytest tests/test_package.py -v`
 Expected: FAIL, collection error, `ModuleNotFoundError: No module named 'hawkeye_vision'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -130,7 +130,7 @@ packages = ["hawkeye_vision"]
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd vision && python -m pytest tests/test_package.py -v`
+Run: `cd vision && python3 -m pytest tests/test_package.py -v`
 Expected: PASS, 1 passed
 
 - [ ] **Step 5: Commit**
@@ -176,7 +176,7 @@ def test_synthetic_video_is_flagged_simulated_and_live_camera_is_not():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd app/backend && python -m pytest tests/test_models.py -k camera -v`
+Run: `cd app/backend && python3 -m pytest tests/test_models.py -k camera -v`
 Expected: FAIL with `AttributeError: CAMERA_UVC`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -207,7 +207,7 @@ In the `_SOURCE_CLASS` dict, add:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd app/backend && python -m pytest tests/ -q`
+Run: `cd app/backend && python3 -m pytest tests/ -q`
 Expected: PASS, the whole backend suite green. If any test asserts on the number of `Source` members or iterates the enum exhaustively, update it to include the three new values rather than weakening the assertion.
 
 - [ ] **Step 5: Commit**
@@ -332,7 +332,7 @@ def test_frames_are_bgr_images_with_three_channels(bright_mp4):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_frames.py -v`
+Run: `cd vision && python3 -m pytest tests/test_frames.py -v`
 Expected: FAIL, `ModuleNotFoundError: No module named 'hawkeye_vision.fixture'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -447,7 +447,7 @@ class FileFixture(FrameSource):
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/test_frames.py -v`
+Run: `cd vision && python3 -m pytest tests/test_frames.py -v`
 Expected: PASS, 5 passed
 
 If `hawkeye_backend` is not importable, install it first: `pip install -e ../app/backend`
@@ -547,7 +547,7 @@ def test_a_bright_video_classifies_as_day_end_to_end(bright_mp4):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_lighting.py -v`
+Run: `cd vision && python3 -m pytest tests/test_lighting.py -v`
 Expected: FAIL, `ModuleNotFoundError: No module named 'hawkeye_vision.config'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -680,7 +680,7 @@ def classify(luminance: float, config: VisionConfig) -> LightingMode:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/test_lighting.py -v`
+Run: `cd vision && python3 -m pytest tests/test_lighting.py -v`
 Expected: PASS, 8 passed
 
 - [ ] **Step 5: Commit**
@@ -767,7 +767,7 @@ def test_a_value_sitting_on_the_boundary_does_not_flap(ramp_mp4):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_lighting.py -v`
+Run: `cd vision && python3 -m pytest tests/test_lighting.py -v`
 Expected: FAIL, `ImportError: cannot import name 'LightingClassifier'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -871,7 +871,7 @@ _ORDER: dict[LightingMode, int] = {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/test_lighting.py -v`
+Run: `cd vision && python3 -m pytest tests/test_lighting.py -v`
 Expected: PASS, 13 passed
 
 - [ ] **Step 5: Commit**
@@ -948,7 +948,7 @@ def test_every_lighting_mode_has_a_profile():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_profiles.py -v`
+Run: `cd vision && python3 -m pytest tests/test_profiles.py -v`
 Expected: FAIL, `ModuleNotFoundError: No module named 'hawkeye_vision.profiles'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1018,7 +1018,7 @@ def for_mode(mode: LightingMode, config: VisionConfig) -> CaptureProfile:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/test_profiles.py -v`
+Run: `cd vision && python3 -m pytest tests/test_profiles.py -v`
 Expected: PASS, 6 passed
 
 - [ ] **Step 5: Commit**
@@ -1091,7 +1091,7 @@ def test_enhancement_does_not_mutate_the_frame_it_was_given():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_enhance.py -v`
+Run: `cd vision && python3 -m pytest tests/test_enhance.py -v`
 Expected: FAIL, `ModuleNotFoundError: No module named 'hawkeye_vision.enhance'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1147,7 +1147,7 @@ def to_detection_input(image: np.ndarray, *, enhance: bool) -> np.ndarray:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/test_enhance.py -v`
+Run: `cd vision && python3 -m pytest tests/test_enhance.py -v`
 Expected: PASS, 4 passed
 
 - [ ] **Step 5: Commit**
@@ -1284,7 +1284,7 @@ def test_a_track_exposes_the_fields_a_claim_needs():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_track.py -v`
+Run: `cd vision && python3 -m pytest tests/test_track.py -v`
 Expected: FAIL, `ModuleNotFoundError: No module named 'hawkeye_vision.track'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1453,7 +1453,7 @@ class TrackBook:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/test_track.py -v`
+Run: `cd vision && python3 -m pytest tests/test_track.py -v`
 Expected: PASS, 9 passed
 
 - [ ] **Step 5: Commit**
@@ -1631,7 +1631,7 @@ def person_mp4() -> str:
 
 - [ ] **Step 4: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_yolo.py -v -m integration`
+Run: `cd vision && python3 -m pytest tests/test_yolo.py -v -m integration`
 Expected: FAIL, `ModuleNotFoundError: No module named 'hawkeye_vision.yolo_tracker'`
 
 - [ ] **Step 5: Write minimal implementation**
@@ -1749,10 +1749,10 @@ class YoloBotSortTracker:
 
 - [ ] **Step 6: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/test_yolo.py -v -m integration`
+Run: `cd vision && python3 -m pytest tests/test_yolo.py -v -m integration`
 Expected: PASS for the first two tests. The two needing `person_mp4` SKIP until the fixture is recorded in Task 12.
 
-Run the fast suite too, confirming torch is never imported: `cd vision && python -m pytest tests/ -m 'not integration' -q`
+Run the fast suite too: `cd vision && python3 -m pytest tests/ -m 'not integration' -q`
 Expected: PASS, all previous tests still green.
 
 - [ ] **Step 7: Commit**
@@ -1815,7 +1815,7 @@ from hawkeye_vision.track import UnavailableTracker
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_track.py -v`
+Run: `cd vision && python3 -m pytest tests/test_track.py -v`
 Expected: FAIL, `ImportError: cannot import name 'UnavailableTracker'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -1894,7 +1894,7 @@ def build_tracker(config: VisionConfig, *, weights: str = "yolo11m.pt"):
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/ -m 'not integration' -q`
+Run: `cd vision && python3 -m pytest tests/ -m 'not integration' -q`
 Expected: PASS, 12 passed in test_track.py and all earlier tests still green
 
 - [ ] **Step 5: Commit**
@@ -2010,7 +2010,7 @@ def test_writing_after_close_is_refused(tmp_path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_record.py -v`
+Run: `cd vision && python3 -m pytest tests/test_record.py -v`
 Expected: FAIL, `ModuleNotFoundError: No module named 'hawkeye_vision.record'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2158,7 +2158,7 @@ class SegmentWriter:
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/test_record.py -v`
+Run: `cd vision && python3 -m pytest tests/test_record.py -v`
 Expected: PASS, 7 passed
 
 - [ ] **Step 5: Commit**
@@ -2352,7 +2352,7 @@ Append to `.gitignore` at the repo root:
 vision/tests/footage/
 ```
 
-Run: `cd vision && python -m pytest tests/test_yolo.py -v -m integration`
+Run: `cd vision && python3 -m pytest tests/test_yolo.py -v -m integration`
 Expected: PASS, 4 passed. If `test_track_identity_survives_a_crossing_occlusion` reports more ids than people who were in shot, the fixture is short or the lighting is poor - re-record before tuning thresholds.
 
 - [ ] **Step 5: Commit**
@@ -2434,7 +2434,7 @@ def test_boxes_are_scaled_from_normalised_coordinates_to_the_frame():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd vision && python -m pytest tests/test_overlay.py -v`
+Run: `cd vision && python3 -m pytest tests/test_overlay.py -v`
 Expected: FAIL, `ModuleNotFoundError: No module named 'hawkeye_vision.overlay'`
 
 - [ ] **Step 3: Write minimal implementation**
@@ -2629,10 +2629,10 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cd vision && python -m pytest tests/test_overlay.py -v`
+Run: `cd vision && python3 -m pytest tests/test_overlay.py -v`
 Expected: PASS, 4 passed
 
-Run the whole fast suite: `cd vision && python -m pytest tests/ -m 'not integration' -q`
+Run the whole fast suite: `cd vision && python3 -m pytest tests/ -m 'not integration' -q`
 Expected: PASS, everything green
 
 - [ ] **Step 5: Verify against the live camera**
@@ -2734,12 +2734,32 @@ git commit -m "Record that there is no IR path, and what replaces it"
 
 ## Verification: the whole of Phase A
 
-- [ ] Run the fast suite: `cd vision && python -m pytest tests/ -m 'not integration' -q`
-- [ ] Run the integration suite: `cd vision && python -m pytest tests/ -m integration -q`
-- [ ] Run the agents suite, confirming nothing regressed: `cd agents && python -m pytest -q`
-- [ ] Run the backend suite, confirming the new `Source` values broke nothing: `cd app/backend && python -m pytest -q`
+- [ ] Run the fast suite: `cd vision && python3 -m pytest tests/ -m 'not integration' -q`
+- [ ] Run the integration suite: `cd vision && python3 -m pytest tests/ -m integration -q`
+- [ ] Run the agents suite, confirming nothing regressed: `cd agents && python3 -m pytest -q`
+- [ ] Run the backend suite, confirming the new `Source` values broke nothing: `cd app/backend && python3 -m pytest -q`
 - [ ] Run the live path: `python -m hawkeye_vision --record /tmp/hawkeye-check`, walk through frame, turn the lights off and on, confirm the state transitions and the segment files
-- [ ] Confirm torch is never imported by the fast suite: `cd vision && python -m pytest tests/ -m 'not integration' -q -p no:cacheprovider --collect-only 2>&1 | grep -ci torch` returns 0
+- [ ] Confirm the fast suite passes on a machine with NO torch and NO ultralytics installed.
+
+This is the property that matters, and it is NOT the same as "torch is never imported".
+`build_tracker` reaches for the real tracker first, so the fast suite does import torch whenever torch happens to be present.
+Simulate its absence instead:
+
+```bash
+cd vision && python3 -c "
+import sys, builtins, pytest
+_real = builtins.__import__
+def blocked(name, *a, **k):
+    if name.split('.')[0] in {'torch', 'ultralytics'}:
+        raise ImportError('simulated: not installed')
+    return _real(name, *a, **k)
+builtins.__import__ = blocked
+sys.exit(pytest.main(['tests/','-m','not integration','-q','-p','no:cacheprovider']))
+"
+```
+
+Expected: every fast test passes, because `build_tracker` catches the ImportError and returns an `UnavailableTracker`.
+Measured 2026-09-19: 91 passed in 0.92s.
 
 Phase A is done when all six pass.
 
