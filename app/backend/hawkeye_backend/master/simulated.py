@@ -196,6 +196,8 @@ class SimulatedMasterClient:
         self._rng = random.Random(1872)
 
         self._incident: Incident | None = None
+        self._call_started_for: str | None = None
+        self._participation_mode: str | None = None
         self._script_running = False
         self._detection_running = False
         self._signature_lost = False
@@ -366,6 +368,27 @@ class SimulatedMasterClient:
         # the shape agents/replay will return. The API layer does this because it
         # owns the store; returning None here delegates to it.
         return None
+
+    async def start_call(self, incident: Incident) -> None:
+        """Release the (scripted) call for a human-raised incident.
+
+        Structural, not conventional, same as everywhere else in this class:
+        the guard runs even in simulated mode so a bug here cannot quietly
+        skip the one rule the whole project is built around.
+        """
+        assert_human_released(incident)
+        self._call_started_for = incident.incident_id
+
+    async def set_participation_mode(
+        self, incident_id: str, mode: str, *, by_human: bool
+    ) -> str:
+        self._participation_mode = mode
+        label = {
+            "watching": "Listening only.",
+            "whisper": "Speak - they'll hear you, your phone stays silent.",
+            "full_voice": "Sound on - your phone will be audible.",
+        }.get(mode, f"Mode changed to {mode}.")
+        return label
 
     # ------------------------------------------------------------- state ticker
 

@@ -97,7 +97,17 @@ struct HomeView: View {
             }
         }
         .onChange(of: client.incident?.id) { _, newID in
-            guard let newID, newID != locallyEndedIncidentID else { return }
+            guard let newID else {
+                // The backend has caught up and actually cleared the incident,
+                // so the local override that was standing in for a stand-down
+                // route is no longer needed. Clearing it here is what lets the
+                // next incident register as new even when it reuses the same
+                // ID (the mock always raises "inc-0001"); leaving it set would
+                // make every call after the first look like the one just ended.
+                locallyEndedIncidentID = nil
+                return
+            }
+            guard newID != locallyEndedIncidentID else { return }
             showingCall = true
         }
         .fullScreenCover(item: Binding<Incident?>(
@@ -291,7 +301,7 @@ private struct IncidentBar: View {
                 ) {
                     Task { try? await client.raiseIncident(.burglary) }
                 } label: {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    Image(systemName: "phone.fill")
                         .font(.system(size: 36, weight: .semibold))
                         .foregroundStyle(Palette.ink)
                         .frame(width: 108, height: 108)

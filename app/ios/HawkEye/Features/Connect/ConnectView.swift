@@ -142,6 +142,7 @@ private struct HubRow: View {
                 }
                 .padding(.trailing, Space.md)
             }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.pressable)
         .background(

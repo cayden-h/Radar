@@ -30,6 +30,9 @@ agents/build/
 # IS the agent, and anything holding it can speak as a verified Hawk Eye agent.
 agents/.ans/
 
+# Local git worktrees
+.worktrees/
+
 # YOLO weights. Roughly 40MB, downloaded by `vision/` on first use and
 # pre-fetched before the demo because the venue network cannot be relied on.
 *.pt
