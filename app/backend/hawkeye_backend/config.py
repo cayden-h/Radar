@@ -54,6 +54,23 @@ class Settings(BaseSettings):
     # client appends the `/v1/...` path itself.
     edge_base_url: str = "http://127.0.0.1:8787"
 
+    # The mesh wire, and the shutter hop in particular. A comma-separated
+    # `slug=url` list, e.g. `master=https://master.hawkeye.example,shutter=...`.
+    # The agent processes read this same `HAWKEYE_PEERS` env var directly (see
+    # agents/agents/__main__.py); it is declared here so one config file carries
+    # every knob the deployment needs and the hub can name its peers without a
+    # second source of truth. Empty means the in-process LocalMesh stands in and
+    # verifies nothing, which the stack reports honestly rather than hiding.
+    peers: str = ""
+
+    # Where agents/master reaches agents/caller's transport server so a human
+    # tap can release a 911 call. The master process reads this same
+    # `HAWKEYE_CALLER_TRANSPORT_URL` env var directly; declared here for the same
+    # single-config-file reason as `peers`. Empty means master has no way to
+    # reach the caller transport and the call bridge fails closed with a 500
+    # rather than doing nothing silently.
+    caller_transport_url: str = ""
+
     # Simulated mode only. Multiply every scripted delay; 0.25 makes the demo run
     # four times faster for a rehearsal, 1.0 is realistic timing.
     sim_speed: float = 1.0
@@ -91,6 +108,17 @@ class Settings(BaseSettings):
     # could inject frames into the camera feed, and the camera feed is the one
     # surface a human is asked to believe.
     edge_token: SecretStr = SecretStr("")
+
+    # Where the camera frames come from. The seam is vision/hawkeye_vision, and
+    # this selects it declaratively rather than by a CLI flag:
+    #   "edge"          - frames arrive from the Pi over the edge websocket
+    #                     (the deployed path; the Pi holds the camera)
+    #   "fixture:<path>" - replay an mp4 file, no camera and no Pi
+    #   "webcam:<index>" - open a local AVFoundation device by index
+    # Empty defers to the vision path's own default. This service does not hold
+    # the model or the Gemini session; it names the source so the wire is one
+    # config file rather than a flag the operator has to remember.
+    vision_source: str = ""
 
     # Frames older than this are not presentable as current. See
     # hawkeye_backend/edge/camera.py.
