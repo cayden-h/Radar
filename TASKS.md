@@ -116,19 +116,25 @@ Rename `agents/agents/people/` to `agents/agents/presence/`. Contract is the fou
 
 **Done when** the agent ticks against a recorded CSI session and emits motion claims, and its card's `x-hawkeye.mustNotClaim` lists respiration, headcount, personhood and identity, with a test asserting it.
 
-### T11 - Deploy the five existing agents to public hostnames
-**Lane** A · **Skill** ops · **Blocks** T12, T50 · **Who** ___
+### ~~T11 - Deploy the five existing agents to public hostnames~~ **Done 2026-09-20.**
+**Lane** A · **Skill** ops · **Blocks** T12, T50
 
-**This is the hard track requirement and it has been open for a day.** Vultr, one box, seven processes behind a reverse proxy, TLS terminating at the edge.
+All seven are live on Vultr at `66.135.27.67`, one `hawkeye-agent@<slug>` process each behind Caddy, Let's Encrypt terminating at the edge. `curl https://master.batradar.club/.well-known/agent-card.json` works from anywhere.
 
-**Done when** `curl https://<host>/.well-known/agent-card.json` works from a phone on cellular, for every agent that exists at that moment.
-
-**Do this before the agents are finished.** Empty agents reachable now beats complete agents on a laptop on Sunday.
+The mesh is wired over the public hostnames rather than localhost: each agent builds its trust store from its peers' published trust cards, and `master` admits six verified claims per tick. **`docs/deploy.md` is the runbook**, including why the agents must be restarted one at a time.
 
 ### T12 - Register the domain and the agents with ANS
 **Lane** A · **Skill** ops · **Needs** T11 · **Blocks** T50 · **Who** ___
 
 GoDaddy Registry. DNSSEC on. Register each agent, publish the `_ans` records, seal registration into the transparency log.
+
+**Five of seven are ACTIVE** - `people`, `intruder`, `master`, `caller`, `replay`, registered 2026-09-19, certificates issued, transparency-log badges held in `agents/.ans/`.
+
+**`presence`, `vision` and `shutter` are registered and have passed domain validation**, and are stuck at `PENDING_DNS` waiting on two TXT records each. `scripts/register-agents.sh` is now roster-driven and skips anything already registered. The remaining records are in each agent's `.ans/<slug>/status.json`.
+
+**Blocked on Porkbun.** Its bulk DNS page freezes its own renderer on TXT records; the seven A records went in through the same form without complaint. A Porkbun API key would make this and every future record trivial.
+
+`people` stays registered and unserved. It is the pre-pivot name for `presence`, and leaving it ACTIVE is harmless.
 
 **Done when** `agent.webmesh.ai verify_agent` returns a passing `compatibility_verdict` for at least `master` and `shutter`.
 
