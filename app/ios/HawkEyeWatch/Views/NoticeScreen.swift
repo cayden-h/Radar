@@ -34,9 +34,12 @@ struct NoticeScreen: View {
                 frame
 
                 Text(notice.narration)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundStyle(Palette.ink)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(Space.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .glassPanel(cornerRadius: Radius.sm)
 
                 if deliveryFailed {
                     failureBanner
@@ -50,7 +53,6 @@ struct NoticeScreen: View {
             .padding(.bottom, Space.md)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Palette.ground)
     }
 
     // MARK: Pieces
@@ -105,15 +107,17 @@ struct NoticeScreen: View {
         .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .strokeBorder(Palette.hairline, lineWidth: 1)
+                .strokeBorder(Palette.glassBorder, lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
     }
 
     private var noFrame: some View {
         ZStack {
-            Palette.surface
+            Rectangle().fill(.ultraThinMaterial.opacity(0.12))
+            Rectangle().fill(Palette.glassTint)
             Text("The shield stayed closed.\nThere is no picture.")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11, weight: .medium, design: .rounded))
                 .foregroundStyle(Palette.inkMuted)
                 .multilineTextAlignment(.center)
         }
@@ -133,7 +137,7 @@ struct NoticeScreen: View {
             }
 
             Text("To name this visitor, use your phone.")
-                .font(.system(size: 10))
+                .font(.system(size: 10, design: .rounded))
                 .foregroundStyle(Palette.inkFaint)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
@@ -144,7 +148,7 @@ struct NoticeScreen: View {
             ProgressView()
                 .controlSize(.small)
             Text("Sending to your phone")
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(Palette.inkMuted)
         }
         .frame(maxWidth: .infinity, minHeight: 48)
@@ -153,20 +157,17 @@ struct NoticeScreen: View {
     private var failureBanner: some View {
         VStack(spacing: Space.sm) {
             Text("That did not reach your phone.")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(Palette.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Nothing was raised. Try again, or use your phone.")
-                .font(.system(size: 11))
+                .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(Palette.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
             TapControl(title: "Try again", action: dismissFailure)
         }
         .frame(maxWidth: .infinity)
         .padding(Space.sm)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .fill(Palette.personUnresponsive.opacity(0.16))
-        )
+        .glassPanel(tint: Palette.personUnresponsive)
     }
 }

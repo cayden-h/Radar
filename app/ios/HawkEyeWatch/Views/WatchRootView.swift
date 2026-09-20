@@ -31,7 +31,7 @@ struct WatchRootView: View {
             }
         }
         .animation(Motion.standard, value: model.screen)
-        .containerBackground(Palette.ground.gradient, for: .navigation)
+        .containerBackground(for: .navigation) { AmbientBackground() }
         .tint(Palette.calm)
         .onAppear { model.start() }
     }
