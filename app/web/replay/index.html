@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hawk Eye - incident records</title>
+<title>Hawk Eye - video segments</title>
 <link rel="stylesheet" href="console.css">
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <span class="mark" aria-hidden="true"></span>
+    <img class="mark" src="mascot.png" alt="" aria-hidden="true">
     <div>
-      <h1>Incident records</h1>
-      <p class="sub" id="hubline">Loading&hellip;</p>
+      <h1>Video segments</h1>
+      <p class="sub">Hawk Eye Hub</p>
     </div>
   </div>
   <div class="topmeta" id="topmeta">
@@ -25,33 +25,37 @@
 <main class="wrap">
   <section class="preamble">
     <p>
-      Each record below was opened the moment a person in the house raised an incident,
-      and sealed when the 911 call ended. Entries are hash-chained: changing any one of
-      them changes every hash after it.
+      Every rotating segment <code>vision/</code> writes while a shield is open, hashed as it
+      closes. One row per file: which incident and room it belongs to, when it was recorded,
+      and the hash that ties it to the sealed record.
     </p>
-    <p class="caution">
-      No transparency-log receipt is attached yet, so a record is tamper-evident to
-      whoever holds it and to nobody else. The export says so too.
+    <p class="caution glass mockcaution">
+      <span class="tag">SAMPLE DATA</span>
+      <span>
+        The backend has no endpoint serving segment metadata yet &mdash; <code>vision/</code>
+        writes the files, but nothing in <code>app/backend</code> exposes them over the API. The
+        rows below show the shape this table is built for, not a live read. Nothing here should
+        be read as evidence.
+      </span>
     </p>
   </section>
 
-  <!-- Where sealed records are kept. Drawn from GET /v1/replay's `archive`
-       block. A configured archive that is unreachable looks exactly like
-       "nothing has happened yet" unless the page says otherwise, so it says
-       otherwise. -->
-  <div id="archive" class="archive" hidden></div>
-
-  <div id="records" class="cards"></div>
-  <div id="empty" class="empty" hidden>
-    <h2>Nothing recorded yet</h2>
-    <p>
-      A record opens when a person raises an incident from the app, and never
-      on the system&rsquo;s own initiative. Nothing here records itself.
-    </p>
-    <p class="hint">
-      To produce one against the simulated hub:
-      <code>curl -X POST "http://127.0.0.1:8787/v1/demo/run?simulate_human_tap=true"</code>
-    </p>
+  <div class="tablewrap glass">
+    <table class="vtable">
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Incident</th>
+          <th>Room</th>
+          <th>Recorded</th>
+          <th>Duration</th>
+          <th>Size</th>
+          <th>SHA-256</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
   </div>
 </main>
 
