@@ -1,5 +1,20 @@
 # Per-agent domain research
 
+**Pivot note, 2026-09-19. Large parts of this file are now history and it needs a rewrite - see `TASKS.md`.**
+
+What is still current:
+
+- `intruder`'s brief, including the roster-plus-device-association rule and the named holes
+- `master`'s verification order and the dispatch-address binding
+- `caller`'s guidance rules, minus the fire-ground protocol
+- `replay`'s brief, plus the police email
+
+What is history: every respiration threshold, every personhood rule, the adult/child/pet bands, the counting limits, the CO thresholds, and the entire `people` brief.
+
+What is missing and must be written: briefs for `shutter` and `vision`. Their "must not claim" lines live in `shutter/CLAUDE.md` and `vision/CLAUDE.md` for now, and those are authoritative until this file catches up.
+
+See `docs/PIVOT.md`.
+
 Researched 2026-09-19. One brief per agent: what it needs to know, what thresholds it acts on, and what it must not claim.
 
 **Restructured 2026-09-19** when the roster was cut from nine agents to five.

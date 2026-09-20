@@ -1,5 +1,10 @@
 # The incident types
 
+**Pivot note, 2026-09-19.** Burglary is the only surviving incident type and its figures below still stand.
+**The Fire sections are now history**, kept for the same reason the Faint sections were: they record what motivated the original design and the decision that cut it. Fire went with the simulated gas sensor.
+The headline also changed. It is no longer responsiveness, and it is no longer the long lie. It is that **responders arriving at a building do not know who is inside**, and a camera that was physically covered until thirty seconds ago is what closes that.
+See `docs/PIVOT.md`.
+
 Researched 2026-09-19. Every figure here was verified during that session; sources are linked inline.
 Use these numbers in the pitch, the Devpost page, and the video. Do not round them upward.
 

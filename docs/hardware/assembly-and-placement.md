@@ -1,5 +1,14 @@
 # Assembly and placement
 
+**Pivot note, 2026-09-19.** This guide predates the camera pivot and much of its geometry reasoning is now historical.
+Respiration, heart rate and counting were all cut, so **the only CSI capability the geometry has to serve is motion**, which is the least demanding one on this page and needs no baseline at all.
+Read the range-test section as "confirm motion is detectable where people walk in", and treat every respiration distance, Fresnel note and subcarrier-width argument as background rather than a constraint.
+See `docs/PIVOT.md`.
+
+**What this guide does not yet cover is the camera and the servo**, which are now the primary sensor and the primary actuator.
+Their placement rules are in [logitech-camera.md](logitech-camera.md) and [servo-sg92r.md](servo-sg92r.md).
+The one interaction worth knowing here: **CSI geometry wants the Pi opposite the router with people in between, and the camera wants to face the entry point.** Those pull in different directions and are reconciled by a USB extension cable, because the camera does not have to be near the Pi.
+
 How the four devices physically connect, and where in the room they go.
 
 The wiring is easy.

@@ -1,5 +1,9 @@
 # The agent attack landscape
 
+**Pivot note, 2026-09-19.** The threat model is unchanged and the mapping still holds.
+One addition worth folding in: the Infinite Impostor is now instantiated **twice** in this system - a compromised sensing agent between a house and `master`, and a compromised `master` between a real verdict and a physical camera shield. The second one is the demonstrable case.
+See `docs/PIVOT.md`.
+
 Assigned research item 3 from the GoDaddy track briefing.
 Written 2026-09-19. Every claim carries a link.
 

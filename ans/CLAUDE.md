@@ -1,5 +1,9 @@
 # ans/
 
+**Pivot note, 2026-09-19.** The roster went from five agents to seven: `people` became `presence`, and `shutter` and `vision` were added. Register and card all seven.
+The safety-dimension argument in this file got materially stronger: corroborating an agent's claim against physical reality now means comparing it against recorded footage a human can also check, rather than against a second view of one radio.
+See `docs/PIVOT.md`.
+
 ANS registration, certificates, domain setup, and our Trust Index contribution.
 Shared plumbing for everything in `agents/`.
 

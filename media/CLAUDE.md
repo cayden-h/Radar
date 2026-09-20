@@ -1,5 +1,9 @@
 # media/
 
+**Pivot note, 2026-09-19.** The subject changed. The hero shot is no longer a volumetric room with presences resolving out of RF noise; it is **a shield rotating off a camera lens while the grant's signature resolves alongside it**.
+Every reference below to respiration, breathing, falls or Fire is history. There is one incident type, Intrusion, and the video's job is the sequence in `TASKS.md` T52.
+See `docs/PIVOT.md`.
+
 The demo video, plus the cinematic layer: Blender hero loop, pitch deck opener, Devpost thumbnail.
 
 Read the root `CLAUDE.md` first.

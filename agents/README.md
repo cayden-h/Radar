@@ -1,5 +1,9 @@
 # agents/
 
+**Pivot note, 2026-09-19.** Seven agents now, not five. `people` is `presence`; `shutter` and `vision` are new.
+Run commands below gain `python -m agents shutter --port 8106` and `python -m agents vision --port 8107`, and `HAWKEYE_PEERS` must list them.
+See `docs/PIVOT.md` and `agents/CLAUDE.md`.
+
 The five ANS-registered agents behind Hawk Eye.
 
 `CLAUDE.md` in this directory is the contract and the reasoning.

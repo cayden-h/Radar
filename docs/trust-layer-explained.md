@@ -1,5 +1,9 @@
 # The trust layer, explained
 
+**Pivot note, 2026-09-19.** The trust layer is untouched by the camera pivot; this file's mechanics are all still correct.
+Two substitutions when you read it: the roster is seven agents rather than five, and the canonical "something valuable moves" example is now a servo uncovering a camera lens rather than an armed response to an address. The second is the one to use on stage, because a judge can watch it happen.
+See `docs/PIVOT.md`.
+
 What `agents/master` actually does to a claim before `agents/caller` is allowed to say it out loud,
 and what the thirteen `fraud.webmesh.ai` attacks are trying to do to it.
 

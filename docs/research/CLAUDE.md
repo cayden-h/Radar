@@ -1,5 +1,9 @@
 # docs/research/
 
+**Pivot note, 2026-09-19.** The research deliverables survive; the incident data does not, in part.
+Fire and Faint are both cut and their sections in `incidents.md` are history. Burglary is the one remaining incident type and its figures still stand.
+See `docs/PIVOT.md`.
+
 Verified background research. Written 2026-09-19.
 
 Everything here was checked against a primary or near-primary source during that session, and the sources are linked inline in each file.

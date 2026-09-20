@@ -17,25 +17,38 @@ Read the root `CLAUDE.md` first, especially the honesty rule.
 3. **A half-flipped system must fail loudly.**
    Live mode never falls back to simulated. If the agent mesh is not there, the hub returns `503`, it does not invent an answer.
 
-## Status, as of 2026-09-19
+## Status, after the 2026-09-19 camera pivot
 
 | Layer | State today | Seam | Flip |
 |---|---|---|---|
 | iOS app | Mock client, in process | `app/ios/HawkEye/Config.swift` | `useMocks = false` |
+| watchOS app | Not built | `app/watch/` | n/a |
 | Hub backend | Simulated master | `HAWKEYE_MODE` env var | `HAWKEYE_MODE=live` |
 | Storage | In memory | `HAWKEYE_STORE_BACKEND` | `mongodb` (not implemented yet) |
-| Five agents | Written, tested, wired over A2A | `HAWKEYE_PEERS` env var | Set it to a `slug=url` list |
+| Agent mesh | Five written and wired over A2A; `shutter` and `vision` not yet | `HAWKEYE_PEERS` env var | Set it to a `slug=url` list |
 | Agent certificates | Raw public keys from published cards, no chain | `discovery._agent_from_card` | Validate `keys[].x5c` once ANS registration exists |
 | mTLS between agents | Declared on the cards, not enforced | Reverse proxy | Enable, and update `x-security-note` in the same commit |
-| CSI sensing | Not brought up | n/a | n/a |
-| Gas sensor | Simulated, permanently | `provenance.source` | Stays `demo-trigger` |
+| CSI sensing | Brought up, demoted to motion | `sensor/` output contract | n/a |
+| **Servo / shield** | **Not built. Stub GPIO backend planned** | `shutter/gpio.py` | Swap the stub for `pigpio` |
+| **Camera** | **Not built. Fixture video file planned** | `vision/source.py` | Swap the file reader for V4L2 |
+| **Gemini Live narration** | **Not built** | `vision/narrator.py` | Real API key, real session |
+| **Police email** | **Not built** | `replay/courier.py` | Real Resend key |
 | ANS identities | `.invalid` placeholders | `HAWKEYE_HUB_ANSNAME`, `HAWKEYE_MASTER_ANSNAME` | Real registered names |
 | Voice to 911 | Text only, no audio | Not built | n/a |
+| ~~Gas sensor~~ | **Deleted 2026-09-19** | n/a | Gone with the Fire incident type |
 
-Two of these are not "not done yet", they are settled design:
+One of these is not "not done yet", it is settled design:
 
-- **The gas sensor stays simulated.** No gas sensor was purchased and none will be. The interface is real and a driver drops in behind it. See the honesty rule.
 - **The operator link never gets ANS.** The far end is a person. This is the architecture, not a gap.
+
+### What the pivot did to this page
+
+It got shorter in the place that mattered.
+
+The gas sensor was the project's only genuinely fabricated input, and it is gone.
+**Everything still on the simulated side of this table is unbuilt rather than unbuildable**, and every one of them has a real seam with a real driver on the other side.
+
+That is a materially better thing to say on stage than what came before it.
 
 ## iOS app
 
@@ -101,7 +114,7 @@ The settings worth knowing:
 
 **Storage:** `Store` is a protocol, `InMemoryStore` is real, and `MongoStore` raises `NotImplementedError` rather than silently degrading. `build_store()` is the single swap point.
 
-## The five agents
+## The agents
 
 **Written and wired as of 2026-09-19**, with their domain logic, their identities, their cards, the A2A transport between them, and 74 tests. The roster was nine until that date; the merge rationale is in `agents/CLAUDE.md`.
 
@@ -143,14 +156,36 @@ Two failure modes from the hardware guides are worth repeating, because both rep
 - Without the traffic generator, CSI updates only on beacons at roughly 10 Hz, which never resolves a heart rate or a short motion transient.
 - With the router and the Pi on the same side of the room, the capture goes flat and looks exactly like a failed firmware patch.
 
-## The gas sensor, which stays simulated
+## The camera and the shield, which are unbuilt rather than simulated
 
-The gas reading `agents/master` takes is the clear case of the honesty rule, and it is not a gap to close.
+Both follow the same pattern and it is the pattern this whole file is about.
 
-No gas sensor was purchased and none will be. The reading is simulated and says so in the data: `provenance.source` is the literal string `demo-trigger`, and `source_class` and `simulated` are computed from it rather than set by the producer.
-The iOS app reads that field and renders a `SIM` chip next to the CO number, so a simulated reading cannot reach the screen dressed as a measured one.
+**`shutter`** is developed against a stub GPIO backend that records the angle it was told to move to and returns it.
+Every refusal test, every nonce test, and the whole verification path run against that stub on a laptop with no hardware present.
+Flipping it is one class: `pigpio` instead of the stub, the two calibrated pulse widths from `docs/hardware/servo-sg92r.md`, and nothing above it changes.
 
-Adding a real sensor is a driver behind an interface that already exists, and nothing above it changes.
+**How to tell the flip worked:** the attestation's `commanded_angle` matches what the servo actually did, and a camera frame taken with the shield closed is black. That second check is the one that matters and it is in the camera guide.
+
+**`vision`** is developed against a fixture video file played at real time.
+The claim shape, the shutter gate, the luminance guard and the segment writer are all exercised without a camera.
+Flipping it is one class: V4L2 instead of the file reader.
+
+**How to tell the flip worked:** the segment files have a growing timestamp and a non-trivial file size, and the narration changes when someone walks in front of the lens. A fixture that loops produces narration that repeats on a cycle, which is the half-flipped state to watch for.
+
+**The Gemini Live session** is the one part with an external dependency, and it is deliberately the least load-bearing.
+With no key, `vision` still records, and claims go to `Unknown(reason="narrator_unreachable")`.
+The half-flipped state to watch for is a key that authenticates but has no quota, which returns errors that look like network failures.
+
+## The gas sensor, which was deleted
+
+Kept here as history, because it was this file's headline entry for a day and someone will look for it.
+
+`agents/master` read a simulated carbon monoxide sensor. No gas sensor was ever purchased. The reading carried `provenance.source = "demo-trigger"`, and the iOS app rendered a `SIM` chip next to the number so a simulated reading could not reach the screen dressed as a measured one.
+
+**It was deleted in the 2026-09-19 pivot**, along with `agents/master/environment.py` and the Fire incident type it existed to serve.
+
+The reason it is worth a paragraph rather than a deletion: it was the only input in the system that **skipped the verification gate**, because `master` was both its producer and its consumer.
+Removing it means every input `master` now acts on arrived through the gate from an independently registered agent. That is a strictly better trust story and it costs one sentence to tell.
 
 **Never claim a sensing capability the physics does not support.** CSI cannot measure gas composition. Oxygen absorption is a roughly 60 GHz phenomenon and the BCM43455c0 is a 2.4/5 GHz radio.
 
@@ -258,6 +293,14 @@ These are the combinations that waste an evening, because most of them look like
 | Backend to live | Expecting `/v1/demo/run` | `404`. There is no way to fake an emergency against a live mesh, deliberately. |
 | Store to mongodb | It is not implemented | `NotImplementedError` at boot, on purpose, rather than silent data loss. |
 | Nothing | Pi and router on one table | Flat capture that looks exactly like a failed firmware patch. |
+| Shutter to real GPIO | Servo on the Pi's 5V rail | The Pi browns out when the shield moves. Presents as the camera dying, or the CSI capture dying, or an unreachable Pi. Never mentions the servo. |
+| Shutter to real GPIO | Pulse width not stopped after the move | The shield buzzes and twitches at rest, on camera, in the footage. |
+| Shutter to real GPIO | Closed position not recalibrated after the mount was touched | **The worst one.** The shield partly covers, frames are not black, and the privacy claim is quietly false while everything reports healthy. Check with a live frame, not by eye. |
+| Vision to real camera | Fixture file still configured | Narration repeats on a fixed cycle. Looks like a model quirk, is a config bug. |
+| Vision to real camera | Auto-exposure left on | Narration contradicts itself one second apart on a live call. |
+| Vision to real camera | Two processes opening `/dev/video0` | "Device busy", usually the first time the recorder and narrator are run separately. |
+| Gemini key set | No quota on the key | Errors that look exactly like network failures. `narrator_unreachable` either way, so recording continues, which is the design working. |
+| Resend key set | Domain not verified | Sends accepted, nothing delivered. The chain records a successful send. **Verify the domain and send one real test email before the demo.** |
 
 ## Which mode for which demo
 
@@ -265,6 +308,8 @@ These are the combinations that waste an evening, because most of them look like
 
 **Hub running, no agents.** iOS `useMocks = false`, backend `HAWKEYE_MODE=simulated`, phone and hub on the same network. This exercises the real transport, the real Codable types and the real websocket against a scripted incident.
 
-**Full stack.** Everything above plus `HAWKEYE_MODE=live` and the agent mesh up.
+**Full stack, no hardware.** Everything above plus `HAWKEYE_MODE=live` and the agent mesh up, with `shutter` on its stub GPIO backend and `vision` on a fixture video file. **This is the mode the live judging demo should run in if the hardware is not cooperating**, and it exercises every ANS path including the refusal.
+
+**Full stack with hardware.** The above, plus the servo on `pigpio` and the camera on V4L2. This is what the house shoot films and what the judging table runs if the bring-up holds.
 
 Per the working agreements in the root `CLAUDE.md`: anything that must be demoed live needs a recorded fallback by Saturday night.

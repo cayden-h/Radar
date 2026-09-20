@@ -4,7 +4,8 @@ Source of truth for every Mermaid diagram on the Notion page.
 Notion renders these live, but Notion is not version control, so they live here and get pushed there.
 
 **If you change one, change it here first, then push it to Notion.**
-Before 2026-09-19 these existed only in Notion and were not backed up anywhere.
+
+**Rewritten 2026-09-19 for the camera pivot.** The previous five diagrams described a respiration-sensing system with two incident types. See `docs/PIVOT.md`.
 
 ## 1. System architecture - the two human boundaries
 
@@ -13,167 +14,174 @@ Human to agent is plain English at both ends. Agent to agent is ANS, every hop.
 
 ```mermaid
 flowchart TD
-    M["MacBook<br/>traffic generator"]
-    R["TP-Link Archer AX1450"]
-    P["Raspberry Pi 4B<br/>nexmon_csi"]
-    G["Gas reading<br/>SIMULATED - demo-trigger"]
+    router[Home router] -->|802.11ac| pi[sensor/ on Pi 4B<br/>nexmon_csi]
+    pi -->|motion only| presence[presence<br/>motion, zone, device association]
+    roster[(Household roster)] --> intruder
+    presence -->|ANS| intruder[intruder<br/>motion no device accounts for]
+    intruder -->|ANS| master[master<br/>trust boundary + coordinator]
 
-    M -->|"802.11ac frames at 100 Hz"| R
-    R -.->|"RF through walls and people"| P
-    P -->|"Channel State Information"| PE
-    G --> MA
+    master -->|ANS: signed grant| shutter[shutter<br/>SG92R, 90 degrees]
+    shutter -->|ANS: signed attestation| vision[vision<br/>Gemini Live + mp4 segments]
+    vision -->|ANS| master
 
-    subgraph SENSE["Sensing agents"]
-      PE["people<br/>count, location, personhood,<br/>respiration, movement, responsiveness"]
-      INT["intruder<br/>unexpected presence"]
-    end
+    master -->|ANS| caller[caller]
+    master -->|ANS| replay[replay]
 
-    PE -->|ANS| INT
-    NET["roster + device association"] --> INT
+    caller -->|plain English, ElevenLabs| operator([911 operator])
+    caller -->|plain English| resident([The resident])
+    replay -->|Resend| police([Responding department])
 
-    PE -->|ANS| MA
-    INT -->|ANS| MA
-
-    MA["master<br/>trust boundary<br/>reads the gas sensor directly<br/>classifies Burglary / Fire"]
-
-    MA -->|ANS| CA["caller<br/>both human boundaries"]
-    MA -->|ANS| RE["replay"]
-
-    CA ==>|"plain English voice - NO ANS"| OP(["911 operator<br/>a person"])
-    CA ==>|"plain English - NO ANS"| US(["Resident<br/>iOS app"])
-    RE --> LOG[("SCITT transparency log<br/>sealed, append only")]
-
-    classDef human fill:#7a1f1f,stroke:#ff6b6b,color:#fff
-    classDef sim fill:#5a4a00,stroke:#e0c000,color:#fff
-    class OP,US human
-    class G sim
+    classDef human fill:#2b2b2b,stroke:#888,color:#fff
+    class operator,resident,police human
 ```
 
-## 2. The fire path - detection, alert, human tap, call
+**The two dashed-in-spirit edges are the human ones.** There is no ANS there and there cannot be, because the far ends are people.
 
-**Rekeyed 2026-09-19** when the third incident type and fall detection were cut. This diagram used to walk the cut type's path, and the copy in Notion still does.
-The choreography is unchanged, because the choreography was never about a fall: something is sensed, the app raises an alert, a human taps, and only then does anyone dial.
-What changed is the claim that drives it. It is now elevated CO from the gas sensor plus a breathing signature that `people` had and no longer has, which is two independent modalities rather than two views of one CSI stream.
+## 2. The trigger path - motion to wrist in about three seconds
 
-**Corrected 2026-09-19.** The version that sat in Notion until then went straight from `master` to
-`caller` to the operator with no human in between. That contradicted the settled decision, the root
-`CLAUDE.md`, and the shipped code, where `assert_human_released()` raises `AutonomousDialRefused`
-on exactly that path.
-
-The detection is autonomous. **The call is not.**
+The only automatic physical action in the system is a shutter opening.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant P as Pi / CSI
-    participant PE as people
-    participant MA as master
-    participant APP as Resident app
-    participant CA as caller
-    participant OP as 911 operator
+    participant P as presence
+    participant I as intruder
+    participant M as master
+    participant S as shutter
+    participant V as vision
+    participant W as Watch
 
-    P->>PE: respiration signature, back bedroom
-    P->>PE: signature no longer resolvable
-    PE->>PE: clock runs from the LAST resolvable frame
-    PE->>MA: claim: respiration_lost 90s, back bedroom
-    PE->>MA: claim: breathing 11/min, main bedroom
-    MA->>MA: gas sensor: CO above the 70 ppm alarm floor
-    MA->>MA: verify ANSName + version-bound cert per claim
-    MA->>MA: classify FIRE - CO plus a lost signature, two modalities
-    MA->>APP: ALERT - bad air, and a breathing signature just went missing
-
-    Note over MA,CA: Hawk Eye does not dial on its own.<br/>A human tap is what releases caller.
-
-    APP->>MA: resident taps Fire
-    MA->>CA: released to dial, verified claims only
-    CA->>CA: re-verify every source before speaking
-    CA->>OP: "I had a breathing signature in the back bedroom 90 seconds ago<br/>and I do not have one now. 14 Oak Street."
-    CA->>OP: "That is not the same as them having stopped breathing."
-    MA->>APP: transcript line + instruction
-    OP->>CA: "Is anyone else still breathing?"
-    CA->>MA: live query - not cached
-    MA->>PE: ANS-verified query
-    PE-->>MA: 11 breaths per minute, main bedroom
-    MA-->>CA: verified answer
-    CA->>OP: "Yes. One adult, eleven breaths a minute."
-    MA->>APP: instruction: get out now, do not go to the back bedroom
-    MA->>APP: sealed entry written to SCITT
+    Note over P: t = 0.0s, CSI perturbation
+    M->>P: observe(nonce)
+    P-->>M: motion in living_room, 0 devices associated
+    M->>I: observe(nonce)
+    I-->>M: unaccounted, sticky
+    Note over M: t = 0.8s
+    M->>S: shutter.challenge
+    S-->>M: nonce, single use, 10s TTL
+    M->>S: shutter.open(grant signed over that nonce)
+    S->>S: verify against master's published trust card
+    S-->>M: position open, signed attestation
+    Note over S: The shield physically moves
+    M->>V: observe(nonce)
+    V->>S: fetch attestation
+    V->>V: shield clear, open Gemini Live, start recording
+    V-->>M: first description
+    Note over M: t = 3.0s
+    M->>W: notice, carrying the camera's first sentence
+    Note over W: Nothing has dialled
 ```
 
-## 3. The refusal path
+**Step 13 is the claim.** No call exists at this point and `TASKS.md` step 6 of the end-to-end test asserts it.
+
+## 3. The refusal path - the submission
+
+Same sequence, with an impostor in `master`'s place.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant X as Impostor at a lookalike ANSName
+    participant S as shutter
+    participant R as replay
+    participant A as iOS app
+
+    X->>S: shutter.challenge
+    S-->>X: nonce
+    X->>S: shutter.open(grant with a valid signature)
+    S->>S: fetch the issuer's published trust card
+    S->>S: key does not match the registered master
+    S-->>X: refusal: unregistered_issuer
+    Note over S: The shield does not move.<br/>There is no code path from a failed<br/>verification to a GPIO write.
+    S->>R: signed refusal observation
+    R->>R: seal into the hash chain
+    R->>A: shield refused
+    Note over A: "Something asked to open your camera<br/>and could not prove it was allowed to."
+```
+
+**A valid signature is not authorization.** That is the whole difference the fraud battery exists to probe, and here it is a physical object that did not move.
+
+## 4. The human path - watch, phone, operator
 
 ```mermaid
 flowchart TD
-    A["Claim arrives at caller<br/>'breathing signature lost, back bedroom'"] --> B{"Resolve ANSName<br/>via agent.webmesh.ai"}
-    B -->|"does not resolve"| X1["DISCARD<br/>and say what was discarded"]
-    B -->|resolves| C{"Certificate version<br/>matches registered code?"}
-    C -->|"code drift detected"| X2["DISCARD<br/>and say what was discarded"]
-    C -->|match| D{"Trust Index<br/>recommendedProfile"}
-    D -->|UNTRUSTED| X3["DISCARD"]
-    D -->|READ_ONLY| Y1["May inform context.<br/>May NOT trigger dispatch."]
-    D -->|TRANSACTIONAL| Y2["May trigger dispatch"]
-    D -->|FIDUCIARY| Y2
-    Y2 --> E["caller speaks the claim to the operator"]
-    E --> F["Seal into SCITT:<br/>identity, address, each claim, what the operator was told"]
-    X1 --> G["Shown in the app as a refusal,<br/>with the reason"]
-    X2 --> G
-    X3 --> G
+    notice[Notice on the watch<br/>still frame + narration] --> d{Resident decides}
+    d -->|This is expected| dismiss[Vouched for this session<br/>nothing persists]
+    d -->|Remember this visitor| enroll[Named, device bound<br/>next visit raises nothing]
+    d -->|Start Incident, hold 1.5s| inc[Incident opens]
 
-    classDef bad fill:#7a1f1f,stroke:#ff6b6b,color:#fff
-    classDef ok fill:#14532d,stroke:#4ade80,color:#fff
-    class X1,X2,X3 bad
-    class E,F ok
+    inc --> caller[caller dials 911]
+    caller --> op([Operator])
+    op -->|question in English| fan[Fan-out of ANS-verified queries]
+    fan --> ans[Spoken answer from the current frame]
+    ans --> op
+
+    caller --> phone[iOS: transcript, camera feed,<br/>what-is-happening box]
+    inc --> takeover[Take over<br/>agent goes silent mid-sentence]
+
+    op -->|near the end| email[caller asks for a destination address<br/>reads it back, recorded as operator_supplied]
+    email --> replay[replay seals and sends via Resend]
+
+    classDef human fill:#2b2b2b,stroke:#888,color:#fff
+    class op human
 ```
 
-## 4. The iOS app flow
-
-```mermaid
-flowchart LR
-    A["Launch"] --> B["Connect screen<br/>Bonjour _hawkeye._tcp"]
-    B --> C{"Hub selected"}
-    C --> D["GET /v1/hub<br/>verify identity + ANSName"]
-    D -->|fails| B
-    D -->|ok| E["Main screen"]
-
-    E --> F["Live interior view<br/>presences rendered by confidence"]
-    E --> G["Burglary / Fire<br/>manual raise"]
-    E -.->|"WS /v1/stream"| H["Incident screen"]
-    G --> H
-
-    F --> F1["Moving + breathing<br/>= confirmed person"]
-    F --> F2["Signature we had and<br/>no longer have<br/>= NO BREATHING SIGNATURE<br/>loudest thing on screen"]
-    F --> F3["No respiration signature<br/>= unconfirmed presence"]
-
-    H --> I["Live transcript of the 911 call"]
-    H --> J["'What is happening' free text<br/>always visible"]
-    H --> K["Instructions from caller"]
-    H --> L["Verification feed<br/>including what was DISCARDED"]
-
-    classDef alarm fill:#7a1f1f,stroke:#ff6b6b,color:#fff
-    class F2 alarm
-```
+**Three of the four branches out of the decision node do not call anyone.** That is the design, not a gap.
 
 ## 5. Hardware topology
 
 ```mermaid
 flowchart LR
-    subgraph LEFT["One side of the room"]
-      R["TP-Link Archer AX1450<br/>fixed channel, 80MHz, 802.11ac<br/>band steering OFF"]
-    end
-    subgraph MID["The sensed space"]
-      H1["people"]
-    end
-    subgraph RIGHT["Opposite side of the room"]
-      P["Raspberry Pi 4B<br/>WiFi in monitor mode<br/>NO station interface"]
+    subgraph house[The house]
+      router[Archer AX1450<br/>fixed channel, 80MHz<br/>802.11ac, no band steering]
+      mac[MacBook<br/>traffic generator<br/>ping -i 0.01]
+      subgraph pibox[Raspberry Pi 4B]
+        csi[nexmon_csi<br/>wlan0 in monitor mode]
+        gpio[GPIO 18 -> servo]
+        usb[USB -> camera]
+      end
+      servo[SG92R + opaque shield]
+      cam[Logitech USB camera]
+      psu[Separate 5V supply]
     end
 
-    R -.->|"RF path that gets perturbed"| H1
-    H1 -.-> P
-    P ==>|"Cat5 - mandatory, not a convenience"| R
-    M["MacBook<br/>sudo ping -i 0.01 gateway"] -->|WiFi| R
-    I["iPhone - Hawk Eye app"] -->|WiFi| R
-    R --> BE["Backend + agents"]
-
-    classDef wire stroke-width:4px
-    class P wire
+    router -.->|measured channel| csi
+    mac -->|associated, generating frames| router
+    router ---|Cat5, always wired| pibox
+    gpio --> servo
+    usb --> cam
+    psu -->|V+| servo
+    pibox -->|common ground| servo
+    servo -.->|covers / uncovers| cam
 ```
+
+Three things this diagram is trying to stop you doing:
+
+- **The Cat5 is not optional.** `nexmon_csi` holds the WiFi interface in monitor mode, so there is no station interface while capturing
+- **The servo is not on the Pi's 5V rail.** It stalls at over 700mA and browns the Pi out, and the failure presents as the camera or the capture dying
+- **The router and the Pi are on opposite sides of the sensed space.** Side by side produces a flat capture that looks exactly like a failed firmware patch. The camera does not share that constraint, because it is on a USB extension
+
+## 6. What is real and what is not
+
+For the honesty slide. Green is real, amber is a limit stated in the data, and there is no red column any more.
+
+```mermaid
+flowchart TD
+    subgraph real[Real]
+      a1[Every agent identity, certificate and card]
+      a2[The signed transport and every verification]
+      a3[The shutter grant and the servo]
+      a4[CSI motion detection]
+      a5[The camera, the footage, the hash chain]
+    end
+    subgraph limits[Limits, carried in the data]
+      b1[No face recognition against any database<br/>only enrolled residents]
+      b2[One camera, one room, and the scope is a field]
+      b3[Roughly one observation per second]
+      b4[The floor plan is authored, not sensed]
+    end
+    real --> say[Said out loud on stage<br/>before anyone asks]
+    limits --> say
+```
+
+**The pivot removed the only genuinely fabricated input in the project.** The simulated gas sensor is gone, and everything remaining is either real or a stated limit.

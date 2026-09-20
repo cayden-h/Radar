@@ -4,72 +4,164 @@ Hawk Eye. This file provides guidance to Claude Code (claude.ai/code) when worki
 
 ## Status
 
-The idea is locked as of 2026-09-18; the demo format was settled 2026-09-19.
-**The agent roster was cut from nine to five on 2026-09-19** and the five are built. See the architecture section and `agents/CLAUDE.md`.
+**The project pivoted on 2026-09-19.** WiFi sensing was demoted to motion detection and guest authentication, and a shielded camera became the primary sensor.
+`docs/PIVOT.md` records what changed, what was deleted, and what must not be re-proposed. Read it before this file if you have prior context on this repo.
 
-Written as of 2026-09-19:
+What exists right now:
 
-- **`app/ios/`** - the full iOS app. Generate with `cd app/ios && xcodegen generate`.
-  **Built and run on the simulator as of 2026-09-19**, against Xcode 27.0. `xcodebuild ... build` succeeds and all three UI tours pass on an iPhone 17 simulator: `ScreenshotTour` walks Connect to an open incident, `VerificationTour` covers the refusal path, and `NoticeTour` covers the unexpected-presence banner and its dismissal.
-  `swiftc -parse -swift-version 6` over every file remains the fast check; the tours are the real one. See the environment section below for the one-time `xcode-select` step.
-- **`agents/`** - all five agents, with their domain logic, their identities, their two cards each, **the A2A transport between them**, and a 74-test suite. `cd agents && python -m pytest -q`. Run the mesh with `python -m agents people --port 8101` and `HAWKEYE_PEERS=people=http://127.0.0.1:8101 python -m agents master --port 8100`.
-- **`app/backend/`** - the app-facing edge service. It now also **records incidents as they happen**: `hawkeye_backend/replay/` opens a hash-chained record the moment a person raises an incident and seals it when the 911 call ends, rather than reconstructing one at read time.
-- **The unexpected-presence notice** - shipped 2026-09-19. When `agents/intruder` cannot account for a confirmed person, the resident gets a dismissible banner in the app and an SMS through Twilio, which is the only path that reaches a phone that is locked with the app closed. It never raises an incident and never dials. Trigger rule in `app/backend/hawkeye_backend/notices/detector.py`, seams in `docs/swapping-in-real-parts.md`.
-- **`app/web/replay/`** - the replay console, served at `/replay`. The record a detective reads: floor-plan scrubber, the entry log with discards given equal weight, the radio telemetry, an in-browser chain check, and a zip export carrying its own standalone verifier. See `app/backend/README.md`.
-- **`docs/hardware/`** - step-by-step guides for every hardware item and a bring-up checklist.
-- **`docs/research/`**, `docs/fraud-13.md`, `docs/geo.md`, `docs/threat-landscape.md` - the three assigned research deliverables, plus the incident data.
-
-Still outstanding, in rough order of risk:
-
-1. ~~The CSI capture path. No hardware has been brought up yet.~~ **Done 2026-09-19.** Real, varying, non-zero CSI confirmed flowing end to end on the Pi 4B (`nexmon_csi` via the `Makefile.rpi` path - the originally-planned kernel-pinned patch turned out not to match what Raspberry Pi Imager currently ships; see "Kernel reality, corrected 2026-09-19" in `sensor/CLAUDE.md`). Disk image and a first CSI replay session captured. `docs/hardware/bring-up-checklist.md` and `docs/hardware/raspberry-pi-4b.md` are updated with the corrected procedure and recorded values. Still open: capture a proper representative replay session at the actual house shoot, and root-cause why the achieved packet rate (30-70/sec) falls short of the 100+/sec target.
-2. ~~**The nine agents.**~~ ~~**The wire between the five agents.**~~ **Done 2026-09-19.** The roster was cut from nine to five (merge rationale in `agents/CLAUDE.md`), all five are written and tested, and the transport between them is built: **pull-only A2A JSON-RPC with a server-issued challenge**, claims verified against each producer's published trust card before anything downstream sees a field. Proved end to end over real HTTP in `agents/tests/test_wire.py`, refusals included: wrong key, unregistered agent, lookalike ANSName, replayed proof.
-   The design decisions and what they cost are in `agents/CLAUDE.md` under "How they talk to each other". Two worth carrying into the pitch: **pull rather than push, because it lets master control the nonce** so a claim binds to a question we asked rather than a moment the producer chose; and **mTLS is the second layer, not the first**, because it proves the connection where JWS proves the claim, and our threat model is a compromised agent whose connection is perfectly valid.
-3. **ANS registration and hosting.** The deployment is currently broken, and the agents must be internet-reachable rather than on localhost. That is a hard requirement of the primary track, not a nicety. **`agents/TODO.md` is the full work queue** for everything agent-side, in dependency order.
-4. **Agent cards are not published.** Both cards now build per agent as byte-stable artifacts (`cd agents && python scripts/build_cards.py`), every agent serves them, and `--check` fails on drift. What is missing is a registered domain, real certificates, a stapled transparency receipt, and the cards served at real hostnames. This is the surface the judge's own verifier inspects. `ans/CARD.md` is the spec and checklist.
-5. ~~The thirteen probe shapes are not implemented.~~ **Done 2026-09-19.** All thirteen, plus both bonus structural checks, implemented and passing in `app/backend/tests/` against `hawkeye_backend/verification/`. Results table in `docs/fraud-13.md`. `agents/master` now imports that package rather than reimplementing it; the remaining move is physical, and it is an import change.
-
-Re-run `/init` once the agents land so this file can describe actual build and test commands for them.
+- **`agents/`** - the ANS agent mesh, its identities, its two cards each, **the A2A transport between them**, and a test suite. `cd agents && python -m pytest -q`.
+  The trust layer is complete and is the part of this project with the most work already banked. The roster is being reshaped by the pivot; see `agents/CLAUDE.md`.
+- **`app/backend/`** - the app-facing edge service. Holds `hawkeye_backend/verification/`, the claim-envelope defence, all thirteen `fraud.webmesh.ai` shapes implemented and passing. Also records incidents as they happen into a hash-chained replay record.
+- **`app/ios/`** - the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. `cd app/ios && xcodegen generate`. Builds and runs on an iPhone 17 simulator against Xcode 27.0.
+- **`app/watch/`** - the watchOS app. **New with the pivot, not yet written.** This is where a human starts an incident.
+- **`app/web/replay/`** - the replay console at `/replay`. Gains video playback with the pivot.
+- **`sensor/`** - the Pi 4B CSI capture path. Real, varying, non-zero CSI confirmed flowing end to end via `nexmon_csi`. Its output contract shrinks with the pivot.
+- **`vision/`** - the camera capture path. **New, not yet written.**
+- **`shutter/`** - the servo control path. **New, not yet written.**
+- **`docs/hardware/`** - one guide per hardware item, plus a linear bring-up checklist.
+- **`TASKS.md`** - the work board. Dependency-ordered, claimable, not assigned by person. Start there.
 
 ## What we are building
 
-**Hawk Eye.** A home that speaks to 911 for you, and proves to the other agents involved that it is not lying.
+**Hawk Eye. A home that watches only when it has a reason to, and can prove to 911 that it had one.**
 
-A Raspberry Pi connected to the home WiFi router reads Channel State Information and maps where people are inside the house, through walls and in darkness, with no camera and no microphone.
-Five always-running agents interpret that signal and act on it.
-When a person decides to call, one of them places the phone call to a 911 operator and holds a conversation in plain English.
-Another talks the resident through what to do while it happens.
+A Raspberry Pi on the home WiFi reads Channel State Information and notices that something moved.
+It checks that motion against the registered devices in the house.
+If no phone, watch or laptop on the household roster accounts for whoever just walked in, a servo rotates ninety degrees and pulls a physical shield off a camera lens.
 
-Two incident types: **Burglary and Fire.** Each is raised by a human, from the iOS app.
-Faint was the third until 2026-09-19, when fall detection was cut.
-It was the weakest link in the chain, a debounce problem dressed as a clinical variable: sitting down fast, lying down to sleep and a child playing all look like a fall for an instant.
-What a dispatcher actually needs is narrower and defensible, and respiration already answered it.
+Until that moment the camera cannot see. Not "is configured not to record". Cannot see, because there is an opaque object in front of it.
 
-**Hawk Eye never calls 911 on its own.** Settled 2026-09-19.
-The sensing agents detect, classify and inform. They do not dial. A person decides that emergency services are needed, and only then does `agents/caller` place the call.
+Once the shield clears, the camera starts recording and a vision agent begins describing what is in the room.
+The resident gets that description on their watch within about three seconds.
+If they decide it is an emergency, they start the incident from their wrist, and a caller agent places a phone call to a 911 operator and holds a conversation in plain English, driven by what the camera is currently seeing.
 
-This is a deliberate limit, and it is the right one. An AI that autonomously summons armed responders to a physical address is a liability problem, a false-positive problem, and an ethics problem, and a false positive here costs a real dispatch that some other emergency needed.
+When the call ends, everything the incident produced is sealed and emailed to the responding department.
 
-What the agents do is make sure that **when a human does make that call, the dispatcher gets verified information nobody else could give them**: how many people are in the building, which rooms they are in, and whether each of them still has a resolvable breathing signature, which is what decides whether responders should expect an answer from that room.
+**One incident type: Intrusion.** Fire was cut with the simulated gas sensor. Faint was cut earlier the same day.
 
-The signal is `people.respiration_lost`: elapsed seconds since a breathing signature was last resolvable on a presence that previously had one.
-**The transition is the signal.** A presence that never resolved a signature carries no information, because shallow breathing, breath-holding and range limits are indistinguishable from an empty room.
-A lost signature is a reason to look. It is never a finding that someone has stopped breathing, and nothing in this system may say otherwise.
+### Hawk Eye never calls 911 on its own
 
-The fire figures carry the urgency, and they are the ones that survive contact with what we can actually measure.
-In a house fire, toxic gases can render someone unconscious in under a minute, often before they know there is a fire, and a modern room is unsurvivable in under three.
-28% of older adults live alone; among women over 75, 42%, so there is often nobody in the building to answer for them.
+Settled before the pivot, and the pivot strengthens it.
 
-**Responders arriving at a building do not know who is inside or whether those people can answer.** That is the gap, and it is the one thing this system can honestly close. Figures and sources in `docs/research/incidents.md`.
+The only thing that happens without a human is **a shutter opening**, which is a privacy decision with a privacy-sized consequence, gated by the strongest mechanism we have.
+A person decides that emergency services are needed, and only then does `agents/caller` dial.
+
+An AI that autonomously summons armed responders to a physical address is a liability problem, a false-positive problem, and an ethics problem, and a false positive here costs a real dispatch that some other emergency needed.
+
+What the agents do is make sure that **when a human does make that call, the dispatcher gets verified information nobody else could give them**: a live description of who is in the building and what they are doing, produced by a camera that could not have been watching a minute earlier.
 
 ### The two human boundaries
 
 Hawk Eye talks to two people, and to neither of them over ANS.
 
 - **The 911 operator**, by phone, in plain English, both directions.
-- **The resident**, in the iOS app: a live transcript of the call, a "what is happening" box to add context mid-incident, and instructions pushed back as the operator says things.
+- **The resident**, on the watch and in the phone app: the narration as it arrives, a live transcript of the call, a way to add context mid-incident, and instructions pushed back as the operator says things.
 
 Everything behind those two voices is agent to agent, and every hop of it is ANS-verified.
-That asymmetry is the whole architecture. See `agents/CLAUDE.md`.
+That asymmetry is the whole architecture.
+
+## Architecture
+
+```
+        router ──► sensor/ (Pi 4B + nexmon_csi) ──► motion
+                                                     │
+                                                     ▼
+                                                  presence
+                                        something moved, which room,
+                                        which registered devices are attached
+                                                     │
+                                                 ANS │
+                                                     ▼
+       roster + device association ──────────►   intruder
+                                            motion no device accounts for
+                                                     │
+                                                 ANS │
+                                                     ▼
+                                              master (coordinator)
+                                       verifies every claim, discards what it
+                                       cannot, and issues the shutter grant
+                                              │                    │
+                                          ANS │                ANS │
+                                              ▼                    │
+                                          shutter                  │
+                                    SG92R, 90°, shield clears      │
+                                    the lens, position attested    │
+                                              │                    │
+                                          ANS │ open               │
+                                              ▼                    ▼
+                                           vision  ◄───────────────┘
+                                  Gemini Live: continuous narration
+                                  local mp4 segments: the record
+                                              │
+                                          ANS │
+                                              ▼
+                                            master
+                                              │
+                                    ┌─────────┴─────────┐
+                                ANS │                   │ ANS
+                                    ▼                   ▼
+                                 caller               replay
+                                  │   │                 │
+                     ElevenLabs   │   │ watchOS + iOS   │ sealed log + video
+                        voice     ▼   ▼                 ▼
+                           911 operator   the user   Resend ──► police email
+```
+
+**The boundary is the point.**
+Human to agent is plain English, both directions, at both ends. There is no ANS there and there cannot be, because the far ends are people.
+Agent to agent is ANS, every hop.
+
+`master` is the trust boundary. `shutter` and `caller` are the only agents that act on the physical or outside world, and neither acts without a verified grant.
+
+### The seven agents
+
+Tiered by priority in `agents/CLAUDE.md`.
+
+| Agent | Job |
+|---|---|
+| `presence` | Motion, which room, which registered devices are attached to it |
+| `intruder` | Which motion no registered device accounts for |
+| `master` | Trust boundary, coordinator, classifier. Issues the shutter grant |
+| `shutter` | One GPIO pin. Verifies a grant, moves 90 degrees, attests the position, refuses everything else |
+| `vision` | The camera. Gemini Live narration and continuous mp4 to disk |
+| `caller` | ElevenLabs to the operator, guidance to the resident, asks for the police email |
+| `replay` | Seals the record, ships it to the police via Resend |
+
+**It was nine, then five, and is now seven.**
+The cut from nine to five was a merge of components that shared an input and a tick; the rationale is in `agents/CLAUDE.md` and still holds.
+The rise to seven is two genuinely new context boundaries with new physical capabilities, not an un-merge.
+
+**Every agent runs continuously.** Nothing spawns on incident.
+It is structural in the code rather than conventional: `agents.core.base.Agent` has no request entry point, only a `tick` that runs whether or not anyone is asking.
+
+### The timing budget, motion to wrist
+
+The demo lives or dies on this. Every number is a target with a test behind it.
+
+| t | Event |
+|---|---|
+| 0.0s | CSI perturbation crosses the motion threshold |
+| 0.3s | `presence` emits the motion claim on `master`'s next pull |
+| 0.6s | `intruder` returns the unaccounted verdict |
+| 0.8s | `master` issues the shutter grant; `shutter` verifies it and begins moving |
+| 1.2s | Shutter attests open. `vision` opens its Gemini Live session and starts recording |
+| ~3.0s | First narration returns. Push lands on the watch and the phone carrying it |
+
+**The notification carries the first sentence the camera produced**, not a generic "motion detected".
+That difference is the demo.
+
+### The human-facing surface
+
+The app never talks to the seven agents directly.
+It talks to one app-facing edge service, which talks to `master`.
+That keeps the ANS-verified mesh on one side of a line and the human surface on the other, which is the same line the whole architecture is built on.
+
+- **`app/watch/`** is the actor. Notification, Start Incident, transcription controls. Pairs via WatchConnectivity through the phone.
+- **`app/ios/`** is the record. Connect, live camera view, the full transcript, the "what is happening" box, replay.
+- **`app/backend/`** is the edge service both of them talk to.
+
+One flag, `app/ios/HawkEye/Config.swift`, runs the entire app with no hardware and no agents up.
+**The demo must never depend on hardware being alive**, so the mock path is a first-class implementation rather than a branch inside a view.
 
 ## Why ANS is load-bearing here
 
@@ -78,34 +170,34 @@ Every agent belongs to us, so the three-organizations argument does not apply.
 The operator link is plain English over a phone call, in both directions.
 That link cannot carry ANS and never will, because the other end is a person.
 **So the operator cannot verify us, and we must not claim otherwise.**
-A voice asserting "this call is cryptographically verified" is worth exactly what a voice asserting "there is a fire" is worth.
+A voice asserting "this call is cryptographically verified" is worth exactly what a voice asserting "there is an intruder" is worth.
 
 ANS governs every machine hop behind that voice, which is where it belongs.
-What is actually true, and sufficient:
 
-### The agent that speaks to 911 only repeats claims it can verify
+### Identity decides whether a physical object moves
 
-This is the track owner's own model, client agent to server agent, applied where it matters.
-`agents/caller` is the client. The five sensing agents are servers.
+This is the pivot's contribution to the track argument, and it is the strongest version of it the project has had.
 
-Before it says one word to a human being, the caller verifies the source of every claim it is about to repeat.
-The same holds in reverse: when the operator asks a question, the caller answers it only from sources it just verified, live, rather than from cached state it cannot vouch for.
-It is about to tell emergency services that a child in a back bedroom had a breathing signature four minutes ago and does not have one now.
-If the agent that produced that claim is not who it says it is, or is running code that changed since it registered, the caller is the last thing standing between a compromised sensor and an armed response to someone's address.
+`shutter` holds one GPIO pin and an opaque piece of plastic in front of a lens.
+It will move that plastic for exactly one reason: a grant from `master`, signed, bound to a nonce `shutter` itself issued, and verified against the key `master` publishes in its own trust card.
+
+Against the decision filter:
+
+1. **The counterparty is not pre-trusted.** `shutter` has no basis to trust a command beyond what it can verify, and an agent that can uncover a camera in someone's living room is precisely the agent that must not extend trust it cannot check.
+2. **No platform could just solve it.** Agents on the open web, registered independently, with no shared runtime to vouch for them.
+3. **Identity determines whether something valuable moves.** What moves is a physical privacy barrier, on stage, visibly, in front of the judge.
+
+The second half of the same argument is unchanged: the agent that speaks to 911 only repeats claims it can verify.
+Before `caller` says one word to a human being, it verifies the source of every claim it is about to repeat.
+When the operator asks a question, it answers only from sources it just verified, live, rather than from cached state it cannot vouch for.
 
 Version-bound certificates make code drift detectable.
 Trust Index profiles decide what a claim is allowed to trigger.
 Anything unverifiable is discarded, and the system says what it discarded.
 
-Against the decision filter:
-
-1. **The counterparty is not pre-trusted.** The caller agent has no basis to trust a sensing agent's claim beyond what it can verify, and the whole point of the design is that it must not extend trust it cannot check.
-2. **No platform could just solve it.** Agents on the open web, registered independently, with no shared runtime to vouch for them.
-3. **Identity determines whether something valuable moves.** What moves is an armed response to a physical address, sent on the strength of a claim. Getting it wrong is how people have been killed.
-
 ### And the call is attributable afterward
 
-The incident seals into the SCITT transparency log as the call is placed: the caller's identity, the address it is anchored to, what each sensing agent claimed, what the operator was told.
+The incident seals into the SCITT transparency log as the call is placed: the caller's identity, the address it is anchored to, what each agent claimed, what the operator was told, and now the hash of the video.
 Entries cannot be altered after the fact.
 
 The operator cannot check this live. An investigator can check it afterward, and swatting investigations are entirely post-hoc.
@@ -119,99 +211,51 @@ Closing that needs the PSAP side to participate, and no dispatch center runs sof
 
 It is also the right closing line: the moment a dispatch center can resolve an ANSName, live verification falls out of what is already built here.
 
-## Architecture
+## Hardware
 
-```
-        router ──► sensor/ (Pi 4B + nexmon_csi) ──► CSI       gas (simulated)
-                                                     │                │
-                                                     ▼                │
-                                                  people              │
-                                      count, location, personhood,    │
-                                      respiration, movement,          │
-                                      responsiveness                  │
-                                                     │                │
-                                                 ANS │                │
-                                                     ▼                │
-       roster + device association ──────────►   intruder             │
-                                            which body no device      │
-                                              accounts for            │
-                                                     │                │
-                                                 ANS │                │
-                                                     ▼                ▼
-                                             master (coordinator)  ◄───
-                                       verifies every claim, discards
-                                       what it cannot, classifies
-                                       Burglary / Fire
-                                         │                    │
-                                     ANS │                ANS │
-                                         ▼                    ▼
-                                      caller               replay
-                                       │    │                 │
-                          ElevenLabs   │    │ iOS app         │ sealed log
-                             voice     ▼    ▼                 ▼
-                                911 operator  the user   post-incident review
-```
+**Step-by-step guides live in `docs/hardware/`.**
+One guide per item, plus the hookup geometry and a linear bring-up checklist.
+Start at `docs/hardware/README.md`.
 
-**The boundary is the point.**
-Human to agent is plain English, both directions, at both ends. There is no ANS there and there cannot be, because the far ends are people.
-Agent to agent is ANS, every hop.
+Owned, and this is the final list:
 
-`caller` is the translator, in both directions and to both audiences. Nothing crosses a human boundary that was not verified first.
+- Raspberry Pi 4B kit: Pi, ethernet adapter, Cat5 cable, microSD, USB-C power
+- **TP-Link Archer AX1450.** Fixed channel, 80MHz, 802.11ac forced, band steering off. Config table in `sensor/CLAUDE.md`
+- **Logitech USB webcam.** On the Pi. See `docs/hardware/logitech-camera.md`
+- **TowerPro SG92R micro servo.** On the Pi's GPIO, carrying the lens shield. See `docs/hardware/servo-sg92r.md`
+- **The MacBook**, parked on the router's WiFi as the traffic generator
 
-Five agents rather than one, for **context separation and speed, not redundancy.** A judge will ask; that is the answer.
-All five run continuously, which is what lets the system notice things nobody asked it to look for.
+**No further hardware is being purchased.** Plan around this rather than hoping.
 
-**It was nine until 2026-09-19.** The merge is worth being able to explain, because "we cut from nine to five" sounds like a retreat and is the opposite: an agent is a context boundary, not a task, and three components that read the same CSI window, share the same baseline, and always run in the same order are one agent with three steps. `biometrics`, `occupancy` and `collapse` became `people`; `environment` became an input to `master`; `guidance` became the resident-facing half of `caller`. **The hops that carry a claim from something that senses to something that decides to something that speaks are untouched**, which is the line the ANS story actually runs along. Full table and the two costs it carried in `agents/CLAUDE.md`.
+Three things fail quietly rather than loudly and all three are easy to miss:
 
-`master` is the trust boundary and `caller` is the only agent that acts on the outside world.
-Between them they are the last thing standing between a compromised sensor and an armed response to someone's address.
+- **The Pi's network path is wired, always.** `nexmon_csi` holds the WiFi interface in monitor mode, so there is no station interface while capturing. The Cat5 cable is not a convenience
+- **CSI only updates when frames cross the monitored channel.** Without a traffic generator you get beacons at roughly 10 Hz. `sudo ping -i 0.01 <gateway>` from the MacBook fixes it
+- **The servo browns out the Pi if powered from the 5V rail under load.** The SG92R stalls at over 700mA. Guide has the fix
 
-The conversation is two-way and live.
-An operator who asks "is the child still breathing?" causes a fan-out of ANS-verified queries to the sensing agents and gets an answer seconds later, in English.
-That loop is where ANS is visibly doing work during the demo rather than in a setup phase nobody watches.
+A registered domain is required regardless, because ANS is domain-anchored.
+Register through GoDaddy Registry and the MLH "Best Domain Name" prize comes along for free.
 
-Five agents, tiered by priority in `agents/CLAUDE.md`. Per-person agents are roadmap, not this weekend.
+### The honesty rule
 
-Note that the gas reading is deliberately not derived from CSI.
-Two independent sensing modalities agreeing is real corroboration; two views of one CSI stream agreeing is not.
-That is also why `intruder` was not merged into `people`: it reads `people` plus the network, which is different evidence with different failure modes, and one corroborating the other is worth something.
+**`docs/swapping-in-real-parts.md` is the switchboard**: every simulated or mocked thing, where its seam is, how to flip it, how to tell the flip worked, and which half-flipped states look like something else.
+Read it before wiring anything real in.
 
-See `agents/CLAUDE.md` for the agent contracts and `sensor/CLAUDE.md` for the capture path.
+Some capabilities are demonstrated rather than measured. After the pivot there are four, and all four are limits rather than fabrications:
 
-### The human-facing surface
+1. **`vision` does not do face recognition against any database.** It describes a person - build, clothing, what they are carrying, what they are doing - and states whether they match an enrolled resident. Nothing stronger. We have no database and no lawful basis for one
+2. **Gemini samples video at roughly one frame per second.** The narration is a sequence of observations, not continuous tracking, and the docs and the pitch both say so
+3. **One fixed camera sees one room.** Every vision claim is scoped to that room and carries it as a field
+4. **The floor plan is authored, not sensed.** The system does not map walls and cannot, because walls are the static baseline it subtracts to see motion. The room model is drawn once and room labels come from a one-time enrollment walk
 
-The app never talks to the five agents directly.
-It talks to one app-facing edge service, which talks to `master`.
-That keeps the ANS-verified agent mesh on one side of a line and the human surface on the other, which is the same line the whole architecture is built on.
+The rule for all of them:
 
-- **`app/ios/`** is the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. There is no `.xcodeproj` in the repo; `app/ios/project.yml` is an XcodeGen spec. Two stages: a Connect screen listing Hawk Eye hubs found over Bonjour, then the main screen. It is not a WiFi picker and cannot be, because enumerating SSIDs needs the `NEHotspotHelper` entitlement. See `app/CLAUDE.md`.
-- **`app/backend/`** is the edge service the app talks to. See `app/backend/README.md`.
-  It also holds **`hawkeye_backend/verification/`**, the claim-envelope defence: the thirteen `fraud.webmesh.ai` shapes, agent-card signing and drift, and the dispatch-address commitment. Standalone package, no FastAPI imports, so it moves into `agents/master` as an import change. `cd app/backend && .venv/bin/python -m pytest -q` is 184 tests: the 37 security tests, plus the sealed replay record, the two-type incident roster, and the unexpected-presence notice and household roster added 2026-09-19.
+1. **The agent, its ANS identity, its certificate, its card, and its contract are always real.** Those are what the track is judged on and they cost nothing extra
+2. **Limits are carried in the data itself**, not just in a comment. A scoped claim must not be presentable as an unscoped one by accident
+3. **Say it out loud on stage, before anyone asks**
 
-The hub's scripted detection now covers **both** demo cases, selected with `POST /v1/demo/run?scenario=burglary|fire` and defaulting to burglary.
-Burglary is the frame the project is built around: an unexplained perturbation enters the living room with no respiration signature, respiration resolves it into a person no registered device accounts for, and it crosses the unit to the hallway outside the second bedroom.
-It stops at the doorway because a 1x1 radio merges two people within about a metre, and the call states that limit rather than drawing a separation the link cannot measure.
-
-One flag, `app/ios/HawkEye/Config.swift`, runs the entire app with no hardware and no agents up.
-**The demo must never depend on hardware being alive**, so the mock path is a first-class implementation rather than a branch inside a view.
-
-## Upstream: RuView
-
-The sensing layer is a spinoff and modification of https://github.com/ruvnet/ruview (MIT).
-
-RuView does WiFi CSI human sensing: presence, breathing and heart rate, activity recognition, 17-keypoint pose, multi-person counting.
-We are taking its capture and presence/localization path and dropping the parts we do not need.
-
-Keep the line between upstream and our work explicit in code and on Devpost.
-Judges reward a clearly-scoped modification and punish a fork presented as original work.
-What is ours: the ANS identity layer, the agent mesh over the sensing output, the verified-caller path to a human 911 operator, and the compromised-sensor threat model.
-
-## The event
-
-VTHacks 14, Virginia Tech, September 18-20 2026.
-Theme is "Code for the Cup" (soccer); the theme is not a requirement and we are not using it.
-Submission deadline is Sunday September 20, 8:00 AM ET, which is also when judging starts.
-Team of 4.
+Never claim a sensing capability the physics does not support.
+The one judge in the room most equipped to catch that is the one grading us.
 
 ## Primary target: GoDaddy "Best Use of ANS"
 
@@ -222,30 +266,28 @@ Prizes are Meta Ray-Ban Gen 2, Beats Studio Pro, and a Cocopar portable monitor,
 
 From the track briefing, in his framing rather than the spec's:
 
-- The model is client agent to server agent. A shopper agent talking to a bank agent for microtransactions is his canonical example.
-- ANS is the identifier layer for agents on the internet. `agent.webmesh.ai` is the example identifier format.
-- **x509 certificates underpin agent identity.** He drew an explicit line against Cloudflare and DigiCert: certificates are GoDaddy's primary business, not a side offering. DNS protection on GoDaddy domains extends to agents.
-- Agent cards must be kept updated. Public agents appear on the Trust Index inside GoDaddy. What counts as "public" is an open question he did not resolve.
-- The framing he keeps returning to is the **strangers-can-trust problem**. RSA and VeriSign solved a version of this, but only ever proved one side of the connection.
-- Agent sandbox breakout is the concern he hears from governments and industry.
-- **Agents must be built and hosted on the internet, reachable.** Not localhost. This is a hard requirement, not a nicety.
-- Agents get posted to an open agent store in the repo.
+- The model is client agent to server agent. A shopper agent talking to a bank agent for microtransactions is his canonical example
+- ANS is the identifier layer for agents on the internet. `agent.webmesh.ai` is the example identifier format
+- **x509 certificates underpin agent identity.** He drew an explicit line against Cloudflare and DigiCert: certificates are GoDaddy's primary business, not a side offering
+- Agent cards must be kept updated. Public agents appear on the Trust Index inside GoDaddy
+- The framing he keeps returning to is the **strangers-can-trust problem**. RSA and VeriSign solved a version of this, but only ever proved one side of the connection
+- Agent sandbox breakout is the concern he hears from governments and industry
+- **Agents must be built and hosted on the internet, reachable.** Not localhost. This is a hard requirement, not a nicety
+- Agents get posted to an open agent store in the repo
 
 ### Research he explicitly asked for
 
-These are action items from the briefing, not optional background.
+Action items from the briefing, not optional background. All three were written 2026-09-19 and survive the pivot with light edits.
 
-**All three were written 2026-09-19.** They live in `docs/`, not `docs/research/`, because they are deliverables rather than background.
+1. `docs/fraud-13.md` - the 13 attacks at fraud.webmesh.ai, each translated into its Hawk Eye analogue. **The battery cannot be aimed at our agents** (no target parameter; hardwired to `supplier.webmesh.ai`, verified 2026-09-19), so we implement the shapes rather than invoke the suite. All thirteen implemented and passing in `app/backend/tests/`
+2. `docs/geo.md` - GEO, and an opinion on the crawler tradeoff he raised without giving one
+3. `docs/threat-landscape.md` - current agent attacks, OSI coverage, OWASP ASI01-10, MAESTRO, sandbox breakout. The centerpiece of the three
 
-1. `docs/fraud-13.md` - the 13 attacks at fraud.webmesh.ai, each translated into its Hawk Eye analogue. **The battery cannot be aimed at our agents** (no target parameter; hardwired to `supplier.webmesh.ai`, verified 2026-09-19), so we implement the shapes rather than invoke the suite. **All thirteen are implemented and passing** in `app/backend/tests/`; the results table is filled in.
-2. `docs/geo.md` - GEO, and an opinion on the crawler tradeoff he raised without giving one.
-3. `docs/threat-landscape.md` - current agent attacks, OSI coverage, OWASP ASI01-10, MAESTRO, sandbox breakout. The centerpiece of the three.
+Three findings from that session changed how we build:
 
-Three findings from that session changed how we build, not just what we say:
-
-- **The ANS registry ships its own MAESTRO analysis** at `MAESTRO.md`. The track owner's project already mapped its architecture to the framework he asked us to research. Use his layer vocabulary; do not contradict it.
-- **A spending mandate is to money what a verified sensing claim is to an armed response.** That substitution makes the entire fraud battery apply to a system that moves no money, and turns thirteen payment probes into a checklist for `master`. See `docs/fraud-13.md`.
-- **The dispatch address is the binding that matters most.** An agent that can change where a response is sent is a swatting tool no matter how well the claims upstream verify. Bind it at registration and seal it; never carry it in a claim.
+- **The ANS registry ships its own MAESTRO analysis** at `MAESTRO.md`. Use his layer vocabulary; do not contradict it
+- **A spending mandate is to money what a shutter grant is to a camera.** That substitution makes the entire fraud battery apply to a system that moves no money, and turns thirteen payment probes into a checklist for `master` and `shutter`. See `docs/fraud-13.md`
+- **The dispatch address is the binding that matters most.** An agent that can change where a response is sent is a swatting tool no matter how well the claims upstream verify. Bind it at registration and seal it; never carry it in a claim. **The police email address is the pivot's new instance of this problem** and is handled differently, deliberately: it is supplied by the operator on a live call, read back for confirmation, and recorded as operator-supplied in the sealed record rather than trusted as a binding
 
 The OSI answer, in one line, because it is also the pitch line:
 **ANS moves agent identity out of the application layer, where the application can lie about it, and anchors it in DNS and TLS, where it cannot.**
@@ -254,27 +296,27 @@ The OSI answer, in one line, because it is also the pitch line:
 
 ANS anchors agent identity to provable domain ownership.
 Agents get version-bound certificates recording the specific code running at that moment.
-Lifecycle events are sealed into an immutable SCITT transparency log where entries cannot be altered after the fact.
+Lifecycle events are sealed into an immutable SCITT transparency log.
 The spec is layered ANS-0 through ANS-6: proof-of-control, registration lifecycle, ANSName URIs and mTLS, DNS/DANE publication, transparency logging, integrity monitoring, and agent-to-agent auth via badges.
 
 Verification is tiered: **Bronze** is PKI certificate validation, **Silver** adds DANE, **Gold** adds Transparency Log verification.
-Three independent trust channels at Gold. Identity is graded Basic (DV), Verified (OV), Premium (EV).
+Identity is graded Basic (DV), Verified (OV), Premium (EV).
 
 The Trust Index scores agents across five dimensions: integrity, identity, solvency, behavior, safety.
-**Only integrity and identity are implemented. Solvency, behavior, and safety are present in every response scored 0 until plug-in signals are registered.**
-Eight built-in signals feed the two live dimensions: four raw observations (certificate type, DNSSEC status, agent age, version stability) and four drift verdicts (server cert fingerprint, identity cert fingerprint, DNS `_ans`, DNS `_ans-badge`).
-The repo documents an explicit extension contract: implement the `port.Signal` interface (`Derived`, `Validate`, `Evaluate`), or write evidence producers in any language that POST to `/v1/internal/observations/import`.
+**Only integrity and identity are implemented.** Solvency, behavior and safety are present in every response scored 0 until plug-in signals are registered.
+The repo documents an explicit extension contract: implement the `port.Signal` interface, or write evidence producers in any language that POST to `/v1/internal/observations/import`.
 There is no `port.Hydrator`; the interface **is** the HTTP boundary, and producers are treated as untrusted processes on the far side of it.
 
 Shipping one of the three missing dimensions is the strongest available differentiator on this track.
-Our sensing layer is a natural evidence producer for **safety**: a physical-world signal that an agent's claims match what is actually happening in the building. An agent that told emergency services an occupant had stopped returning a breathing signature where no sensor corroborates one is behaving unsafely, and that is an observation worth posting.
+**The pivot makes our safety producer much stronger.**
+Before, corroborating an agent's claim against physical reality meant comparing two views of one radio.
+Now it means comparing what an agent told emergency services against what a camera recorded, which is evidence a human can also check.
+An agent that described a person the footage does not show is behaving unsafely, and that is an observation worth posting.
 See `ans/CLAUDE.md`.
 
 Trust Index also returns a `recommendedProfile` policy hint: UNTRUSTED, READ_ONLY, TRANSACTIONAL, FIDUCIARY.
-`agents/caller` uses these to decide what a sensing agent's claim is allowed to trigger.
+`agents/caller` uses these to decide what a claim is allowed to trigger, and `shutter` uses them to decide whether to move at all.
 An UNTRUSTED verdict is a **discovery-suppression** signal, not a revocation trigger; only the RA revokes certificates. Mirror that distinction in `master`.
-
-Full threat mapping, and what each mechanism actually buys us per hour of work, is in `docs/threat-landscape.md`.
 
 Repos:
 - Specs and Trust Index: https://github.com/agentnameservice/ans-registry
@@ -283,7 +325,6 @@ Repos:
 - Trust Index reference implementation: https://github.com/agentnameservice/agent-trust-discovery
 
 Free registration is available through GoDaddy.
-Pull the reference codebase and run it locally first; it has an agent side and a skill side.
 
 ### Live agents at webmesh.ai
 
@@ -297,126 +338,80 @@ All support A2A and MCP. Machine-readable index at `/.well-known/agents-index.js
 - `fraud.webmesh.ai` - attack battery, 13 targeted security probes
 - Also: `impact`, `dnsdoc`, `seo`, `traveler`, `supplier`
 
-`fraud.webmesh.ai` is a **reference implementation of a threat model, not a scanner.**
-Verified 2026-09-19 against its MCP endpoint: `run_battery` and all 13 attack tools take **no target parameter**, and the target is hardwired to `supplier.webmesh.ai`. It cannot be aimed at our agents.
-Its value is the checklist, which is real. See `docs/fraud-13.md`.
-
 **`agent.webmesh.ai` is the one that can be pointed at us**, and therefore the one to prepare for.
 Its `verify_agent(agent_host, environment)` takes an arbitrary hostname and returns a `compatibility_verdict` built from DNS, DNSSEC, Transparency Log proof, and **the published agent card**, then sends a live A2A message and reports what credential we actually required.
 That makes the agent card the surface under test. Hardening spec and checklist: `ans/CARD.md`.
 It also unlocks a better demo beat than the refusal alone: point the judge's own verifier at our agents, live, and let his software confirm us in front of him.
 
-## Hardware
-
-**Step-by-step guides live in `docs/hardware/`.**
-One guide per item, plus the hookup geometry and a linear bring-up checklist.
-Start at `docs/hardware/README.md`; it carries the bill of materials, the order to do things in, and the one way each item fails quietly.
-This section stays as the summary and the reasoning. The guides are the procedure.
-
-Owned, and this is the final list:
-
-- Raspberry Pi 4B kit: Pi, ethernet adapter, Cat5 cable, microSD, USB-C power
-- **TP-Link Archer AX1450**, bought for this. Fixed channel, 80MHz, 802.11ac forced, band steering off. Config table in `sensor/CLAUDE.md`
-- **The MacBook**, parked on the router's WiFi as the traffic generator. It is free at the house because Internet Sharing is only needed at a venue
-
-**No further hardware is being purchased.** Plan around this rather than hoping.
-
-The Pi 4B's BCM43455c0 is supported by `nexmon_csi`, so the CSI path needs nothing extra.
-That path is still the project's largest single risk. See `sensor/CLAUDE.md` for kernel constraints and the fallback ladder.
-
-Two things in `sensor/CLAUDE.md` are easy to miss and both fail quietly rather than loudly:
-
-- **The Pi's network path is wired, always.** `nexmon_csi` holds the WiFi interface in monitor mode, so there is no station interface while capturing. The Cat5 cable is not a convenience.
-- **CSI only updates when frames cross the monitored channel.** Without a traffic generator you get beacons at roughly 10 Hz, which barely resolves breathing and never resolves heart rate or a short motion transient, with every component reporting healthy. `sudo ping -i 0.01 <gateway>` from the MacBook fixes it.
-- **Geometry.** The Pi measures the channel between whoever transmitted and itself. Router and Pi go on **opposite sides** of the sensed space, with people in between. Side by side on one table produces a flat capture that looks exactly like a failed firmware patch.
-
-`sensor/CLAUDE.md` carries the full topology for both the house shoot and the venue fallback, the router configuration table, and the power and subnet constraints.
-`docs/hardware/assembly-and-placement.md` turns that into a wiring diagram and a placement procedure, and `docs/hardware/bring-up-checklist.md` turns it into a checklist with a verification command per step.
-
-A registered domain is required regardless, because ANS is domain-anchored.
-Register through GoDaddy Registry and the MLH "Best Domain Name" prize comes along for free.
-
-### The honesty rule
-
-**`docs/swapping-in-real-parts.md` is the switchboard**: every simulated or mocked thing, where its seam is, how to flip it, how to tell the flip worked, and which half-flipped states look like something else.
-Read it before wiring anything real in.
-
-Some capabilities are demonstrated rather than measured.
-The gas reading is the clear case: no gas sensor exists, so `agents/master` reads a simulated one. It was its own agent, `environment`, until 2026-09-19, when that agent was merged into `master`.
-**The floor plan is the second case:** the system does not map walls and cannot, because walls are the static baseline it subtracts to see people. The room model is drawn once and room labels come from a one-time enrollment walk. See `sensor/CLAUDE.md`.
-**The headcount is the third case:** a 1x1 radio resolves presence, not an exact number of people. Two people within about a metre merge into one. The count on screen and on the call comes from device association against the known roster; the radio answers which room and whether that presence is breathing. Limits under `agents/people`.
-**Responsiveness is the fourth case, and it is a limit rather than a simulation:** a breathing signature that is no longer resolvable is reported as exactly that, never as a person who has stopped breathing. Shallow breathing, breath-holding and range limits all produce the same reading.
-
-The rule for all of them:
-
-1. **The agent, its ANS identity, its certificate, its card, and its contract are always real.** Those are what the track is judged on and they cost nothing extra.
-2. **Simulated inputs are labeled in the data itself**, not just in a comment. `environment.source` carries `demo-trigger`. A simulated reading must not be presentable as measured by accident.
-3. **Say it out loud on stage, before anyone asks.**
-
-Framed this way it is a strength rather than an omission:
-
-"Every agent here is registered, verified, and in the mesh. Some read live CSI off the router. One reads a simulated gas sensor because we did not buy one. Adding the real sensor is a driver behind an interface that already exists, and nothing above it changes."
-
-That is a claim a judge can verify by reading the code, which is more than most demos can offer.
-A fabricated measurement is the opposite: unverifiable, and fatal if caught.
-
-Never claim a sensing capability the physics does not support.
-CSI cannot measure gas composition; oxygen absorption is a ~60 GHz phenomenon and our radio is 2.4/5 GHz.
-The one judge in the room most equipped to catch that is the one grading us.
-
 ## Other available tracks
 
 MLH tracks are stackable and published: Gemini API, ElevenLabs, Solana, TigerData, Presage, Vultr, MongoDB Atlas, and Best Domain Name from GoDaddy Registry.
 
-Plausible stacks given what we are already building:
-- **Best Domain Name (GoDaddy Registry)** - free, required anyway.
-- **ElevenLabs** - the 911 operator side is voice. A synthesized dispatcher reading interior state aloud is a strong demo beat and near-zero extra work.
-- **Vultr** - the agents must be internet-reachable regardless, so host them there.
-- **MongoDB Atlas / TigerData** - the event timeline has to persist somewhere.
+The pivot improves three of these:
+
+- **Gemini API** - `vision` is now a first-class Gemini Live consumer, not a bolt-on. This went from "not claimed" to "a core agent"
+- **ElevenLabs** - the 911 operator side is voice, and the narration driving it is now worth listening to
+- **Best Domain Name (GoDaddy Registry)** - free, required anyway
+- **Vultr** - the agents must be internet-reachable regardless, so host them there
+- **MongoDB Atlas / TigerData** - the event timeline and the video index have to persist somewhere
 
 VTHacks-branded tracks: 1st/2nd/3rd, Best First-Time Hack, Best Hack That Didn't Work, Best DEI Hack, Best UI/UX Hack, Best Ut Prosim Hack.
 Ut Prosim is "That I May Serve," and a public safety project is squarely on theme.
 
-Other sponsor tracks were TBD on Devpost and announce at opening: Impiricus, Peraton, Capital One (Nessie API), CoStar, Galois, Deloitte, Databricks, Procedura, Cloudforce.
+## Upstream: RuView
+
+The sensing layer is a spinoff and modification of https://github.com/ruvnet/ruview (MIT).
+
+RuView does WiFi CSI human sensing: presence, breathing and heart rate, activity recognition, pose, multi-person counting.
+**After the pivot we take much less of it**: the capture path and the motion/presence detection only. Breathing, pose, heart rate and counting are all dropped.
+
+Keep the line between upstream and our work explicit in code and on Devpost.
+Judges reward a clearly-scoped modification and punish a fork presented as original work.
+What is ours: the ANS identity layer, the agent mesh, the shutter grant, the verified-caller path to a human 911 operator, and the compromised-sensor threat model.
+
+## The event
+
+VTHacks 14, Virginia Tech, September 18-20 2026.
+Theme is "Code for the Cup" (soccer); the theme is not a requirement and we are not using it.
+Submission deadline is Sunday September 20, 8:00 AM ET, which is also when judging starts.
+Team of 4.
 
 ## Ideas already rejected
 
-Do not re-propose these.
+Do not re-propose these. The pivot's own rejections are in `docs/PIVOT.md`.
 
-- **Rotating savings circles (ROSCA, susu, tanda).** Costs ~45 seconds of audience education before the demo can start.
-- **Restaurant bill splitting and grocery equivalents.** The merchant already splits checks at the POS.
-- **Banking and personal finance generally.** Rejected by preference. A "trust gates capital" design was fully worked out and set aside.
-- **Stock trading through a broker.** Brokers are a closed, regulated, already-verified set.
-- **Flight recorder for unattended agents.** Was the live option before this pivot. Superseded, not disproven; the signed-action-graph idea may still be worth borrowing for the dispatch audit trail.
+- **Rotating savings circles (ROSCA, susu, tanda).** Costs ~45 seconds of audience education before the demo can start
+- **Restaurant bill splitting and grocery equivalents.** The merchant already splits checks at the POS
+- **Banking and personal finance generally.** Rejected by preference
+- **Stock trading through a broker.** Brokers are a closed, regulated, already-verified set
+- **Flight recorder for unattended agents.** Superseded, not disproven
+- **Respiration, personhood, headcount, falls, Fire.** Cut by the pivot. `docs/PIVOT.md` has the reasoning
 
 ## Supporting research
 
 ### Incident data
 
-Researched 2026-09-19, every figure sourced. See **`docs/research/`**:
+See **`docs/research/`**:
 
-- `incidents.md` - Fire and Burglary: annual figures, what actually kills people, and the synthesis for each. The Faint section is kept as history, recording the figures that motivated the original design and the 2026-09-19 decision to cut fall detection
+- `incidents.md` - Burglary figures, what responders actually need on arrival, and the synthesis. The Fire and Faint sections are kept as history, recording what motivated the original design and the decisions that cut them
 - `agent-briefs.md` - per-agent domain briefs and the thresholds each acts on
 - `footage.md` - B-roll sourcing and licensing rules for the video
-
-The headline is **responsiveness**: responders arriving at a building do not know who is inside or whether those people can answer, and that is what Hawk Eye tells them.
-It used to be the long lie, which was about falls. The system no longer detects falls, so that headline retired with the Faint incident type on 2026-09-19.
 
 ### Agent-trust data
 
 Verified during earlier sessions. Reusable for the pitch.
 
-- DataDome, Jan-Feb 2026: 7.9B AI agent requests observed. Meta-ExternalAgent spoofed 16.4M times, ChatGPT-User 7.9M times. 2.4% of requests claiming to be PerplexityBot were fraudulent.
-- Every major agentic payment protocol (Google AP2, Mastercard Agent Pay, Visa Trusted Agent Protocol, Anthropic MCP) defers trusted identity issuance to an entity not named in the specification. This is the core argument for why ANS exists.
-- Thailand Ministry of Finance: threat actor ran the open-source Hermes agent in unattended "YOLO mode" for reconnaissance and credential theft. Discovered only because 585 files were left on an exposed server in Hong Kong. No audit trail, by design.
-- Intruder.io scanned 3.5M live hosts, found 28,000 exposed `.git` repos leaking 400+ AWS keys, 107 Stripe keys, 123 OpenAI keys, 80 Telegram tokens, 17 GitHub PATs, many still active.
-- postmark-mcp (Sept 2025): first in-the-wild malicious MCP server, ~300 orgs affected. Shai-Hulud 2.0 (Nov 2025): npm worm hitting 796 packages, specifically targeting MCP server packages.
-- WEF projects 1 in 4 data breaches will result from AI agent exploitation by 2028.
-- FBI IC3 2025: $893,346,472 in losses across 22,364 AI-referencing complaints. FTC imposter scams: $3.5B in 2025.
-- Key paper: "The End of Trust: How Agentic AI Breaks Security Assumptions" (Zafar et al., 2026) introduces the **Infinite Impostor**, an agent that interposes itself between two parties who already trust each other. Argues detection-based defenses are finished because they assume synthetic output stays distinguishable.
+- DataDome, Jan-Feb 2026: 7.9B AI agent requests observed. Meta-ExternalAgent spoofed 16.4M times, ChatGPT-User 7.9M times. 2.4% of requests claiming to be PerplexityBot were fraudulent
+- Every major agentic payment protocol (Google AP2, Mastercard Agent Pay, Visa Trusted Agent Protocol, Anthropic MCP) defers trusted identity issuance to an entity not named in the specification. This is the core argument for why ANS exists
+- Thailand Ministry of Finance: threat actor ran the open-source Hermes agent in unattended "YOLO mode" for reconnaissance and credential theft. No audit trail, by design
+- Intruder.io scanned 3.5M live hosts, found 28,000 exposed `.git` repos leaking 400+ AWS keys, 107 Stripe keys, 123 OpenAI keys
+- postmark-mcp (Sept 2025): first in-the-wild malicious MCP server, ~300 orgs affected. Shai-Hulud 2.0 (Nov 2025): npm worm hitting 796 packages, targeting MCP server packages
+- WEF projects 1 in 4 data breaches will result from AI agent exploitation by 2028
+- FBI IC3 2025: $893,346,472 in losses across 22,364 AI-referencing complaints
+- Key paper: "The End of Trust: How Agentic AI Breaks Security Assumptions" (Zafar et al., 2026) introduces the **Infinite Impostor**, an agent that interposes itself between two parties who already trust each other
 
 The Infinite Impostor is our threat model stated precisely.
-An impostor caller agent between a real household and a real PSAP is exactly that shape, and so is a compromised sensing agent between a real house and a real caller agent.
+An impostor caller agent between a real household and a real PSAP is exactly that shape, and so is a compromised agent that can talk a shutter open.
 
 ## 3D and Blender
 
@@ -424,14 +419,13 @@ Blender work is Claude-driven via headless `bpy` scripts, with a human directing
 Procedural and geometric scenes are the strength. Hand-sculpted organic assets are not.
 
 Split:
-- **Live app: pure Three.js / react-three-fiber**, procedural, driven by live CSI data. Do not round-trip simple dynamic primitives through Blender.
-- **Blender: the cinematic layer.** Cycles-rendered hero loop for the Devpost page, pitch deck opener, and thumbnail.
+- **Live app: pure Three.js / react-three-fiber**, procedural, driven by live data
+- **Blender: the cinematic layer.** Cycles-rendered hero loop for the Devpost page, pitch deck opener, and thumbnail
 
-The interior occupancy view is the natural 3D subject: a volumetric room with human presences resolving out of RF noise.
+The shutter is the natural hero shot after the pivot: a macro render of a shield rotating off a lens, with the grant's signature resolving alongside it.
 
 Use Eevee Next while iterating, Cycles for the final pass.
 Keep hero loops to 4-6 seconds at 1080p with denoising.
-Consider rendering the final Cycles pass on a Vultr GPU instance, which is a more defensible Vultr claim than merely hosting a web server there.
 
 See `media/CLAUDE.md`.
 
@@ -441,23 +435,23 @@ See `media/CLAUDE.md`.
 - Node v26.8.1
 - Python 3.13.2
 - Apple M2 Pro, Metal 4
-- **Xcode 27.0** at `/Applications/Xcode.app`, installed 2026-09-19, with the iPhoneOS and iPhoneSimulator platforms present
+- **Xcode 27.0** at `/Applications/Xcode.app`, with the iPhoneOS, iPhoneSimulator, watchOS and watchSimulator platforms present
 - XcodeGen at `/opt/homebrew/bin/xcodegen`
 
-Headless invocation: `blender --background --python script.py`
+Headless Blender: `blender --background --python script.py`
 
-`xcode-select` was pointed at the full install on 2026-09-19 and `xcodebuild -version` reports Xcode 27.0, so the app builds and its UI tours run.
-If a fresh machine or a reinstall leaves it on `/Library/Developer/CommandLineTools`, `xcodebuild` refuses with a message about the active developer directory rather than anything about the project.
+If a fresh machine leaves `xcode-select` on `/Library/Developer/CommandLineTools`, `xcodebuild` refuses with a message about the active developer directory rather than anything about the project.
 Repointing needs sudo and so is a human step:
 
 ```sh
 sudo xcode-select -s /Applications/Xcode.app
 ```
 
-`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in front of a single command does the same thing without sudo and without changing anything system-wide, which is the better option on a shared machine.
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` in front of a single command does the same thing without sudo.
 
 ## Working agreements
 
-- This is a 36-hour build. Prefer the boring, working path over the elegant, unproven one.
-- Anything that must be demoed live needs a recorded fallback by Saturday night.
-- The refusal path matters more than the happy path. A dispatch demo that works is unremarkable; a dispatch demo that correctly refuses an impostor is the submission.
+- This is a 36-hour build, and the pivot landed on day two. Prefer the boring, working path over the elegant, unproven one
+- Anything that must be demoed live needs a recorded fallback by Saturday night
+- **The refusal path matters more than the happy path.** A dispatch demo that works is unremarkable; a shutter that refuses to open for an impostor, on stage, is the submission
+- `TASKS.md` is the work board. Claim a task by putting your name on it and committing that change first

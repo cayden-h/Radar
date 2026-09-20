@@ -1,5 +1,11 @@
 # The 13 attacks at fraud.webmesh.ai
 
+**Pivot note, 2026-09-19.** The thirteen shapes and their implementations are unchanged; the pivot does not touch the verification layer.
+**What changed is the analogue, and it got better.** The substitution this document runs on was "a spending mandate is to money what a verified sensing claim is to an armed response".
+It is now **"a spending mandate is to money what a shutter grant is to a camera"**, which is a tighter fit: a grant authorizes one specific physical action at one specific moment, exactly as a mandate authorizes one payment.
+Re-read `payTo_binding_check` and `underpay_valid_sig` against `shutter/CLAUDE.md`; both land harder there than they did on a 911 call.
+See `docs/PIVOT.md`.
+
 Assigned research item 1 from the GoDaddy track briefing.
 Written 2026-09-19.
 

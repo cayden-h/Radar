@@ -1,56 +1,116 @@
 # app/
 
-The Hawk Eye iOS app. The resident's side of an incident.
+The Hawk Eye Apple apps. The resident's side of an incident.
 
-Read the root `CLAUDE.md` first.
+Two targets after the 2026-09-19 pivot:
 
-## What it is
+- **`app/watch/` - the watchOS app. The actor.** It gets the notification and it is where an incident is started
+- **`app/ios/` - the iOS app. The record.** Connect, the live camera view, the full transcript, the "what is happening" box, replay
 
-An iOS app the resident holds during the worst ten minutes of their year.
+Read the root `CLAUDE.md` first, then `docs/PIVOT.md`.
 
-It does three things: raise an incident, show what is happening on the 911 call, and tell the user what to do.
-Everything else is out of scope.
+## Why the watch is the actor
+
+Because of where the phone is.
+
+The pre-pivot design had a resident tapping Burglary or Fire on a phone, which assumed the phone was in their hand.
+The scenario this system is actually built for is a person who is asleep, or in another room, or has just walked in on someone.
+**A watch is on their wrist in all three cases and a phone is on a table in most of them.**
+
+It also matches the timing budget. The notification lands about three seconds after someone walks in, carrying the camera's first sentence.
+A wrist buzz that says "a person in a dark jacket is in your living room" and offers one button is the entire interaction the system needs from a human, and it is the one a person can complete in four seconds while hiding.
+
+The phone is not demoted, it is re-roled. Everything that needs a screen - footage, the full transcript, the household roster, the sealed record - stays there.
 
 ## Raising an incident
 
-Two buttons, named for the two incident types:
+**One action, on the watch: Start Incident.**
 
-- **Burglary**
-- **Fire**
-
-There were three until 2026-09-19, when fall detection was cut and the third type went with it.
+There were three incident types, then two, and there is now one: **Intrusion**.
+Fire went with the simulated gas sensor on 2026-09-19 and fall detection went earlier the same day.
+With one type there is nothing to choose, which is the right shape for a control someone uses while frightened.
 
 One tap raises the incident to `agents/master`, which classifies, verifies, and routes.
 
-**This is the only path.** Hawk Eye never calls 911 on its own; settled 2026-09-19. A human tap is what releases `agents/caller` to dial.
+**This is the only path to a phone call.** Hawk Eye never calls 911 on its own. A human tap is what releases `agents/caller` to dial.
 
-`agents/people` and `agents/intruder` still detect, and `agents/master` still reads the gas sensor, and what they find surfaces here as **notices**: "the breathing signature in the main bedroom went missing four minutes ago", "an unexpected person is in the living room".
-A notice is information a person acts on.
-It is not a call.
-Neither of the agents that used to own those two jobs still exists: `collapse` was deleted with fall detection on 2026-09-19, and `environment` was merged into `master` the same day.
+### What happens without a tap
 
-A notice reaches the resident two ways: a dismissible banner in the app, and an SMS through Twilio, which is the only one of the two that arrives when the phone is locked and the app is closed.
-There is deliberately no local notification.
+A great deal, and this is the part worth being precise about.
+
+`agents/presence` and `agents/intruder` detect, `agents/master` opens the shutter, and `agents/vision` starts describing and recording - **all of it automatically, and none of it a call.**
+
+The resident gets that as a **notice**: "a person is in your living room, and they do not match anyone who lives here", with the camera's own sentence under it and a still frame from the moment the shield opened.
+
+A notice is information a person acts on. It is not a call.
+
+The notice reaches the resident three ways now:
+
+| Sink | When it works | Status |
+|---|---|---|
+| Watch notification | Whenever the watch is on a wrist. **The primary path** | New with the pivot |
+| In-app banner | While the app holds the socket | Built |
+| SMS through Twilio | Phone locked, app closed, watch not worn | Built |
+
+There is deliberately still no local notification on the phone.
 One would only fire while the app holds the socket, which is exactly the case the resident does not need help with, and on stage it is indistinguishable from a real push.
-APNs is the third sink and is not implemented; it is a driver behind `NoticeSink`, which already exists.
+APNs is a driver behind `NoticeSink`, which already exists.
 
-The trigger rule lives in `app/backend/hawkeye_backend/notices/detector.py` and is deliberately conservative: a confirmed person only, five seconds of continuous hold, suppressed entirely when the baseline is unhealthy, and once per presence while it is here.
-A notice is unrecallable once it is an SMS on someone's phone.
+The trigger rule lives in `app/backend/hawkeye_backend/notices/detector.py` and is deliberately conservative: unaccounted motion only, a hold before it fires, suppressed when the capture path is unhealthy, and once per presence while it is here.
+A notice is unrecallable once it is on someone's wrist.
 
-A notice is answerable, not just readable.
+### The notice is answerable, and the pivot makes the answer much better
+
 **This is expected** vouches for that presence for this session and nothing persists.
 **Remember this visitor** names the person and optionally binds the device that just joined the network, so the next visit raises nothing at all.
 They are separate controls with separate words on purpose: one is a mute button and the other changes what the house believes, and a single control for both would persist strangers because someone wanted a banner to go away.
 
-The roster is reached through the notice and through a read-only Household list in the header.
+Before the pivot, answering a notice meant deciding about an unlabelled blob on a floor plan.
+**Now the notice carries a photograph.** The resident is looking at the person they are being asked about.
+That is the single biggest usability improvement the pivot buys, and it is worth a sentence on stage: the false-positive cost went from "call the police or dismiss a banner you cannot evaluate" to "oh, that is my brother".
+
+The roster is reached through the notice and through a read-only Household list in the iOS header.
 There is still no settings screen, and that rule still holds: adding someone happens by approving a real detection, which is also the only moment the system has a device to bind.
 
-**The identifier is a phone on the Wi-Fi, because CSI cannot recognise a person and must never claim to.**
+**The device identifier is a phone on the Wi-Fi, because CSI cannot recognise a person and must never claim to.**
 iOS randomises the Wi-Fi address per network and then keeps it stable for that network, which is what makes a guest recognisable on a later visit.
-A guest who never joins the Wi-Fi can be named and approved but will never be auto-recognised, and the Household list says so rather than leaving the line blank.
+A guest who never joins the Wi-Fi can be named and approved but will never be auto-recognised from the network, and the Household list says so rather than leaving the line blank.
 
-The value is not that the system dials for you. It is that when you do tap, the dispatcher is told how many people are in the house, which rooms they are in, whether each is breathing, and how long since a breathing signature that was resolvable in a room stopped being resolvable.
-That last one is never phrased as somebody having stopped breathing, in this app or anywhere else in the system. It is a measurement and a clock.
+**Face enrollment is a separate, optional thing and is not the same claim.** `agents/vision` compares against faces the household enrolled on their own hardware, and the only two answers are "matches an enrolled resident" and "does not". See `vision/CLAUDE.md` for what that does and does not mean.
+
+### The value proposition, restated
+
+It is not that the system dials for you. It is that when you do tap, the dispatcher is told what a camera is looking at right now, by an agent that can prove where the description came from - and that the camera could not have been watching a minute earlier.
+
+## The watchOS app
+
+New with the pivot. SwiftUI, watchOS 11, paired to the iOS app over WatchConnectivity.
+
+**It is a phone-paired companion, not standalone.** The phone holds the socket to the hub and relays; the watch never speaks to the backend directly.
+That is a deliberate trade: a standalone watch app would survive the phone being out of range, and it would also need Bonjour discovery, its own WebSocket, and its own connection state machine on a platform with an aggressive background policy.
+On a weekend, paired is the boring working path. Say so if asked; it is a deployment property, not an architectural one.
+
+### Four screens, and that is all
+
+1. **Idle.** Armed or not, and when the shield last moved. One line
+2. **Notice.** The still frame, the camera's sentence, and three controls: **Start Incident**, **This is expected**, **Remember this visitor**
+3. **Incident live.** The current narration as it updates, an elapsed timer, and the transcript as scrolling text. One control: **Take over**
+4. **Transcribe.** Mic open, the resident's speech going to the operator. This is whisper mode on the wrist
+
+### Rules the watch inherits from the phone
+
+These are not new decisions, they are the existing ones applied to a smaller screen. Full reasoning is further down this file.
+
+- **Hold to confirm on anything consequential.** 1.5 seconds. A wrist is the easiest surface in the world to press by accident
+- **The watch never plays call audio.** Same reason the phone does not by default: audio gives away a hiding person's position, and call audio cannot be silenced below a floor. Haptics only
+- **The agent never talks over a human.** Barge-in on the watch mic yields immediately
+- **Announce every transition.** A mode change the resident did not notice is the failure mode
+
+### What the watch must never do
+
+- Show medical or safety instruction text it generated. All guidance comes from `agents/caller/guidance.py`, relayed. The watch is a display
+- Hold state the phone does not have. If they disagree, the phone wins and the watch says it is reconnecting
+- Offer a second way to end the call. One is enough and two is a misfire
 
 ## During the call
 
@@ -74,7 +134,7 @@ Keep it a single always-visible field. Someone in an emergency will not find a d
 
 **Treat this field as untrusted input, because it is.**
 It is the one path in the whole system where free-form natural language written by a human reaches `master` and then `caller`, which is OWASP ASI01, agent goal hijack, in its most direct form.
-The phone is a device that can be stolen, and a resident under duress is a real scenario for a burglary product.
+The phone is a device that can be stolen, and a resident under duress is a real scenario for an intrusion product.
 
 Three rules, none of them expensive:
 
@@ -88,7 +148,7 @@ The parallel is exact: `caller` must not widen what it trusts because an operato
 ### Joining the call
 
 The call runs on a server-side bridge and **the phone is not a leg of it by default.** Full reasoning in `agents/CLAUDE.md`.
-The reason is concrete: on iOS, call audio cannot be silenced below a floor, and a speaking phone gives away someone hiding during a burglary.
+The reason is concrete: on iOS, call audio cannot be silenced below a floor, and a speaking phone gives away someone hiding during an intrusion.
 
 Three modes, switchable at any time, with a large persistent control:
 
@@ -110,7 +170,7 @@ Keep **End call** visually separate from it. Someone panicking hits the biggest 
 
 If the agent needs to stop immediately, **speaking does it** - barge-in is instant and needs no button. See below.
 
-After takeover the agent stops speaking on the call and keeps feeding facts to this screen instead: CO ppm, room, respiration, time down. The resident is the voice; the app is the teleprompter.
+After takeover the agent stops speaking on the call and keeps feeding facts to this screen instead: the current narration, the room, how many people the camera can see, and the live frame. The resident is the voice; the app is the teleprompter.
 
 ### Choosing a mode, and what may choose it for you
 
@@ -120,16 +180,19 @@ Settled 2026-09-19.
 
 The asymmetry is the whole justification. Guess wrong toward silence and the resident taps once to get audio back. Guess wrong toward audio and **the phone makes noise while someone is hiding.** Those are not comparable failures, so the inference is trusted in one direction only.
 
-#### The incident type is the default; the text box is a correction
+#### Silent is the default; the text box is a correction
 
-Tapping Burglary already selects silent. That is deterministic and needs no inference.
+With one incident type there is no type to infer from, so **Intrusion defaults to silent** and that is deterministic.
+That is the safe direction: an intrusion is by definition a situation where noise may be unsafe.
 
-What the "what is happening" box adds is the case where the tap and the reality disagree:
+What the "what is happening" box adds is the case where silence is wrong:
 
-- Tapped **Fire**, typed "someone is in the house"
-- Tapped **Fire**, typed "I can't talk, he's downstairs"
+- Typed "I'm outside, I got out"
+- Typed "they left, I'm alone now"
 
-Phrases along the lines of *can't talk, he's here, hiding, quiet, don't make noise* pull the call toward silence regardless of which button was pressed.
+Phrases along those lines pull the call toward audio. Phrases like *can't talk, he's here, hiding, quiet, don't make noise* hold it in silence.
+
+**The inference is still trusted in one direction only**, and the direction flipped with the default: silence needs no evidence, and audio does.
 
 **Act on partial input.** If someone types "he's in the h" and stops, that is enough. Do not wait for a submit.
 
@@ -166,7 +229,7 @@ Settled 2026-09-19. **Hold-to-confirm, not modal dialogs.**
 
 | Control | Protection | Why |
 |---|---|---|
-| Raise incident (Burglary / Fire) | **Hold 1.5s** | An accidental tap calls 911. A pocket-dial to emergency services is a real harm, not an inconvenience |
+| Start Incident (phone or watch) | **Hold 1.5s** | An accidental tap calls 911. A pocket-dial to emergency services is a real harm, not an inconvenience, and a wrist is easier to press by accident than a pocket |
 | End call | **Hold 1.5s** | Hanging up on 911 mid-incident is catastrophic |
 | Turn on sound | **Hold 1.5s** | Makes the phone audible and can reveal a hiding person |
 | **Take over** | **Hold 1.5s** | Consistent with every other risky control. Voice barge-in remains the instant path |
@@ -234,8 +297,8 @@ Defaults by incident type, with a manual toggle in every mode because a medical 
 
 | Incident | Default |
 |---|---|
-| Fire | Audio on |
-| **Burglary** | **Silent.** No audio, no haptics, dimmed, whisper or typed only |
+| **Intrusion** | **Silent.** No audio, no haptics, dimmed, whisper or typed only |
+| Intrusion, resident confirmed out of the building | Audio on, and only after they say so |
 
 The "what is happening" box doubles as typed takeover in silent mode: what the resident types is read aloud by `caller`, attributed as the resident's report rather than a system observation. See the untrusted-input rules above; typing is context, never instruction.
 
@@ -275,22 +338,30 @@ Do not round-trip dynamic primitives through Blender; Blender is the cinematic l
 **The floor plan is authored, not sensed.** The system does not map walls and cannot; walls are the static baseline it subtracts to see people. See `sensor/CLAUDE.md`.
 We film in one house, so measure it once and hardcode the room model. Presences are placed into **labeled zones** that come from a one-time enrollment walk, not into recovered geometry.
 
-Do not let the visual imply the layout was discovered. Honesty rule, same category as the simulated gas sensor.
+Do not let the visual imply the layout was discovered. Honesty rule, entry four in the root `CLAUDE.md`.
 If it reads as a live map of an unknown house, add a line of UI that says the plan was set up once.
 
 Render confidence as coherence rather than as a number floating in space. A presence at 0.4 should look uncertain.
 That is honest and it also looks better.
 
-**Distinguish a confirmed person from an unconfirmed presence.** `agents/people` decides personhood from a respiration signature, so the view has three states to show, not one:
+**The interior view changed shape with the pivot, and it got simpler.**
 
-- Moving, breathing: a person, confirmed.
-- A person whose breathing signature we had and no longer have. **This is the one the whole system exists for. Make it the loudest thing on screen.** Label it "no breathing signature", never "not breathing": a signature that stopped resolving is a reason to look, not a finding about a body.
-- A perturbation that never had a respiration signature: unconfirmed. Render it as such rather than as a person.
+The radio no longer distinguishes a person from a curtain, so the floor plan no longer pretends to. It shows one thing: **where motion is**, as a soft region rather than a dot, because a dot implies a located body and the radio does not locate bodies.
 
-The difference between the second and third states is the difference between dispatching an ambulance and reporting a curtain, and the UI should carry that weight rather than flattening everything into identical dots.
+What sits next to it is the thing that actually answers the question: **the camera feed.**
 
-For burglary, the single most important frame in this entire project: **the intruder and the resident as two distinct tracked presences, in different rooms, moving.**
-Everything else is supporting material for that image.
+Three states, and they are about the shield rather than about a body:
+
+- **Shield closed.** The camera is physically covered. Say so, and say it as a good thing rather than as an error. This is the resting state and it is the product's whole privacy argument, visible
+- **Shield opening.** The grant verified and the servo is moving. A second of animation, and it is worth animating well, because this is the moment the system decides to look
+- **Shield open, camera live.** The feed, the narration under it as it arrives, and a timestamp
+
+**The fourth state is the one that wins the judging conversation: shield refused.**
+When `shutter` declines a grant, the view says the camera stayed covered and says why, in the resident's language: "something asked to open your camera and could not prove it was allowed to."
+
+Make that screen good. It is the visual form of the entire submission, and it is the only place a non-technical person can see a cryptographic refusal as a thing that protected them.
+
+**The single most important frame in this project is now literal: the camera feed, with the narration beneath it, and the closed shield in the corner of the same screen a minute earlier.**
 
 Target Best UI/UX Hack while you are here. It is stackable and this view is the strongest candidate on the team.
 
@@ -345,21 +416,22 @@ This section is only the app's half.
 `Config.mockDetectionAfter` fires the detection and nothing else; the incident waits on the button.
 `false` runs the identical UI against a real hub.
 
-`Config.mockScenario` picks which incident the script runs, and both are complete.
+`Config.mockScenario` had two values before the pivot and now has one, `.intrusion`, because there is one incident type.
 
-`.burglary` is the default and is the demo.
-A fourth presence walks into the living room with no respiration signature, so it is `unconfirmed` exactly like the curtain over the dryer vent in the laundry.
-It then acquires respiration and becomes a confirmed person with `expected: false`, on roster plus device association rather than on anything read out of the CSI stream: a presence surplus against the roster - two registered residents, both phones associated, and one more body than those devices account for.
+The script it runs is the demo:
 
-**Phrase it as a surplus, not as arithmetic.** The claim that survives a 1x1 radio is "**at least one presence more than the roster accounts for**", not "three bodies minus two residents". An exact sensed count is not available; a *surplus* is, because it only requires noticing that an additional presence appeared.
+1. Motion appears in the living room and no registered device is associated with it
+2. `intruder` returns unaccounted, and the shield animates open on screen about 800ms later, with the grant's verification shown alongside it
+3. The camera panel goes live and the first narration line lands about three seconds in
+4. A notice fires, carrying that line and a still frame
+5. The incident waits on a human. `Config.mockDetectionAfter` fires everything above and stops there; nothing dials until a button is held
 
-The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/people`.
-It routes living room to kitchen to hallway, crossing the whole unit, with its position interpolated between zone centroids so it visibly moves.
-That puts the frame this project is built around on screen: the intruder and the resident as two distinct tracked presences, in different rooms, both moving.
-Its verification set is its own, an ASSERTED unexpected-presence claim from `agents/intruder`, an ATTRIBUTED occupancy count from `agents/people`, and a DISCARDED claim that the person is armed, from an impostor at a lookalike ANSName.
-The CO reading is not reused there: corroboration that does not corroborate anything is noise dressed as rigour.
+Its verification set is its own: an ASSERTED unaccounted-motion claim from `agents/intruder`, an ASSERTED shutter attestation from `agents/shutter`, an ATTRIBUTED description from `agents/vision`, and a DISCARDED claim that the person is armed, from an impostor at a lookalike ANSName.
 
-`.fire` carries the choreography the cut third scenario used to: the child in the second bedroom loses their breathing signature while the CO reading climbs, and `respirationLostS` starts counting from the last resolvable frame and does not reset.
+**The mock must also be able to run the refusal**, because the refusal is the submission.
+`Config.mockShutterRefuses` makes `master`'s grant fail verification, and the app must then show the fourth interior state: shield closed, camera never opened, and a plain-English explanation of what was refused.
+That path has no camera feed at all, and the UI must be good with nothing to show. Getting that screen right is worth more than any other screen in the app.
+
 The mock builds the same `Codable` types the live client decodes, so the two paths are behaviourally identical rather than merely similar.
 
 **The demo must never depend on hardware being alive**, so this path is a first-class implementation rather than an afterthought. There is no demo branch inside any view; `AppModel.init()` picks an implementation behind `HubBrowsing` and `HawkEyeClienting` and nothing downstream knows which it got.
@@ -368,11 +440,13 @@ The mock builds the same `Codable` types the live client decodes, so the two pat
 
 `Features/Home/InteriorView.swift`. A top-down procedural floorplan in a SwiftUI `Canvas`, not Three.js, because this is a native client. Same brief: confidence rendered as coherence, three visual states, no numbers floating in space.
 
-`Models/InteriorState.swift` holds `PresenceState`, which is the single place the states are named. Everything downstream switches on it rather than re-deriving the rule.
-`Presence.expected` crosses those states as a single orthogonal axis rather than adding a fourth case: an unexpected confirmed person is drawn in `Palette.personUnexpected`, the same violet as the Burglary button, with tracking brackets and a slow sweep that read as followed rather than as hostile, and the roster gives the row a violet headline, tint and border plus the words "Unexpected person" and "Not accounted for".
-`nil` means expected, so a frame that omits the field changes nothing.
-An unconfirmed perturbation is never unexpected in this sense, because it is not a person yet, and that contrast is the burglary view's whole argument.
-The hub decides the state now and the client trusts what it sends; `PresenceState.derive` survives only as the fallback for a frame that omits the field.
+`Models/InteriorState.swift` holds the motion region and the shield state, which are the two things the view draws.
+
+**The pivot deleted `PresenceState`'s three-way person classification**, because the radio no longer makes that distinction. What replaced it is a shield state - `closed`, `opening`, `open`, `refused` - and the camera panel beside the plan.
+
+`refused` is the state worth building carefully. It has no feed, it has no motion resolution beyond a region, and it has to communicate that the system protected the resident rather than that it broke.
+An unconfirmed perturbation is never rendered as a person, which was true before the pivot and is now structural: the view has no way to draw one.
+
 The floorplan arrives with the state, in metres, and the view normalises it, so the geometry is the one the hub was enrolled with rather than a second copy that can drift.
 
 ### The wire format

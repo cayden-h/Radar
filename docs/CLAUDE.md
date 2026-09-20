@@ -1,5 +1,8 @@
 # docs/
 
+**Pivot note, 2026-09-19.** This file predates the camera pivot. Treat every reference to respiration, breathing, falls, Fire, the gas sensor or "five agents" as history.
+The current system is seven agents, one incident type, and a camera behind a servo-driven shield. `docs/PIVOT.md` is the record.
+
 Research, the pitch, the agent roster, and the Devpost writeup.
 
 ## Layout

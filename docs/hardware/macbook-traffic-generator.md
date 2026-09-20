@@ -1,5 +1,10 @@
 # The MacBook
 
+**Pivot note, 2026-09-19.** The sample-rate table below is written for respiration and heart rate, both of which were cut in the camera pivot.
+**The packet rate still matters**, for a different and simpler reason: a short motion transient cannot be characterized at 10 Hz, and motion is now the only thing CSI does.
+So the ping is still required and the 100+ per second target still stands. Ignore the respiration and heart-rate rows; read the motion-transient row.
+See `docs/PIVOT.md`.
+
 The MacBook has three jobs in this project.
 Only the first one is easy to forget and catastrophic to forget.
 

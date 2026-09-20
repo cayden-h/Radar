@@ -1,5 +1,9 @@
 # app/backend
 
+**Pivot note, 2026-09-19.** The verification package, the replay recorder and the household roster are all unchanged and all still correct.
+What is stale below: the two-scenario demo runner (Fire is cut), the CO and respiration fields in the state payload, and the three-state person classification. The state payload gains a shield state and a narration line instead.
+`docs/PIVOT.md` is the record and `TASKS.md` T01 is the deletion.
+
 The app-facing edge of the Hawk Eye agent mesh.
 
 Read the root `CLAUDE.md` and `app/CLAUDE.md` first.
