@@ -15,14 +15,36 @@ enum Config {
     ///
     /// This exists because the demo cannot depend on hardware being alive.
     /// Flip it to `false` and the identical UI runs against the real hub.
-    static let useMocks = true
+    static let useMocks = false
 
     // MARK: Live backend
 
-    /// Base URL for REST calls when `useMocks` is false.
+    /// When set (and `useMocks` is false), the app skips Bonjour discovery
+    /// entirely and connects straight to this hub URL.
     ///
-    /// In practice this is replaced at runtime by the endpoint resolved from
-    /// Bonjour when a hub is selected, so this value is only the fallback for
+    /// Bonjour discovery relies on the hub advertising `_hawkeye._tcp` *and* on
+    /// resolving a service-instance name as an HTTP host, neither of which is
+    /// reliable for a live demo. This is the boring, deterministic path: point
+    /// the app at a known hub and go.
+    ///
+    /// - iOS Simulator shares the Mac's loopback, so `127.0.0.1` reaches a hub
+    ///   running on this machine.
+    /// - On a physical phone, set this to the Mac's LAN address instead, e.g.
+    ///   `http://192.168.1.42:8787`, and keep both on the same Wi-Fi.
+    ///
+    /// Set to `nil` to fall back to Bonjour discovery.
+    static let directHubURL: URL? = URL(string: "http://127.0.0.1:8787")
+
+    /// When true (and a `directHubURL` is set), the app connects to that hub
+    /// automatically on launch instead of waiting for a tap on the Connect
+    /// screen. There is exactly one hub and its address is known, so the tap
+    /// carries no decision; skipping it makes the demo boot straight to the
+    /// live house. Ignored under `useMocks` and when no direct URL is set.
+    static let autoConnectDirectHub = true
+
+    /// Base URL for REST calls when `useMocks` is false and no direct URL is
+    /// set. In that case it is replaced at runtime by the endpoint resolved
+    /// from Bonjour when a hub is selected; this value is only the fallback for
     /// running against a hosted instance directly.
     static let fallbackBaseURL = URL(string: "https://hub.hawkeye.ai")!
 
