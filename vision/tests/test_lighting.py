@@ -3,7 +3,8 @@
 import numpy as np
 
 from hawkeye_vision.config import VisionConfig
-from hawkeye_vision.lighting import LightingMode, classify, mean_luminance
+from hawkeye_vision.fixture import FileFixture
+from hawkeye_vision.lighting import LightingClassifier, LightingMode, classify, mean_luminance
 
 
 def _flat(value: int) -> np.ndarray:
@@ -68,3 +69,69 @@ def test_a_bright_video_classifies_as_day_end_to_end(bright_mp4):
         modes = [classify(mean_luminance(f.image), config) for f in source.frames()]
 
     assert set(modes) == {LightingMode.DAY}
+
+
+def test_classifier_starts_in_the_state_of_its_first_reading():
+    classifier = LightingClassifier(VisionConfig())
+    assert classifier.update(200.0) is LightingMode.DAY
+
+
+def test_a_single_dark_frame_does_not_change_state():
+    """One frame is a shadow. Three seconds of frames is nightfall."""
+    config = VisionConfig(dwell_frames=45)
+    classifier = LightingClassifier(config)
+    classifier.update(200.0)
+
+    assert classifier.update(5.0) is LightingMode.DAY
+
+
+def test_state_changes_once_the_candidate_holds_for_the_dwell():
+    config = VisionConfig(dwell_frames=5)
+    classifier = LightingClassifier(config)
+    classifier.update(200.0)
+
+    results = [classifier.update(5.0) for _ in range(6)]
+
+    assert results[:4] == [LightingMode.DAY] * 4
+    assert results[-1] is LightingMode.TOO_DARK
+
+
+def test_an_interrupted_candidate_resets_the_dwell():
+    config = VisionConfig(dwell_frames=5)
+    classifier = LightingClassifier(config)
+    classifier.update(200.0)
+
+    classifier.update(5.0)
+    classifier.update(5.0)
+    classifier.update(200.0)  # back to bright: the candidate is abandoned
+    results = [classifier.update(5.0) for _ in range(4)]
+
+    assert results == [LightingMode.DAY] * 4
+
+
+def test_the_mode_property_reports_the_state_in_effect():
+    config = VisionConfig(dwell_frames=5)
+    classifier = LightingClassifier(config)
+
+    assert classifier.mode is None
+
+    classifier.update(200.0)
+    assert classifier.mode is LightingMode.DAY
+
+
+def test_a_value_sitting_on_the_boundary_does_not_flap(ramp_mp4):
+    """The test that matters. A naive classifier changes state on every jitter."""
+    config = VisionConfig(dwell_frames=5)
+    classifier = LightingClassifier(config)
+
+    states = []
+    with FileFixture(ramp_mp4) as source:
+        for frame in source.frames():
+            states.append(classifier.update(mean_luminance(frame.image)))
+
+    transitions = sum(1 for a, b in zip(states, states[1:]) if a is not b)
+
+    # The ramp falls from bright to black and climbs back, crossing both
+    # thresholds twice. Six transitions is the physical truth of that signal;
+    # anything substantially more is the classifier flapping on the boundary.
+    assert transitions <= 6
