@@ -166,7 +166,11 @@ class RetellCallOrchestrator:
 
     def _opening_text(self) -> str:
         utterances = self.caller.opening_report(self._incident_type, self._address_spoken)
-        return " ".join(u.text for u in utterances)
+        tail = " ".join(u.text for u in utterances)
+        return (
+            f"This is Radar's agent, and there is an incident in progress at "
+            f"{self._address_spoken}. {tail}"
+        )
 
     def transcript_so_far(self) -> list[tuple[str, str]]:
         return list(self.transcript)

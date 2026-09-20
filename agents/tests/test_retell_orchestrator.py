@@ -62,6 +62,15 @@ async def test_first_response_required_delivers_opening_report(mesh):
 
 
 @pytest.mark.asyncio
+async def test_opening_text_uses_fixed_radar_script(mesh):
+    orch, _ = _orchestrator(mesh)
+    await orch.start_call("i1", IncidentType.BURGLARY, "1872 Ridgeview Lane")
+    text = orch._opening_text()
+    assert text.startswith("This is Radar's agent, and there is an incident in progress")
+    assert "1872 Ridgeview Lane" in text
+
+
+@pytest.mark.asyncio
 async def test_later_response_required_answers_the_operator(mesh):
     orch, _ = _orchestrator(mesh)
     await orch.start_call("i1", IncidentType.BURGLARY, "12 Elm Street")
