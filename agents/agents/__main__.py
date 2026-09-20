@@ -504,18 +504,6 @@ def main(argv: list[str] | None = None) -> int:
         # bridge silently stops placing calls.
         internal_token = settings.internal_trigger_token.get_secret_value().strip() or None
 
-        # Where the end-of-call facts go: the address the operator gave for the
-        # sealed record, and the fact that the call is over. Same token as the
-        # trigger routes above, because a route that decides where an incident
-        # record gets emailed is an exfiltration path if anyone on the LAN can
-        # post to it. See `agents/caller/hub_report.py`.
-        from agents.caller.hub_report import HubReporter
-
-        hub_reporter = HubReporter(
-            os.environ.get("HAWKEYE_HUB_URL", "http://127.0.0.1:8787"),
-            token=internal_token,
-        )
-
         if transport == "twilio":
             # Dormant path, retained. Paywalled; not the default.
             from agents.caller.transport.orchestrator import CallOrchestrator
@@ -537,7 +525,6 @@ def main(argv: list[str] | None = None) -> int:
                 twilio_voice_number=settings.twilio_voice_number or "+15550003333",
                 twiml_app_sid=settings.twilio_conference_app_sid or "APxxxx",
                 status_callback_url=(settings.public_base_url or f"http://{args.host}:{args.transport_port}") + "/twilio/status",
-                hub=hub_reporter,
             )
             transport_app = build_transport_app(
                 orchestrator,
@@ -577,7 +564,6 @@ def main(argv: list[str] | None = None) -> int:
                 retell_client,
                 from_number=settings.retell_from_number or "+15550003333",
                 operator_number=settings.mock_911_number or "+15550004444",
-                hub=hub_reporter,
                 courier=HttpBackendCourierClient(settings.edge_base_url),
                 # Best-effort fan-out of each transcript line to the hub, so the
                 # resident's app can render the live operator <-> agent
