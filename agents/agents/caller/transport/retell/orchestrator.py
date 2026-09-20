@@ -31,6 +31,7 @@ from .protocol import (
     latest_user_utterance,
     parse_retell_message,
 )
+from .transcript_sink import TranscriptSink
 
 #: Cue intents that mark the operator winding the call down. When one of these
 #: trips, the caller asks for the department email before the line closes.
@@ -84,6 +85,11 @@ class RetellCallOrchestrator:
     #: The integrator constructs this with a base_url at caller startup - e.g.
     #: `HttpBackendCourierClient(base_url)` - and injects it here.
     courier: BackendCourierClient | None = None
+    #: Best-effort fan-out of each transcript line to the hub, so the resident's
+    #: app can render the live operator <-> agent conversation. Optional for the
+    #: same reason `courier` is: the orchestrator runs unchanged where nothing
+    #: is wired to receive lines, and never raises into the call loop when it is.
+    transcript_sink: TranscriptSink | None = None
     call_id: str | None = field(default=None, init=False)
     incident_id: str | None = field(default=None, init=False)
     transcript: list[tuple[str, str]] = field(default_factory=list, init=False)
@@ -119,10 +125,16 @@ class RetellCallOrchestrator:
             if operator_line is None:
                 text = self._opening_text()
                 self.transcript.append(("caller", text))
+                if self.transcript_sink:
+                    await self.transcript_sink.line(self.incident_id or "", "caller", text)
                 return build_response_message(message.response_id, text)
             self.transcript.append(("operator", operator_line))
+            if self.transcript_sink:
+                await self.transcript_sink.line(self.incident_id or "", "operator", operator_line)
             text = await self._respond_to_operator(operator_line)
             self.transcript.append(("caller", text))
+            if self.transcript_sink:
+                await self.transcript_sink.line(self.incident_id or "", "caller", text)
             return build_response_message(message.response_id, text)
         return None
 

@@ -88,3 +88,63 @@ async def test_later_response_required_answers_the_operator(mesh):
     # An unrecognised question is "I don't know", never a guess to 911.
     assert reply["content"].startswith("I don't know")
     assert ("operator", "what colour is the front door?") in orch.transcript_so_far()
+
+
+class _FakeSink:
+    def __init__(self) -> None:
+        self.lines: list[tuple[str, str, str]] = []
+
+    async def line(self, incident_id: str, speaker: str, text: str) -> None:
+        self.lines.append((incident_id, speaker, text))
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_pushes_each_line_to_sink(mesh):
+    caller = CallerAgent(mesh, MasterAgent(mesh))
+    transport = SimulatedRetellVoiceClient()
+    sink = _FakeSink()
+    orch = RetellCallOrchestrator(
+        caller,
+        transport,
+        from_number="+15550001111",
+        operator_number="+15550009999",
+        transcript_sink=sink,
+    )
+    orch.incident_id = "inc-1"
+    orch._incident_type = IncidentType.BURGLARY
+    orch._address_spoken = "12 Elm Street"
+    # Opening turn (no prior user utterance) -> one caller line.
+    await orch.handle_ws_message(
+        {"interaction_type": "response_required", "response_id": 0, "transcript": []}
+    )
+    assert sink.lines == [("inc-1", "caller", orch.transcript[-1][1])]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_pushes_operator_and_reply_lines_to_sink(mesh):
+    caller = CallerAgent(mesh, MasterAgent(mesh))
+    transport = SimulatedRetellVoiceClient()
+    sink = _FakeSink()
+    orch = RetellCallOrchestrator(
+        caller,
+        transport,
+        from_number="+15550001111",
+        operator_number="+15550009999",
+        transcript_sink=sink,
+    )
+    await orch.start_call("i1", IncidentType.BURGLARY, "12 Elm Street")
+    sink.lines.clear()
+    await orch.handle_ws_message(
+        {
+            "interaction_type": "response_required",
+            "response_id": 2,
+            "transcript": [
+                {"role": "agent", "content": "opening"},
+                {"role": "user", "content": "what colour is the front door?"},
+            ],
+        }
+    )
+    assert sink.lines == [
+        ("i1", "operator", "what colour is the front door?"),
+        ("i1", "caller", orch.transcript[-1][1]),
+    ]
