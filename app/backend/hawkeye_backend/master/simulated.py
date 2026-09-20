@@ -40,7 +40,12 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 
-from hawkeye_backend.master.base import EventSink, assert_human_released
+from hawkeye_backend.master.base import (
+    EventSink,
+    MasterUnavailable,
+    ParticipationModeRefused,
+    assert_human_released,
+)
 from hawkeye_backend.master.scenario import (
     ANSNAME,
     PROFILE,
@@ -97,6 +102,11 @@ from hawkeye_backend.models.verification import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: How long a shutter grant stays valid. Seconds, not minutes, per
+#: `agents/shutter/grant.py`: a grant that outlives the situation that
+#: produced it is a replay waiting to happen.
+GRANT_TTL_S = 10
 
 # The source behind the simulated sensing pipeline.
 #
@@ -180,6 +190,10 @@ GUIDANCE = Provenance(
 )
 RESIDENT = Provenance(source=Source.USER_INPUT, producer="app/ios")
 
+#: Ordering for the "automation may only move quieter" rule in
+#: set_participation_mode. See the mode table in app/CLAUDE.md.
+_MODE_LEVEL = {"watching": 0, "whisper": 1, "full_voice": 2}
+
 
 class SimulatedMasterClient:
     """Drives the scripted incident. Implements MasterClient."""
@@ -194,6 +208,11 @@ class SimulatedMasterClient:
         self._stopping = asyncio.Event()
         self._floorplan = build_floorplan(site_id)
         self._rng = random.Random(1872)
+
+        # Master's signing key, loaded lazily on the first grant. In simulated
+        # mode this hub stands in for `agents/master`, key included; see
+        # `issue_shutter_grant`.
+        self._master_key = None
 
         self._incident: Incident | None = None
         self._call_started_for: str | None = None
@@ -382,6 +401,18 @@ class SimulatedMasterClient:
     async def set_participation_mode(
         self, incident_id: str, mode: str, *, by_human: bool
     ) -> str:
+        # Automation may only ever move toward quieter (app/CLAUDE.md). Going
+        # louder without a human hand is refused, structurally, in simulated
+        # mode too: this is the same guard LiveMasterClient's counterpart
+        # leaves to master's A2A endpoint to enforce (a 403 there becomes
+        # ParticipationModeRefused here); the simulated client has no such
+        # endpoint to defer to, so it holds the rule itself.
+        current = self._participation_mode or "watching"
+        if not by_human and _MODE_LEVEL[mode] > _MODE_LEVEL[current]:
+            raise ParticipationModeRefused(
+                f"automation may only move participation toward quieter; refusing "
+                f"{current!r} -> {mode!r} for incident {incident_id} without a human hand"
+            )
         self._participation_mode = mode
         label = {
             "watching": "Listening only.",
@@ -1442,3 +1473,85 @@ class SimulatedMasterClient:
     def elapsed_hint(self) -> timedelta:
         """Roughly how long the script takes at the configured speed."""
         return timedelta(seconds=38.0 * self._speed)
+
+    async def issue_shutter_grant(
+        self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
+    ) -> str:
+        """A real grant, signed with master's real key, bound to the shutter's nonce.
+
+        **In simulated mode this process stands in for `agents/master`, and that
+        includes holding master's signing key.** Say it out loud rather than
+        letting a reader assume two independent agents: what is simulated is
+        which process holds the key, not whether the signature is checked.
+        `shutter` verifies it against the public half on master's published trust
+        card exactly as it would from the real thing, and refuses it if it does
+        not match.
+
+        In live mode this method is never reached. `LiveMasterClient` asks the
+        real master to sign and this process never touches a private key.
+
+        The envelope is built through `agents.shutter.grant`, never by hand.
+        A hand-built dict serializes datetimes differently from pydantic and
+        produces a signature mismatch indistinguishable from an attack, which is
+        battery probe #13.
+        """
+        try:
+            from agents.core.identity import identity
+            from agents.shutter.grant import GrantEnvelope, sign_grant
+        except ImportError as exc:
+            # **Deliberately not a declared dependency.** `agents` already
+            # path-depends on `hawkeye-backend` for the verification package and
+            # `Provenance`, so declaring the reverse would be a cycle. What this
+            # process needs is the grant envelope, and the only honest options
+            # were to copy it - which is exactly the drift that breaks
+            # signatures, battery probe #13 - or to import it when present and
+            # say so clearly when it is not.
+            #
+            # Raised as MasterUnavailable so the endpoint answers 503 with this
+            # sentence rather than a 500 with a traceback. The shield does not
+            # move, which is the correct outcome when no grant can be signed.
+            raise MasterUnavailable(
+                "cannot sign a shutter grant: the `agents` package is not importable "
+                "in this environment. Simulated mode signs grants with master's "
+                "envelope, so install it alongside the hub: "
+                "`uv pip install -e ../../agents`. In live mode this is never "
+                "reached, because the real master signs."
+            ) from exc
+
+        now = utc_now()
+        envelope = GrantEnvelope(
+            nonce=nonce,
+            issuer=identity("master").ansname,
+            action=action,
+            # Recorded, not trusted. It goes into the sealed record so an
+            # investigator can follow the chain backwards; nothing downstream
+            # reads it as authorization.
+            reason=reason,
+            incident_id=incident_id,
+            issued_at=now,
+            expires_at=now + timedelta(seconds=GRANT_TTL_S),
+        )
+        return sign_grant(self._grant_key(), envelope).decode()
+
+    def _grant_key(self):  # noqa: ANN202 - Ed25519PrivateKey
+        """Master's signing key, loaded the same way the agent loads it.
+
+        Cached per process. Loading it on every grant would be a file read on the
+        incident path for no benefit.
+        """
+        if self._master_key is None:
+            try:
+                from agents.core.keys import load_or_create
+            except ImportError as exc:
+                raise MasterUnavailable(
+                    "cannot load master's signing key: the `agents` package is not "
+                    "importable. See issue_shutter_grant."
+                ) from exc
+
+            self._master_key = load_or_create("master")
+            logger.warning(
+                "simulated mode: this hub is signing shutter grants with master's "
+                "own key. That is the hub standing in for agents/master, not two "
+                "independent agents. The signature is real and shutter checks it."
+            )
+        return self._master_key

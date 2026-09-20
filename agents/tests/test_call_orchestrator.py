@@ -62,11 +62,32 @@ async def test_an_interrupt_message_produces_no_reply(mesh):
 async def test_set_mode_forwards_to_the_transport_after_the_bridge_allows_it(mesh):
     """Once the Bridge allows a mode change, the transport must actually be told,
     or the resident's leg stays muted server-side no matter what the app shows.
+
+    This exercises the case where a resident call_sid already exists, since
+    without one `set_mode` must skip forwarding entirely (see the sibling
+    test below) rather than send a known-bad empty call_sid.
     """
     orch = _orchestrator(mesh)
     await orch.start_call("inc-001", IncidentType.BURGLARY, "1872 Ridgeview Lane")
+    orch.resident_call_sid = "SIM-CA-resident"
     await orch.set_mode(ParticipationMode.WHISPER, by_human=True)
     assert orch.transport.mode_changes[-1]["muted"] is False
+    assert orch.transport.mode_changes[-1]["call_sid"] == "SIM-CA-resident"
+
+
+@pytest.mark.asyncio
+async def test_set_mode_skips_forwarding_when_no_resident_call_sid_exists(mesh):
+    """`resident_call_sid` has no code path that populates it yet - the resident
+    joins via the iOS TwilioVoiceSDK Access Token flow, which never reports its
+    call_sid back here. Forwarding anyway would send `call_sid=""` to Twilio
+    and get a 400 back, so `set_mode` must skip the transport call entirely
+    (and must not raise) until that plumbing exists.
+    """
+    orch = _orchestrator(mesh)
+    await orch.start_call("inc-001", IncidentType.BURGLARY, "1872 Ridgeview Lane")
+    assert orch.resident_call_sid is None
+    await orch.set_mode(ParticipationMode.WHISPER, by_human=True)
+    assert orch.transport.mode_changes == []
 
 
 @pytest.mark.asyncio

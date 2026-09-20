@@ -12,24 +12,89 @@ distinguishes Twilio from an attacker. `HAWKEYE_MOCK_911_NUMBER` is bound at
 read out of a request here - see the root CLAUDE.md's dispatch-address
 section for why a destination number must never travel as attacker-reachable
 input.
+
+`auth_token` is `None` when this deployment has no real Twilio credentials
+configured (`hawkeye_backend.config.Settings.twilio_voice_configured` is
+False). There is no safe non-secret to validate signatures against in that
+case, so every route here fails closed rather than falling back to a known
+constant - a fallback like `"test_auth_token"` is printed in this repo's own
+test suite and would let anyone who read it forge signed-looking requests
+against a publicly reachable but unconfigured instance.
+
+The ConversationRelay WebSocket route (`/twilio/conversation-relay`) is a
+second, separate authentication problem: Twilio does not send
+`X-Twilio-Signature` on a WS handshake, so `_verified_form` cannot cover it.
+It is instead gated by a one-time per-call token, minted when `/twilio/agent-leg`
+builds its TwiML and embedded as a query param in the `wss://` URL Twilio is
+told to connect to. A frame is never handed to the orchestrator until the
+token on the connection matches the one minted for that call.
+
+`/internal/start-call` and `/internal/set-mode` are a third kind of route,
+added for the master<->caller call-bridge wiring: they are not Twilio
+webhooks and carry no `X-Twilio-Signature`, so they cannot use
+`_verified_form`. Their caller is `agents/master`'s own process
+(`agents/master/transport.py`'s `/a2a/start-call` and `/a2a/set-mode`
+handlers), not Twilio and not the public internet in the intended path - but
+this server is reachable on the internet regardless (the track's hard
+requirement), so an unauthenticated trigger route that can make this process
+dial a phone number would be a swatting vector as direct as an unsigned
+`/twilio/voice`. They are gated the same way the rest of this file is gated
+when it has no real secret to check against: a bearer token, shared out of
+band with `agents/master` via `HAWKEYE_INTERNAL_TRIGGER_TOKEN`, checked
+constant-time-adjacent the way `validate_twilio_signature` already checks
+Twilio's signature, and `None` fails every request closed rather than
+falling back to a constant - same rule `auth_token` follows above, same
+reason.
 """
 
 from __future__ import annotations
 
+import hmac
+import secrets
+
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 
+from hawkeye_backend.models.incident import IncidentType
+
+from ..bridge import ModeChangeRefused, ParticipationMode
 from .orchestrator import CallOrchestrator
 from .signature import validate_twilio_signature
 from .twiml import connect_relay_twiml, dial_conference_twiml
 
 
+class _InternalStartCallBody(BaseModel):
+    """What `agents/master/transport.py`'s `/a2a/start-call` handler sends."""
+
+    incident_id: str
+    incident_type: str
+    address: str
+
+
+class _InternalSetModeBody(BaseModel):
+    """What `agents/master/transport.py`'s `/a2a/set-mode` handler sends."""
+
+    mode: str
+    by_human: bool = False
+
+
 def build_transport_app(
-    orchestrator: CallOrchestrator, *, auth_token: str, elevenlabs_voice_id: str, public_base_url: str
+    orchestrator: CallOrchestrator,
+    *,
+    auth_token: str | None,
+    elevenlabs_voice_id: str,
+    public_base_url: str,
+    internal_trigger_token: str | None = None,
 ) -> FastAPI:
     app = FastAPI()
+    configured = auth_token is not None
 
     async def _verified_form(request: Request, path: str) -> dict[str, str]:
+        if not configured:
+            # Fail closed: no real secret exists to validate against, so no
+            # request - signed or not - is accepted. See the module docstring.
+            raise HTTPException(status_code=503, detail="Twilio voice is not configured on this deployment")
         form = await request.form()
         params = {k: str(v) for k, v in form.items()}
         signature = request.headers.get("X-Twilio-Signature", "")
@@ -42,6 +107,22 @@ def build_transport_app(
             raise HTTPException(status_code=403, detail="invalid Twilio signature")
         return params
 
+    internal_configured = internal_trigger_token is not None
+
+    def _verify_internal_token(request: Request) -> None:
+        if not internal_configured:
+            # Fail closed: no shared secret exists to validate against, so no
+            # trigger request - bearing a token or not - is accepted. Same
+            # rule as `_verified_form` above, same reason: an unconfigured
+            # deployment must refuse rather than fall back to a constant.
+            raise HTTPException(
+                status_code=503, detail="the internal trigger route is not configured on this deployment"
+            )
+        presented = request.headers.get("Authorization", "")
+        expected = f"Bearer {internal_trigger_token}"
+        if not hmac.compare_digest(presented, expected):
+            raise HTTPException(status_code=403, detail="invalid internal trigger token")
+
     @app.post("/twilio/voice")
     async def voice(request: Request) -> PlainTextResponse:
         await _verified_form(request, "/twilio/voice")
@@ -51,7 +132,13 @@ def build_transport_app(
     @app.post("/twilio/agent-leg")
     async def agent_leg(request: Request) -> PlainTextResponse:
         await _verified_form(request, "/twilio/agent-leg")
-        ws_url = public_base_url.replace("https://", "wss://") + "/twilio/conversation-relay"
+        # Mint a fresh, per-call token and hand it to the orchestrator so the
+        # WS route below can check it on accept. Random and single-purpose,
+        # not a static shared secret - it authorizes exactly this call's
+        # ConversationRelay leg, not any leg that will ever connect.
+        token = secrets.token_urlsafe(32)
+        orchestrator.relay_ws_token = token
+        ws_url = public_base_url.replace("https://", "wss://") + "/twilio/conversation-relay" + f"?token={token}"
         xml = connect_relay_twiml(ws_url, elevenlabs_voice_id)
         return PlainTextResponse(xml, media_type="application/xml")
 
@@ -62,6 +149,20 @@ def build_transport_app(
 
     @app.websocket("/twilio/conversation-relay")
     async def conversation_relay(websocket: WebSocket) -> None:
+        if not configured:
+            # Fail closed here too, same as every HTTP route: an unconfigured
+            # deployment has no per-call token to mint or check, so nothing
+            # gets to speak to the orchestrator over this socket.
+            await websocket.close(code=4403)
+            return
+        expected_token = orchestrator.relay_ws_token
+        presented_token = websocket.query_params.get("token")
+        if not expected_token or presented_token != expected_token:
+            # Reject before accept() and before a single frame is read. This
+            # is the only thing standing in for X-Twilio-Signature on this
+            # route, since Twilio never sends that header on a WS handshake.
+            await websocket.close(code=4401)
+            return
         await websocket.accept()
         try:
             while True:
@@ -71,5 +172,30 @@ def build_transport_app(
                     await websocket.send_json(reply)
         except WebSocketDisconnect:
             return
+
+    @app.post("/internal/start-call")
+    async def internal_start_call(request: Request, body: _InternalStartCallBody) -> dict[str, str]:
+        _verify_internal_token(request)
+        incident_type = IncidentType(body.incident_type)
+        conference_name = await orchestrator.start_call(body.incident_id, incident_type, body.address)
+        return {"conference_name": conference_name}
+
+    @app.post("/internal/set-mode")
+    async def internal_set_mode(request: Request, body: _InternalSetModeBody) -> dict[str, str]:
+        _verify_internal_token(request)
+        try:
+            mode = ParticipationMode(body.mode)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"unknown participation mode {body.mode!r}") from exc
+        try:
+            announcement = await orchestrator.set_mode(mode, by_human=body.by_human)
+        except ModeChangeRefused as exc:
+            # Mirrors agents/master's own guard (`ParticipationModeRefused` in
+            # agents/master/agent.py) - master is expected to catch this
+            # before ever reaching this route, but the bridge holds the rule
+            # itself too rather than trusting an upstream caller to have
+            # checked it, same as every other guard in this project.
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        return {"announcement": announcement}
 
     return app

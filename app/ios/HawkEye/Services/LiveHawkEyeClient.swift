@@ -27,6 +27,38 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     private(set) var household: [HouseholdMember] = []
     private(set) var unclaimedDevices: [ObservedDevice] = []
 
+    /// The resident's leg of the call bridge. Client-tracked: the backend has
+    /// no wire field for it on `incident`/`state` frames, only the
+    /// `POST /v1/incident/{id}/mode` route that changes it. Set optimistically
+    /// by `setParticipationMode` on success.
+    private(set) var participationMode: ParticipationMode = .watching
+
+    /// Mirrors `incident?.callState`, `.notPlaced` with nothing open, so a
+    /// view can ask this directly instead of unwrapping `incident` first.
+    var callState: CallState { incident?.callState ?? .notPlaced }
+
+    // The camera path, added 2026-09-20. The views for these are T32 and T33;
+    // the state is carried here now so the hub's events are not dropped on the
+    // floor in the meantime.
+
+    /// The newest camera thumbnail off the stream.
+    ///
+    /// Check `cameraFrame?.live` before drawing it. False means it is the last
+    /// thing the camera saw and not the room now, and drawing it as current is
+    /// the single most dangerous thing this app can do.
+    private(set) var cameraFrame: CameraFrame?
+
+    /// What the camera has said, newest first.
+    private(set) var narration: [Narration] = []
+    private(set) var occupancy: Occupancy?
+
+    /// Where the lens shield is, including when it refused to move.
+    private(set) var shield: ShieldReport?
+
+    /// Ceiling on retained narration lines. A long incident produces one a
+    /// second and no screen needs an hour of them.
+    static let narrationLimit = 200
+
     @ObservationIgnored private var baseURL: URL = Config.fallbackBaseURL
     @ObservationIgnored private let session = URLSession(configuration: .default)
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
@@ -77,6 +109,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
         missedFrames = false
         hello = nil
         link = .offline
+        participationMode = .watching
     }
 
     // MARK: Commands
@@ -103,6 +136,26 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             path: "\(Config.incidentPath)/\(incident.id)/context",
             body: ContextRequest(text: trimmed)
         )
+    }
+
+    /// Switches the resident's leg on the bridge via `POST /v1/incident/{id}/mode`.
+    /// `byHuman` defaults `true` on `SetParticipationModeRequest`, matching the
+    /// backend's rule that only the automation itself is allowed to ask for
+    /// `false` — nothing on this client does that. See `ParticipationMode`'s doc.
+    func setParticipationMode(_ mode: ParticipationMode) async throws {
+        guard let incident else { throw HawkEyeClientError.notConnected }
+        _ = try await post(
+            path: "\(Config.incidentPath)/\(incident.id)/mode",
+            body: SetParticipationModeRequest(mode: mode)
+        )
+        participationMode = mode
+    }
+
+    /// `TAKE OVER`. Always a human action — the UI holds this for 1.5s before
+    /// calling it — so it goes straight to `.fullVoice` rather than through
+    /// whisper first.
+    func takeOver() async throws {
+        try await setParticipationMode(.fullVoice)
     }
 
     // MARK: Household
@@ -245,6 +298,32 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             // Never a silently dropped frame.
             missedFrames = true
             NSLog("hub error %@: %@", code, message)
+
+        // ------------------------------------------------ the camera path
+
+        case .frame(let value):
+            // Kept whatever its `live` flag says, because the last frame seen is
+            // a true statement. Every view reads `cameraFrame?.live` before
+            // drawing it as the room now.
+            cameraFrame = value
+        case .narration(let value):
+            // Newest first, and bounded. A long incident produces a line a
+            // second and a wrist does not need an hour of them.
+            narration.insert(value, at: 0)
+            if narration.count > Self.narrationLimit {
+                narration.removeLast(narration.count - Self.narrationLimit)
+            }
+        case .occupancy(let value):
+            occupancy = value
+        case .shield(let value):
+            shield = value
+
+        case .unrecognised(let kind):
+            // The hub knows an event this build does not, which happens when
+            // the two move at different speeds. Deliberately **not**
+            // `missedFrames`: that flag means the view may be behind on state
+            // it should have, and a new event type is not that.
+            NSLog("hub sent an event this build does not know: %@", kind)
         }
     }
 
@@ -255,6 +334,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             transcript = []
             instructions = []
             verifications = []
+            participationMode = .watching
         }
         incident = value
         if value.status == .resolved || phase == .resolved {
@@ -262,6 +342,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             transcript = []
             instructions = []
             verifications = []
+            participationMode = .watching
         }
     }
 

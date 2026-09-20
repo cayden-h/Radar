@@ -55,10 +55,28 @@ class CsiFrame:
     """Observed frame rate. Below ~20 Hz, respiration is marginal and heart rate is gone."""
 
     source: str
-    """`nexmon-csi`, `replay-csi` or `ruview-sim`. Becomes Provenance.source."""
+    """`nexmon-csi`, `replay-csi`, `ruview-sim` or `wifi-rssi`. Becomes Provenance.source."""
 
     baseline_age_s: float | None = None
     """Age of the rolling baseline, where the producer maintains one. None means no baseline."""
+
+    motion_state: str | None = None
+    """Already-classified motion verdict, or None for a raw CSI frame.
+
+    None on every CSI frame (nexmon, replay, ruview-sim), which keeps the
+    existing amplitude-and-baseline path unchanged. On the `wifi-rssi` modality
+    this carries the classifier's *confirmed* verdict - `"active"` or `"absent"`
+    - rather than a raw amplitude to be re-thresholded downstream.
+
+    The distinction is deliberate. The RSSI path already runs a full
+    collector->features->classifier pipeline (EMA baseline, ratio threshold,
+    hysteresis debounce) tuned for a single scalar link measured off CoreWLAN.
+    `presence`'s own percentile baseline and OCCUPIED_EXCESS threshold are tuned
+    for per-subcarrier CSI amplitude, and re-running that noise math on an RSSI
+    energy figure it was never scaled against would just launder a good verdict
+    through a wrong yardstick. So when this field is set, the reader trusts it
+    and skips its own baseline; `amplitude` is still carried for the record and
+    the feed, but it is not what decides the claim."""
 
 
 @runtime_checkable

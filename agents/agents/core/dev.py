@@ -231,3 +231,65 @@ class SyntheticOccupancy:
         if time.time() % self.period_s < self.present_s:
             return Occupancy.PERSON_PRESENT
         return Occupancy.NO_PERSON
+
+
+class DevOpenAttestations:
+    """A shutter that always reports the shield clear. Implements `AttestationSource`.
+
+    In the real mesh `vision` gets this attestation from `shutter` over ANS,
+    signed and bound to a nonce, and refuses to claim anything without it. The
+    deployed dev process runs each agent alone, with no `shutter` on the other
+    end of a socket to attest anything, so this stands in - and it returns a
+    *fresh* attestation on every read rather than a cached one, because the gate
+    checks `att.at` against `ATTESTATION_TTL_S` and a static timestamp would go
+    stale seconds into a running process and wedge `vision` at `shield_closed`.
+
+    **This is not the demo.** Like `LocalMesh`, it verifies nothing: a real
+    attestation is a signed grant from a separately registered agent, and the
+    refusal path that is the whole submission runs through `shutter`, not here.
+    It exists so the single-process `vision` runner has something true to say.
+    """
+
+    def current(self) -> "Attestation":
+        from datetime import UTC, datetime
+
+        from agents.shutter.backend import OPEN_ANGLE
+        from agents.shutter.shutter import Attestation
+
+        return Attestation(
+            position="open",
+            commanded_angle=OPEN_ANGLE,
+            nonce="dev-open",
+            at=datetime.now(UTC),
+        )
+
+
+class DevNarrations:
+    """A canned running description. Implements `NarrationSource`.
+
+    The real narration is a Gemini Live sentence off the camera's current frame;
+    this rotates a short scripted line off the wall clock so the single-process
+    `vision` runner emits a `vision.description` that changes while somebody is
+    watching it. Every line is generic and scene-neutral on purpose - a dev
+    fixture must never author specifics a real camera would have to see.
+    """
+
+    _LINES: tuple[str, ...] = (
+        "A person is standing near the doorway.",
+        "The person has moved further into the room.",
+        "The person appears to be looking around the room.",
+    )
+
+    def latest(self) -> "Narration":
+        from datetime import UTC, datetime
+
+        from hawkeye_vision.narrate import Narration
+
+        index = int(time.time() / 6.0) % len(self._LINES)
+        return Narration(
+            text=self._LINES[index],
+            at=datetime.now(UTC),
+            frame_index=index,
+            model="dev-stub",
+            latency_s=0.0,
+        )

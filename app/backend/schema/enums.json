@@ -11,7 +11,10 @@
     "operator-audio",
     "agent-inference",
     "servo-gpio",
-    "servo-stub"
+    "servo-stub",
+    "camera-uvc",
+    "replay-video",
+    "camera-sim"
   ],
   "source_class": [
     "measured-live",

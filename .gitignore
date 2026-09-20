@@ -40,3 +40,6 @@ agents/.ans/
 # Recorded test footage. Real people, so it does not belong in a public repo,
 # and a binary fixture in git drifts from the code that reads it.
 vision/tests/footage/
+
+# scripts/up.sh writes one log and one pidfile per process here.
+.run/

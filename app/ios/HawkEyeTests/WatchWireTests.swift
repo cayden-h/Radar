@@ -1,5 +1,5 @@
 import XCTest
-@testable import Hawk_Eye
+@testable import Radar
 
 /// The phone-to-watch contract, tested where it can be: the codec and the rule.
 ///

@@ -80,9 +80,34 @@ sys.exit(0)
 '''
 
 
+#: Explains the one entry kind that may appear after the seal. Rendered only
+#: when the record actually carries one, so a reader is never told to look for
+#: something that is not in the file in front of them.
+_COURIER_NOTE = """
+Nothing was written after the seal EXCEPT the courier entries at the end, which
+record whether this record was successfully emailed to a responding department.
+
+That exception exists because the two requirements are otherwise contradictory:
+the bundle mailed out has to be the sealed record, so the send cannot happen
+before sealing - and a send that FAILED has to be visible here rather than
+silent, so its outcome cannot live outside the chain.
+
+It adds; it never edits. Every entry up to and including the seal is unchanged
+and every hash still matches, so the copy that was emailed is a byte-exact
+prefix of this one and both verify INTACT under the same verify.py. If you are
+holding the emailed copy, it has no courier entry, because it was built before
+the send it would describe.
+"""
+
+
 def _readme(record: ReplayRecord, exported_at: datetime) -> str:
     sealed = record.sealed_at.isoformat() if record.sealed_at else "NOT SEALED"
     discarded = sum(1 for v in record.verifications if v.decision.value == "DISCARDED")
+    delivery = (
+        _COURIER_NOTE
+        if any(entry.kind == "courier" for entry in record.entries)
+        else "Nothing was written after the seal.\n"
+    )
     return f"""HAWK EYE INCIDENT RECORD
 ========================
 
@@ -101,8 +126,9 @@ WHAT THIS IS
 
 An append-only record of one emergency incident, written entry by entry as it
 happened. Recording opened when a person in the house raised the incident, and
-sealed when the 911 call ended. Nothing was written after the seal.
+sealed when the 911 call ended.
 
+{delivery}
 Each entry carries the hash of the entry before it. Changing, reordering,
 inserting or removing any entry changes every hash after it, and `verify.py`
 detects that.

@@ -60,6 +60,7 @@ PATH_INCIDENT = "/v1/incident"
 PATH_STREAM = "/v1/stream"
 PATH_START_CALL = "/a2a/start-call"
 PATH_SET_MODE = "/a2a/set-mode"
+PATH_GRANT = "/v1/shutter/grant"
 
 
 class LiveMasterClient:
@@ -223,7 +224,22 @@ class LiveMasterClient:
                 f"the hub will not start a call for a {incident.raised_by.value!r}-raised "
                 "incident. A detection surfaces as interior state; a human tap releases the call."
             )
-        body: dict[str, object] = {"incident_id": incident.incident_id}
+        # `agents/master` has no route for raising an incident over HTTP
+        # (out of scope for the call-bridge wiring; see
+        # agents/agents/master/transport.py's docstring), so master cannot
+        # call its own `raise_incident` before `release_for_call` unless the
+        # incident it needs is carried inline in this request. This hub is
+        # the only side holding the full `Incident` at this point in the
+        # flow, so the body widens to carry what `raise_incident` needs
+        # rather than just the id.
+        body: dict[str, object] = {
+            "incident_id": incident.incident_id,
+            "incident_type": incident.incident_type.value,
+            "raised_by": incident.raised_by.value,
+            "address": incident.address,
+        }
+        if incident.context_notes:
+            body["note"] = incident.context_notes[-1].text
         try:
             response = await self._require().post(PATH_START_CALL, json=body)
         except httpx.HTTPError as exc:
@@ -263,3 +279,25 @@ class LiveMasterClient:
         if not isinstance(payload, dict) or not isinstance(payload.get("announcement"), str):
             raise MasterUnavailable(f"POST {PATH_SET_MODE} returned no announcement string")
         return payload["announcement"]
+
+    async def issue_shutter_grant(
+        self, *, action: str, reason: str, nonce: str, incident_id: str | None = None
+    ) -> str:
+        """Ask the real master to sign a grant.
+
+        Returned opaque and never re-parsed on the way to `shutter`, which
+        verifies the signature over exactly these bytes.
+        """
+        payload = await self._post(
+            PATH_GRANT,
+            {
+                "action": action,
+                "reason": reason,
+                "nonce": nonce,
+                "incident_id": incident_id,
+            },
+        )
+        grant = payload.get("grant_json")
+        if not isinstance(grant, str) or not grant:
+            raise MasterUnavailable("master returned no grant_json")
+        return grant

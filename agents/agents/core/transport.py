@@ -27,9 +27,10 @@ credential we actually required. An agent whose card advertises an endpoint that
 is not there fails the judge's own verifier on the surface we called our best
 demo beat.
 
-MCP is deliberately not here. All the webmesh.ai agents speak both, and ours
-should eventually, but it is a second adapter over these same handlers and it
-buys presentation rather than capability. Roadmap, not this weekend.
+MCP lives in `agents/core/mcp.py`, over these same handlers. It was deferred as
+"presentation rather than capability" until `agent.webmesh.ai verify_agent` was
+finally pointed at us on 2026-09-20 and named MCP in the one warning it
+returned. See that module's docstring.
 
 ## The trap this file exists to avoid
 
@@ -93,7 +94,9 @@ def new_challenge() -> str:
 class ObserveParams(BaseModel):
     """What master sends when it asks."""
 
-    audience: str = Field(description="master's ANSName. A claim addressed elsewhere is refused.")
+    audience: str = Field(
+        description="master's ANSName. A claim addressed elsewhere is refused."
+    )
     nonce: str = Field(min_length=1, description="The challenge this fan-out issues.")
     incident_id: str = Field(default=STEADY_STATE)
     target: str = Field(description="Endpoint the possession proof must bind to.")
@@ -149,7 +152,11 @@ def a2a_router(
         rpc_id = request.get("id")
 
         def error(code: int, message: str) -> dict[str, Any]:
-            return {"jsonrpc": "2.0", "id": rpc_id, "error": {"code": code, "message": message}}
+            return {
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "error": {"code": code, "message": message},
+            }
 
         method = request.get("method")
 
@@ -159,7 +166,11 @@ def a2a_router(
         # order rather than answering a question.
         handler = extra.get(method) if isinstance(method, str) else None
         if handler is not None:
-            return {"jsonrpc": "2.0", "id": rpc_id, "result": handler(request.get("params") or {})}
+            return {
+                "jsonrpc": "2.0",
+                "id": rpc_id,
+                "result": handler(request.get("params") or {}),
+            }
 
         if method != METHOD_OBSERVE:
             return error(-32601, f"unknown method {method!r}")
@@ -168,58 +179,66 @@ def a2a_router(
         except ValidationError as exc:
             return error(-32602, f"invalid params: {exc.error_count()} error(s)")
 
-        observation = agent.latest
-        if observation is None:
-            # Not an error. The agent is up and has not completed a tick, which
-            # is a fact master should record rather than a failure to retry.
-            return {
-                "jsonrpc": "2.0",
-                "id": rpc_id,
-                "result": ObserveResult(
-                    agent=agent.identity.name,
-                    ansname=agent.identity.ansname,
-                    observed_at=utc_now().isoformat(),
-                    healthy=False,
-                    note="no observation yet",
-                ).model_dump(),
-            }
-
-        pairs = [
-            signer.sign(
-                assertion,
-                audience=params.audience,
-                incident_id=params.incident_id,
-                nonce=params.nonce,
-                target=params.target,
-            )
-            for assertion in observation.assertions
-        ]
         return {
             "jsonrpc": "2.0",
             "id": rpc_id,
-            "result": ObserveResult(
-                agent=observation.agent,
-                ansname=observation.ansname,
-                observed_at=observation.observed_at.isoformat(),
-                healthy=observation.healthy,
-                note=observation.note,
-                claims=[
-                    SignedPairWire(
-                        claim=p.raw_claim.decode("utf-8"), proof=p.raw_proof.decode("utf-8")
-                    )
-                    for p in pairs
-                ],
-                # Unknowns are not claims and are not signed. They assert
-                # nothing, so there is nothing to authorize; they travel as
-                # attributed context and master records them as gaps.
-                unknowns=[
-                    {"field": u.field, "zone_scope": u.zone_scope, "reason": u.reason}
-                    for u in observation.unknowns
-                ],
-            ).model_dump(),
+            "result": observe(agent, signer, params).model_dump(),
         }
 
     return router
+
+
+def observe(agent: Agent, signer: ClaimSigner, params: ObserveParams) -> ObserveResult:
+    """The agent's current observation, signed against this challenge.
+
+    Shared by `/a2a` and `/mcp`, and that sharing is the point: the MCP adapter
+    is a second envelope over this one function, not a second implementation.
+    Two implementations of "what do you have right now" could disagree, and an
+    agent that answers differently depending on which door you knocked on is
+    exactly the thing this project exists to make impossible.
+    """
+    observation = agent.latest
+    if observation is None:
+        # Not an error. The agent is up and has not completed a tick, which
+        # is a fact master should record rather than a failure to retry.
+        return ObserveResult(
+            agent=agent.identity.name,
+            ansname=agent.identity.ansname,
+            observed_at=utc_now().isoformat(),
+            healthy=False,
+            note="no observation yet",
+        )
+
+    pairs = [
+        signer.sign(
+            assertion,
+            audience=params.audience,
+            incident_id=params.incident_id,
+            nonce=params.nonce,
+            target=params.target,
+        )
+        for assertion in observation.assertions
+    ]
+    return ObserveResult(
+        agent=observation.agent,
+        ansname=observation.ansname,
+        observed_at=observation.observed_at.isoformat(),
+        healthy=observation.healthy,
+        note=observation.note,
+        claims=[
+            SignedPairWire(
+                claim=p.raw_claim.decode("utf-8"), proof=p.raw_proof.decode("utf-8")
+            )
+            for p in pairs
+        ],
+        # Unknowns are not claims and are not signed. They assert
+        # nothing, so there is nothing to authorize; they travel as
+        # attributed context and master records them as gaps.
+        unknowns=[
+            {"field": u.field, "zone_scope": u.zone_scope, "reason": u.reason}
+            for u in observation.unknowns
+        ],
+    )
 
 
 # ------------------------------------------------------------- the client side
@@ -301,14 +320,18 @@ class A2AObservationSource:
         try:
             result = ObserveResult.model_validate(payload.get("result") or {})
         except ValidationError:
-            logger.exception("%s sent a result this master cannot validate; dropped", peer.slug)
+            logger.exception(
+                "%s sent a result this master cannot validate; dropped", peer.slug
+            )
             return None
 
         return self._verify(peer, result, nonce)
 
     # ------------------------------------------------------------- verification
 
-    def _verify(self, peer: Peer, result: ObserveResult, nonce: str) -> FetchedObservation:
+    def _verify(
+        self, peer: Peer, result: ObserveResult, nonce: str
+    ) -> FetchedObservation:
         assertions: list[Assertion] = []
         rejected: list[TransportRejection] = []
 
@@ -397,11 +420,33 @@ def _to_assertion(raw_claim: bytes, peer: Peer, result: ObserveResult) -> Assert
     """Rebuild the assertion from a claim that has already verified.
 
     Parsed after verification, never before. The envelope carries the asserted
-    field, value, zone and ceiling; confidence, basis, provenance and presence
-    id are producer context rather than authorization, so they are reconstructed
-    here from what the envelope proves plus what the peer reported.
+    field, value, zone, ceiling **and source**; confidence and basis are producer
+    context rather than authorization, so they are reconstructed here from what
+    the envelope proves.
+
+    **`source` is taken from the envelope and never invented.** It was hardcoded
+    to `agent-inference` here until 2026-09-20, on the reasoning that provenance
+    was producer context rather than authorization. That reasoning was wrong in
+    one specific and damaging way: `Source` is the field the app renders a
+    "simulated" badge from, so hardcoding it meant a fixture video and a live
+    camera arrived at `master` indistinguishable from one another, and every
+    surface downstream showed the same label for both. The honesty rule requires
+    a limit to be carried in the data itself, and a limit dropped in transit is
+    not carried anywhere.
+
+    It is safe to believe because it is inside the signature. A compromised
+    producer can lie about its own source - it could always lie about its own
+    value too - but it cannot lie about anybody else's, and it cannot have the
+    label rewritten in flight, which is exactly what a transport-side default
+    allowed.
+
+    `confidence` stays 1.0, deliberately rather than by omission. What survived
+    the wire is a claim that verified; deciding what a verified claim may
+    trigger is the gate's job, and a producer-supplied number here would be one
+    `master` cannot check, doing work the severity ceiling already does
+    honestly.
     """
-    from hawkeye_backend.models.common import Provenance, Source
+    from hawkeye_backend.models.common import Provenance
 
     envelope = SignedClaim.model_validate_json(raw_claim).envelope
     return Assertion(
@@ -415,7 +460,7 @@ def _to_assertion(raw_claim: bytes, peer: Peer, result: ObserveResult) -> Assert
             f"answering this master's challenge."
         ),
         provenance=Provenance(
-            source=Source.AGENT_INFERENCE,
+            source=envelope.source,
             producer=result.agent,
             ansname=envelope.issuer,
             detail=f"claim {envelope.claim_id}, expires {envelope.expires_at.isoformat()}",

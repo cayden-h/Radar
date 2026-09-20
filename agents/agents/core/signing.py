@@ -108,6 +108,10 @@ class ClaimSigner:
             field=assertion.field,
             value=assertion.value,
             severity_ceiling=assertion.severity_ceiling,
+            # Signed, so the source label survives the wire. Before this, the
+            # transport rebuilt every arriving claim as `agent-inference` and a
+            # fixture video reached `master` looking exactly like a camera.
+            source=assertion.provenance.source,
             # The envelope names the key that must present it. The proof below
             # is signed by that key, and the verifier checks the binding before
             # it does any signature work, so a swapped key fails closed rather

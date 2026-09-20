@@ -86,6 +86,10 @@ struct IncidentView: View {
                     .padding(.horizontal, Space.gutter)
                     .padding(.top, Space.sm)
 
+                modeControls
+                    .padding(.horizontal, Space.gutter)
+                    .padding(.top, Space.lg)
+
                 endCallButton
                     .padding(.horizontal, Space.gutter)
                     .padding(.top, Space.xl)
@@ -387,6 +391,100 @@ struct IncidentView: View {
             try? await client.sendContext(text)
             sending = false
         }
+    }
+
+    // MARK: Participation mode
+
+    /// Who can hear whom on the resident's leg of the call.
+    ///
+    /// Per `app/CLAUDE.md`'s "Label by consequence, not by our jargon":
+    /// these three controls are named by what happens, never by the words
+    /// "whisper" / "watching" / "full voice". Automation may only ever move
+    /// `client.participationMode` toward quieter (`.watching`); every control
+    /// here that moves it louder is a control a human must actively use —
+    /// "Turn on sound" and "TAKE OVER" reuse the same `HoldToConfirmButton`
+    /// every other risky control in this app uses, at the same 1.5s duration,
+    /// so a panicking resident never has to remember which buttons behave
+    /// differently. "Speak" stays a single tap per the control-friction table
+    /// in `app/CLAUDE.md`: being heard is low-harm if triggered by accident,
+    /// unlike opening the mic to audio or ceding the call to the resident.
+    private var modeControls: some View {
+        VStack(alignment: .leading, spacing: Space.sm) {
+            Text("Your side of the call")
+                .eyebrowStyle(Palette.inkFaint)
+
+            Text(client.participationMode.label)
+                .font(TypeScale.bodyStrong)
+                .foregroundStyle(Palette.ink)
+
+            Button {
+                Task { try? await client.setParticipationMode(.whisper) }
+            } label: {
+                modeActionLabel(
+                    "Speak — they'll hear you, your phone stays silent",
+                    tint: Palette.calm
+                )
+            }
+            .buttonStyle(.pressable)
+            .accessibilityLabel("Speak. They will hear you, your phone stays silent.")
+
+            HoldToConfirmButton(
+                duration: 1.5,
+                tint: Palette.ink,
+                accessibilityLabel: "Hold to turn on sound. Your phone will become audible."
+            ) {
+                Task { try? await client.setParticipationMode(.fullVoice) }
+            } label: {
+                modeActionLabel(
+                    "Turn on sound — your phone will be audible",
+                    tint: Palette.fire
+                )
+            }
+
+            HoldToConfirmButton(
+                duration: 1.5,
+                tint: Palette.ink,
+                accessibilityLabel: "Hold to take over. The agent stops speaking and you take the call."
+            ) {
+                Task { try? await client.takeOver() }
+            } label: {
+                takeOverLabel
+            }
+        }
+    }
+
+    private func modeActionLabel(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(TypeScale.body)
+            .foregroundStyle(Palette.ink)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Space.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                    .fill(tint.opacity(0.16))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                    .strokeBorder(tint.opacity(0.4), lineWidth: 1)
+            )
+    }
+
+    /// `TAKE OVER` reads as the most consequential control on this screen —
+    /// bold, uppercase, filled — so it never blends in with the two quieter
+    /// mode controls above it.
+    private var takeOverLabel: some View {
+        Text("TAKE OVER")
+            .font(.system(size: 14, weight: .bold))
+            .tracking(1.0)
+            .foregroundStyle(Palette.ink)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Space.md)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
+                    .fill(Palette.personUnresponsive.opacity(0.85))
+            )
     }
 
     // MARK: End call

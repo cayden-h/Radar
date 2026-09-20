@@ -12,16 +12,20 @@ What exists right now:
 - **`agents/`** - the ANS agent mesh, its identities, its two cards each, **the A2A transport between them**, and a test suite. `cd agents && python -m pytest -q`.
   The trust layer is complete and is the part of this project with the most work already banked. The roster is being reshaped by the pivot; see `agents/CLAUDE.md`.
 - **`app/backend/`** - the app-facing edge service. Holds `hawkeye_backend/verification/`, the claim-envelope defence, all thirteen `fraud.webmesh.ai` shapes implemented and passing. Also records incidents as they happen into a hash-chained replay record, and **persists each sealed record to MongoDB Atlas** so it survives a restart.
+  **The courier is written as of 2026-09-20**: a sealed record is emailed to the responding department through Resend, and the send - success or failure - is chained onto the record itself. Off by default. Never sent for real yet; `docs/swapping-in-real-parts.md` says what that leaves.
 - **`app/ios/`** - the iOS app. SwiftUI, iOS 18, Swift 6, no third-party dependencies. `cd app/ios && xcodegen generate`. Builds and runs on an iPhone 17 simulator against Xcode 27.0.
 - **`app/watch/`** - the watchOS app. **Written.** Three screens - Idle, Notice, Saved - on a phone-paired WatchConnectivity relay, plus the notification that carries the camera's first sentence to a wrist. A mock feed runs all three screens with no phone and no hub. It lives as a second XcodeGen target in `app/ios/` so it can share `Models/`, `Shared/` and `DesignSystem/` by source path; see `app/ios/HawkEyeWatch/README.md`. This is where a human starts an incident.
 - **`app/web/replay/`** - the replay console at `/replay`. Gains video playback with the pivot.
+- **`app/web/live/`** - the live console at `/live`. **New 2026-09-20.** The third surface: the camera as MJPEG, narration and shield state off the event stream, and the four cross-app controls. It exists so "any app, same backend" is something a judge can watch rather than a claim they take on trust.
 - **`sensor/`** - the Pi 4B CSI capture path. Real, varying, non-zero CSI confirmed flowing end to end via `nexmon_csi`. Its output contract shrinks with the pivot.
 - **`vision/`** - the camera capture path. **Written, and verified against real footage of real people.**
   A `FrameSource` seam with fixture, webcam and future-Pi implementations; three-state lighting detection with hysteresis and a dwell; measured person tracking on YOLO11m plus BoT-SORT with ReID; and rotating mp4 segments hashed as they close.
   `cd vision && python3 -m pytest -q`, and `python3 -m hawkeye_vision` runs the whole path live with boxes and a lighting readout.
-  Narration lives beside it in `hawkeye_vision/narrate.py`. **The shutter attestation gate and claim emission to `master` are not written yet**, so it produces no claims: that is T16.
+  Narration lives beside it in `hawkeye_vision/narrate.py`. **`hawkeye_vision/live_occupancy.py` is the real `OccupancySource` as of 2026-09-20**: a capture thread that reads the hub's relay, runs the tracker and answers `agents/vision` with a measured verdict, so the camera agent no longer runs on a script. **The shutter attestation gate and `vision.description` are still not written**, which is the rest of T16.
 - **`shutter/`** - the servo control path. The contract; the agent is `agents/agents/shutter/`. **Gate written and tested, 22 tests, no hardware needed. The servo itself is unrun.**
+  Reachable end to end from all three apps as of 2026-09-20: `POST /v1/shutter` asks the shutter for a nonce, has `master` sign a grant bound to it, and publishes the attestation or the refusal to every surface.
 - **`docs/hardware/`** - one guide per hardware item, plus a linear bring-up checklist.
+- **`scripts/up.sh`** - **New 2026-09-20.** Brings the whole system up on one machine in live mode, in dependency order: the four agents, `master` with its hub-facing surface, the hub at `HAWKEYE_MODE=live`, and the camera on the edge link. `--fixture` swaps recorded footage for the Brio, `--stop` stops it. Until this existed every one of those seven processes was a remembered command line.
 - **`TASKS.md`** - the work board. Dependency-ordered, claimable, not assigned by person. Start there.
 
 ## What we are building
@@ -223,6 +227,30 @@ Closing that needs the PSAP side to participate, and no dispatch center runs sof
 
 It is also the right closing line: the moment a dispatch center can resolve an ANSName, live verification falls out of what is already built here.
 
+## The edge link
+
+Added 2026-09-20. The camera and the servo are on the Pi; everything that is only compute is on the Mac.
+
+```
+Pi 4B (WiFi)                            MacBook M2 Pro (WiFi)
+  Brio      ──┐                     ┌── app/backend :8787
+  SG92R     ──┤   hawkeye-edge  ════╡     vision/ (YOLO, Gemini, mp4)
+              │   (the Pi dials)    │
+              └─                    └── MJPEG · WS · REST
+                                             │
+                               phone · watch · browser
+```
+
+`python -m hawkeye_vision.edge` on the Pi captures, encodes and pushes, and holds no model and no Gemini session.
+A Pi 4B takes about a second per frame on YOLO11m and the budget is three seconds motion to wrist, so the tracker never goes there.
+
+**The Pi dials the Mac, never the reverse.** One websocket carries frames up and shutter grants down, so nothing has to discover the Pi's address - which matters because its lease moves every time the network changes.
+Relaying a signed grant over that link costs nothing in trust: `shutter` verifies the signature over exactly the bytes it receives, whatever carried them. The link is a pipe, not a participant.
+
+Frames reach the three surfaces at three rates: full-rate MJPEG at `/v1/camera/live` for the phone and the browser, a 1 Hz thumbnail on the existing event stream for the watch, and a single still on demand.
+
+**`scripts/check-hop.sh` proves the network before anything depends on it.** The failure it exists for is client isolation, where an access point refuses to carry traffic between two of its own clients: everything gets internet, nothing can reach anything else, and it looks exactly like broken code.
+
 ## Hardware
 
 **Step-by-step guides live in `docs/hardware/`.**
@@ -365,6 +393,7 @@ Where each of these stands:
 - **ElevenLabs** - the 911 operator side is voice, and the narration driving it is now worth listening to
 - **Best Domain Name (GoDaddy Registry)** - free, required anyway
 - **Vultr** - the agents must be internet-reachable regardless, so host them there
+- **Resend** - **wired, not yet fired.** `app/backend/hawkeye_backend/replay/courier.py` mails the sealed bundle to a police department and records the outcome in the chain. A domain, `cayden.tech`, is verified on the account. What is missing is one real send to a real inbox, which is the remaining half of T44
 - **MongoDB Atlas** - **claimed, and done.** Sealed replay records persist to Atlas via `HAWKEYE_REPLAY_ARCHIVE=mongodb`; verified against the real cluster on 2026-09-19, including a hub restart with the chain still verifying. `app/backend/hawkeye_backend/replay/archive.py`, and the archive section of `app/backend/README.md`.
   Note the shape of the claim: `HAWKEYE_STORE_BACKEND` stays `memory` and `MongoStore` stays unimplemented, deliberately. The store is on the incident path and the timing budget has no room for a round trip to Atlas; what needed to outlive the process was the sealed record, and that is what persists
 - **TigerData** - not claimed. `DATABASE_URL` points at a real Timescale cloud instance and nothing reads it

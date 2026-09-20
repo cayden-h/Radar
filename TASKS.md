@@ -232,6 +232,17 @@ No claim without a current verified attestation. `Unknown(reason="shield_closed"
 
 **Done when** three tests pass: absent attestation, stale attestation, valid attestation, and only the third produces a description.
 
+**The occupancy half landed 2026-09-20**, on `t20-hub-integration`. `hawkeye_vision/live_occupancy.py` is
+the real `OccupancySource` T15b left open: it holds a capture thread, pulls frames from the hub's relay,
+runs the tracker, and answers `VisionAgent` with a measured verdict. Seven tests, and the ones that matter
+are the three ways it must refuse to answer - nothing arrived yet, the verdict aged out, the source died -
+all of which come back `tracker_unavailable` rather than `no_person`, because `master` closes a verified
+grant on `no_person` and a blind camera reporting an empty room fires this system's privacy mechanism at
+random. `HAWKEYE_VISION_SOURCE=synthetic` is now the opt-in and the real path is the default; failing to
+build the real one reports blindness rather than falling back to a script.
+
+The attestation gate and `vision.description` are still open.
+
 ### T17 - Gemini Live narration
 **Lane** A · **Skill** py · **Needs** T15 · **Blocks** T40 · **Who** ___
 
@@ -256,12 +267,55 @@ POST observations to `/v1/internal/observations/import`: an agent that described
 
 *Optional-but-valuable. Take it only if the critical path is clear.*
 
-### T20 - `master` wiring: grant issuance and the new classification table
-**Lane** A · **Skill** py · **Needs** T01, T14, T16 · **Blocks** T30, T40 · **Who** ___
+### ~~T20 - `master` wiring: grant issuance and the hub-facing surface~~ **Done 2026-09-20.**
+**Lane** A · **Skill** py · **Blocks** T30, T40 · **Branch** `t20-hub-integration`
 
-The five-row table in `agents/CLAUDE.md`. The shutter grant on an unaccounted verdict. `traceparent` generated at incident open and propagated.
+`HAWKEYE_MODE=live` had nowhere to point. `LiveMasterClient` had posted to `/v1/state`, `/v1/sensor`,
+`/v1/agents`, `/v1/incident`, `/v1/stream` and `/v1/shutter/grant` since it was written, against a
+`TODO(master)` block calling those paths its own proposal; master served none of them. Every surface
+therefore ran off the scripted incident in `master/simulated.py` no matter what was on the table.
 
-**Done when** the row "unaccounted motion + shutter refused to open" produces a system event and **no incident and no visual claim**, with a test asserting master does not reach for the radio to fill the gap.
+Delivered:
+
+- **`agents/master/hub_api.py`** - the agreement that TODO block was waiting for. Composes master's
+  admitted claims into `InteriorState`, pushes state plus every fresh verification verdict - acceptances
+  and discards alike - down `WS /v1/stream`, and signs grants over the shutter's own nonce
+- **`A2AShutterClient`** - master had no way to reach the real shutter over the wire. `LocalShutterClient`
+  signed real grants against the real gate in-process, which verifies a signature and nothing about a
+  transport. `HAWKEYE_PEERS` now turns the shutter hop on the same way it turns the mesh on, and a
+  missing shutter means no grant rather than a silent in-process substitute
+- **`build_app` hooks** - `routers`, `on_start`, `on_stop`, used by exactly one agent. What differs
+  between agents should be `tick`, and a hook the other six pass nothing to keeps that visible
+- **`scripts/up.sh`** - seven processes in dependency order, with a port wait rather than a guessed
+  sleep. The failure it exists for is master starting before shutter can serve its trust card, which
+  leaves master refusing every grant as `unregistered_issuer`, correctly, and looking like a gate bug
+
+**Verified end to end**, not merely tested: the full mesh up, the Brio at 7.6 fps across the edge link,
+`vision` pulling real frames off the hub's relay and running YOLO11m on them, and master composing a
+`person_present` verdict for the living room into the state document all three surfaces read.
+
+**What it left open.** `presence` still runs on RuView's synthetic generator and says so in every claim
+(`source: ruview-sim`): `sensor/` holds no capture code, and the Pi's radio path and its camera path want
+the WiFi interface in two different modes. The RSSI detector in `wifi-rssi-motion-template/` is the real
+motion source when someone wires it in - it is a live process with a real signal today and nothing reads it.
+
+### ~~T25 - The edge link: camera and servo on the Pi, compute on the Mac~~ **Done 2026-09-20.**
+**Lane** A/B · **Skill** py · **Blocks** T33, T60 · **Branch** `t20-hub-integration`
+
+New task, added and completed the same day, because nothing connected the four finished parts to a screen.
+
+`WS /v1/edge/link`: the Pi dials the Mac, JPEG frames go up, shutter grants come down.
+`python -m hawkeye_vision.edge` on the Pi captures and pushes and runs no model.
+`RelayFrameSource` lets `vision/` read those frames on the Mac, so YOLO, Gemini and the recorder run unchanged.
+Frames reach the three surfaces at three rates: MJPEG at `/v1/camera/live`, a 1 Hz thumbnail on the event stream for the watch, a still on demand.
+
+Four cross-app controls, all landing on `HubRuntime.emit()` so every surface sees every outcome: start incident, add context, shutter open/close, dismiss notice.
+`app/web/live/` is the third surface and the proof the backend is shared.
+
+**Verified end to end**, not merely tested: 194 frames across the link, MJPEG at 9 fps in a browser, the shield to 90 and back to 0 against the real `agents/shutter` that discovered `master`'s trust card from `master.batradar.club`, and the same grant refused as `unregistered_issuer` by a shutter with an empty trust store.
+Killing the edge flips `camera.live` false within four seconds rather than serving a frozen frame as current.
+
+**What it left for T20:** `master` still does not expose a grant endpoint, so in simulated mode the hub signs with `master`'s own key and says so at startup. `LiveMasterClient.issue_shutter_grant` already posts to `/v1/shutter/grant` and needs the other end.
 
 ## Lane B - The Pi
 
@@ -394,13 +448,21 @@ Watch relay as a `NoticeSink` alongside Twilio. The notice payload gains a still
 ### T44 - The police email
 **Lane** D · **Skill** py · **Needs** T40, T41 · **Blocks** T50 · **Who** ___
 
-`caller` asks the operator for an address near the end of the call and reads it back. `replay` seals and sends via Resend: video, transcript, claim log with every discard and refusal, chain, and the standalone verifier.
+**The hub's half is built as of 2026-09-20.** `app/backend/hawkeye_backend/replay/courier.py`: `NullCourier` by default, `ResendCourier` behind `HAWKEYE_COURIER=resend`, sending the export bundle - record, readable chain, standalone verifier, README - as one zip attachment. Automatic when a record seals, plus `POST /v1/incident/{id}/courier` for the operator-supplied address and for retrying a failed send. The courier section of `app/backend/README.md` has the whole design.
 
-Address recorded as `operator_supplied`, never trusted as authorization. The send itself is an event in the chain.
+Address provenance is carried: `operator_supplied` off the request, `configured` off `HAWKEYE_COURIER_TO`. Neither is authorization for anything.
+
+The send is an event in the chain. `ReplaySession.append_courier_receipt` is the one thing allowed to append past a seal, and it adds rather than edits: the emailed copy is a byte-exact prefix of the archived one and both verify under the same unchanged `verify.py`. A failed send chains as loudly as a successful one; retries accumulate until one succeeds.
+
+**Still to do, and it is the half that closes the task:**
+
+1. **Send one real email and open it.** Nothing has been sent for real. 18 tests cover the path against a mock transport, which proves the shape and not the delivery.
+2. **`caller` asking the operator for the address and reading it back.** That is T40 territory and nothing here implements it; the endpoint just accepts an address once somebody has it.
+3. **Video in the bundle.** T41. The export is four text members today.
 
 **Done when** a real test email arrives with attachments intact and the verifier in it runs standalone, **and** a failed send is visible in the chain rather than silent.
 
-**Verify the Resend domain early.** An unverified domain accepts sends and delivers nothing, and the chain will record success.
+**Verify the Resend domain early.** An unverified domain accepts sends and delivers nothing, and the chain will record success. `cayden.tech` is verified on the project account as of 2026-09-20 and is the default From domain - but a verified domain is not a tested inbox.
 
 ---
 

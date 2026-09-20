@@ -1,0 +1,17 @@
+{
+  "$note": "One line the camera produced. NOT a transcript line: that type means one line of the caller-to-911 conversation. `window_s` carries the sampling limit.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 50,
+    "at": "2026-09-20T04:12:44Z",
+    "incident_id": null,
+    "payload": {
+      "kind": "narration",
+      "text": "A person in a dark jacket is standing by the front door.",
+      "room": "Living room",
+      "window_s": 1.0,
+      "at": "2026-09-20T07:10:52.867651Z",
+      "source": "agent-inference"
+    }
+  }
+}

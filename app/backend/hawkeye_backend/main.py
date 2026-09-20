@@ -25,6 +25,7 @@ from hawkeye_backend.master.live import LiveMasterClient
 from hawkeye_backend.master.simulated import SimulatedMasterClient
 from hawkeye_backend.notices import NoticeSink, TwilioSink
 from hawkeye_backend.replay.archive import MongoReplayArchive, NullArchive, ReplayArchive
+from hawkeye_backend.replay.courier import Courier, NullCourier, ResendCourier
 from hawkeye_backend.runtime import HubRuntime
 from hawkeye_backend.store import build_store
 
@@ -34,6 +35,12 @@ logger = logging.getLogger(__name__)
 #: CDN, nothing to install. `app/backend/hawkeye_backend/main.py` sits three
 #: levels under `app/`, and the console lives at `app/web/replay`.
 REPLAY_SITE = Path(__file__).resolve().parents[2] / "web" / "replay"
+
+#: The live console. Same deal as REPLAY_SITE: a static directory, no
+#: bundler, nothing to install. It is the third surface, and it exists so
+#: "any app, same backend" is something a judge can watch rather than a
+#: claim they have to take on trust.
+LIVE_SITE = Path(__file__).resolve().parents[2] / "web" / "live"
 
 
 def build_client(settings: Settings) -> MasterClient:
@@ -46,6 +53,45 @@ def build_client(settings: Settings) -> MasterClient:
             autostart=settings.sim_autostart,
         )
     return LiveMasterClient(settings.master_base_url, settings.master_timeout_s)
+
+
+def build_courier(settings: Settings) -> Courier:
+    """Who mails a sealed record out of the building.
+
+    Built here rather than inside HubRuntime so a misconfiguration is a startup
+    log line rather than a surprise at the end of a 911 call.
+
+    Every refusal below is a refusal to construct a courier at all, not a
+    courier that fails at send time. A hub that cannot mail anybody says so
+    once, at boot, in the log a human is already reading - and the record then
+    truthfully says the send was skipped for want of a courier.
+    """
+    if settings.courier != "resend":
+        logger.info("courier: off, sealed records are not sent anywhere")
+        return NullCourier()
+    if not settings.resend_api_key.get_secret_value():
+        logger.warning(
+            "courier: HAWKEYE_COURIER=resend but HAWKEYE_RESEND_API_KEY is empty. "
+            "Sealed records will not be sent."
+        )
+        return NullCourier()
+    if not settings.courier_from:
+        logger.warning(
+            "courier: HAWKEYE_COURIER=resend but HAWKEYE_COURIER_FROM is empty. "
+            "Sealed records will not be sent."
+        )
+        return NullCourier()
+    logger.warning(
+        "courier: resend enabled, sending as %s. A sealed record will be emailed "
+        "when an incident's call ends. **Verify the sending domain in the Resend "
+        "dashboard**: an unverified domain accepts the send, returns a message id, "
+        "and delivers nothing, and the record will record that as a success.",
+        settings.courier_from,
+    )
+    return ResendCourier(
+        api_key=settings.resend_api_key.get_secret_value(),
+        from_address=settings.courier_from,
+    )
 
 
 def build_runtime(settings: Settings | None = None) -> HubRuntime:
@@ -107,6 +153,7 @@ def build_runtime(settings: Settings | None = None) -> HubRuntime:
         build_client(settings),
         notice_sinks=notice_sinks,
         archive=archive,
+        courier=build_courier(settings),
     )
 
 
@@ -140,6 +187,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         await runtime.stop()
         await runtime.archive.close()
+        await runtime.courier.close()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -165,6 +213,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.runtime = build_runtime(settings)
     app.include_router(api.router)
+
+    # The motion detector. It runs as its own process out of
+    # wifi-rssi-motion-template/, on its own port, with no dependency on this
+    # service - so all the hub owes it is a stable address on the hub's own
+    # origin. /motion is that address; the consoles link to it rather than to
+    # a hardcoded localhost port.
+    if settings.motion_console_url:
+
+        @app.get("/motion", include_in_schema=False)
+        async def motion() -> RedirectResponse:
+            return RedirectResponse(url=settings.motion_console_url)
+
+        logger.info("motion console redirect: /motion -> %s", settings.motion_console_url)
+    else:
+        logger.info("motion console redirect disabled by configuration")
+
+    # The live console. Mounted before /replay and after the API router, so
+    # it cannot shadow an API route either.
+    if settings.live_site_enabled and LIVE_SITE.is_dir():
+        app.mount("/live", StaticFiles(directory=LIVE_SITE, html=True), name="live-console")
+        logger.warning(
+            "live console served at /live from %s. It carries Start Incident and "
+            "the shutter controls and has no authentication, so it is as trusted "
+            "as the network it is on. HAWKEYE_LIVE_SITE_ENABLED=false turns it off.",
+            LIVE_SITE,
+        )
+    elif not settings.live_site_enabled:
+        logger.info("live console disabled by configuration")
 
     # The replay console. Mounted last so it cannot shadow an API route, and
     # behind a flag because serving a human surface is a deployment decision.

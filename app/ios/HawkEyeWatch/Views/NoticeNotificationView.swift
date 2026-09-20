@@ -21,33 +21,39 @@ struct NoticeNotificationView: View {
     var payload: NoticeNotificationPayload
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Space.sm) {
+        ZStack {
+            AmbientBackground()
 
-                HStack(spacing: Space.xs) {
-                    Circle()
-                        .fill(Palette.personUnexpected)
-                        .frame(width: 7, height: 7)
-                    Text("Unexpected")
-                        .eyebrowStyle(Palette.personUnexpected)
-                    Spacer(minLength: 0)
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.sm) {
+
+                    HStack(spacing: Space.xs) {
+                        Circle()
+                            .fill(Palette.personUnexpected)
+                            .frame(width: 7, height: 7)
+                        Text("Unexpected")
+                            .eyebrowStyle(Palette.personUnexpected)
+                        Spacer(minLength: 0)
+                    }
+
+                    frame
+
+                    Text(payload.narration)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(Space.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .glassPanel(cornerRadius: Radius.sm)
+
+                    Text("Open to answer this.")
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundStyle(Palette.inkFaint)
                 }
-
-                frame
-
-                Text(payload.narration)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Palette.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text("Open to answer this.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.inkFaint)
+                .padding(.horizontal, Space.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, Space.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .background(Palette.ground)
     }
 
     @ViewBuilder
@@ -80,17 +86,19 @@ struct NoticeNotificationView: View {
         .clipShape(RoundedRectangle(cornerRadius: Radius.md, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                .strokeBorder(Palette.hairline, lineWidth: 1)
+                .strokeBorder(Palette.glassBorder, lineWidth: 1)
         )
+        .shadow(color: .black.opacity(0.35), radius: 12, y: 6)
     }
 
     /// No frame means the shield never opened, and saying so is more useful
     /// than a grey rectangle.
     private var noFrame: some View {
         ZStack {
-            Palette.surface
+            Rectangle().fill(.ultraThinMaterial.opacity(0.12))
+            Rectangle().fill(Palette.glassTint)
             Text("The shield stayed closed.\nThere is no picture.")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11, weight: .medium, design: .rounded))
                 .foregroundStyle(Palette.inkMuted)
                 .multilineTextAlignment(.center)
         }

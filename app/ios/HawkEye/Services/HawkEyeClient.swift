@@ -36,7 +36,16 @@ protocol HawkEyeClienting: AnyObject {
     /// incident and it does not dial; a human tap still does that.
     var notices: [Notice] { get }
 
-    /// Dismiss one. Local to this device: the notice stays in the sealed log.
+    /// Dismiss one.
+    ///
+    /// **Local to this device today, and the hub now offers better.**
+    /// `POST /v1/notice/{id}/dismiss` clears a notice on every surface at once,
+    /// so a banner cleared on the phone also leaves the wrist. Moving this call
+    /// onto it is T32's job; until then the watch keeps its own opinion.
+    ///
+    /// Either way the notice stays in the sealed log, and dismissing is not
+    /// vouching: it clears a banner and changes nothing about what the house
+    /// believes.
     func dismissNotice(_ id: String)
 
     /// What the hub said about itself on the `hello` frame.
@@ -89,6 +98,29 @@ protocol HawkEyeClienting: AnyObject {
 
     /// Refresh the roster and the unclaimed device list.
     func refreshHousehold() async
+
+    /// The resident's current leg on the call bridge. Defaults to `.watching`
+    /// and stays there for as long as no incident is open.
+    ///
+    /// This is client-tracked state, not something the hub streams back on
+    /// `incident` frames: the backend has no wire field for it, only the
+    /// `POST /v1/incident/{id}/mode` route that changes it. Set optimistically
+    /// on a successful call to `setParticipationMode`.
+    var participationMode: ParticipationMode { get }
+
+    /// State of the call to the 911 operator. Mirrors `incident?.callState`
+    /// so a view asking "is a call happening" does not have to unwrap
+    /// `incident` first; `.notPlaced` when there is no open incident.
+    var callState: CallState { get }
+
+    /// Switches the resident's leg on the bridge. `mode` moving toward
+    /// `.fullVoice` must only ever be called from a human-initiated control —
+    /// see the automation rule on `ParticipationMode`.
+    func setParticipationMode(_ mode: ParticipationMode) async throws
+
+    /// The `TAKE OVER` control. Moves straight to `.fullVoice`; always a
+    /// human action, held for 1.5s in the UI before this is called.
+    func takeOver() async throws
 }
 
 enum HawkEyeClientError: Error, LocalizedError {
@@ -151,6 +183,22 @@ enum HubEvent: Sendable, Hashable {
     case context(ContextNote)
     case notice(Notice)
     case error(code: String, message: String)
+
+    // The camera path, added 2026-09-20.
+    case frame(CameraFrame)
+    case narration(Narration)
+    case occupancy(Occupancy)
+    case shield(ShieldReport)
+
+    /// A kind this build does not know about.
+    ///
+    /// **Forward compatibility, and it is not the same fact as a malformed
+    /// frame.** An unknown kind means the hub is newer than the app, which is
+    /// ordinary during a weekend where both move; a frame that will not parse
+    /// means the contract broke. Collapsing the two would have put every phone
+    /// into a permanent "you may be behind" state the moment the hub learned
+    /// its first new event, so they are kept apart.
+    case unrecognised(kind: String)
 }
 
 extension HubEvent: Decodable {
@@ -158,6 +206,13 @@ extension HubEvent: Decodable {
         case kind
         case state, phase, incident, line, instruction, result, note, notice, code, message
     }
+
+    /// Kinds this build understands. Used only to tell "newer hub" apart from
+    /// "broken frame" when something fails to decode.
+    static let knownKinds: Set<String> = [
+        "hello", "state", "incident", "transcript", "instruction", "verification",
+        "context", "notice", "error", "frame", "narration", "occupancy", "shield",
+    ]
 
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -188,11 +243,18 @@ extension HubEvent: Decodable {
                 code: try c.decode(String.self, forKey: .code),
                 message: try c.decode(String.self, forKey: .message)
             )
+        case "frame":
+            self = .frame(try CameraFrame(from: decoder))
+        case "narration":
+            self = .narration(try Narration(from: decoder))
+        case "occupancy":
+            self = .occupancy(try Occupancy(from: decoder))
+        case "shield":
+            self = .shield(try ShieldReport(from: decoder))
         default:
-            throw DecodingError.dataCorruptedError(
-                forKey: .kind, in: c,
-                debugDescription: "Unknown hub event kind: \(kind)"
-            )
+            // Tolerated rather than thrown. See `unrecognised`: a hub that
+            // learned a new event must not degrade every older client.
+            self = .unrecognised(kind: kind)
         }
     }
 }

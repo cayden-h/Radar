@@ -101,6 +101,25 @@ python -m agents people --port 8101
 HAWKEYE_PEERS=people=http://127.0.0.1:8101 python -m agents master --port 8100
 ```
 
+### Or bring the whole thing up at once
+
+`scripts/up.sh` at the repo root starts all four sensing agents, `master` with its hub-facing surface,
+`app/backend` at `HAWKEYE_MODE=live`, and the camera on the edge link - in dependency order, waiting on
+each port rather than sleeping a guessed number of seconds.
+
+```sh
+./scripts/up.sh              # the Brio, live
+./scripts/up.sh --fixture    # recorded footage instead of a camera
+./scripts/up.sh --stop
+```
+
+**Order matters and the script encodes why.** Every agent builds its trust store by fetching its peers'
+published trust cards at startup, so an agent that starts before `shutter` is serving holds an empty store
+for the life of the process: it refuses every grant as `unregistered_issuer`, which is correct behaviour
+and looks exactly like a bug in the gate.
+
+```
+
 `HAWKEYE_PEERS` is a comma-separated `slug=url` list, and setting it is what
 turns the wire on. With it, master fetches each peer's trust card, builds its
 trust store from the published keys, issues a fresh challenge per fetch, and

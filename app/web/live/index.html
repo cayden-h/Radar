@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hawk Eye live</title>
+    <link rel="stylesheet" href="live.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Hawk Eye <span class="badge" id="mode">…</span></h1>
+      <p id="hub" class="muted">Connecting…</p>
+      <p class="muted">
+        <!-- The RSSI motion detector runs as its own process on its own port.
+             /motion is the hub's stable address for it, so this link does not
+             have to know which port that is. -->
+        <a href="/motion" target="_blank" rel="noopener">WiFi motion detector &rarr;</a>
+      </p>
+    </header>
+
+    <main>
+      <section class="feed">
+        <h2>Camera</h2>
+        <div class="frame">
+          <!-- src is set by live.js rather than here, so the page can render
+               its own unreachable state instead of a browser broken-image icon. -->
+          <img id="camera" alt="Live camera" hidden />
+          <div id="cameraOverlay" class="overlay">No camera</div>
+        </div>
+        <p id="cameraStatus" class="muted mono"></p>
+        <p id="shield" class="shield">Shield: unknown</p>
+      </section>
+
+      <section class="controls">
+        <h2>Controls</h2>
+        <p class="muted">
+          Every button here does what the same button does on the phone and the
+          watch, and all three see the result. That is the point of this page.
+        </p>
+        <div class="row">
+          <button id="startIncident" type="button" class="danger">
+            Start incident - hold
+          </button>
+        </div>
+        <div class="row">
+          <button id="openShutter" type="button">Open shutter</button>
+          <button id="closeShutter" type="button">Close shutter</button>
+        </div>
+        <form id="contextForm">
+          <label for="contextText">What is happening</label>
+          <textarea
+            id="contextText"
+            rows="3"
+            placeholder="Anything the operator should know"
+          ></textarea>
+          <button type="submit">Send context</button>
+        </form>
+        <p class="muted">
+          Hawk Eye never calls 911 on its own. Starting an incident is what
+          releases the caller agent to dial, and a person has to do it.
+        </p>
+      </section>
+
+      <section class="stream">
+        <h2>Narration and events</h2>
+        <ul id="events"></ul>
+      </section>
+    </main>
+
+    <script src="live.js"></script>
+  </body>
+</html>

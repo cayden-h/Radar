@@ -28,6 +28,8 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
+import httpx
+
 from agents.core.base import Agent
 from agents.core.dev import SyntheticCsiFeed, StaticRoster
 from agents.core.identity import ROSTER, identity
@@ -40,8 +42,11 @@ from agents.core.discovery import discover
 from hawkeye_backend.verification import ClaimVerifier, VerifierPolicy
 
 if TYPE_CHECKING:  # pragma: no cover
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from fastapi import FastAPI
     from hawkeye_backend.verification import TrustStore
 
+    from agents.master.shutter_client import ShutterClient
     from agents.shutter.backend import ShutterBackend
 
 logger = logging.getLogger(__name__)
@@ -84,7 +89,7 @@ def peers_from(base_urls: dict[str, str]) -> dict[str, Peer]:
     }
 
 
-def build_agent(slug: str) -> Agent:
+def build_agent(slug: str, *, feed_kind: str = "synthetic") -> Agent:
     """Construct one agent with development inputs.
 
     The wiring is explicit rather than a registry lookup, because each agent
@@ -94,19 +99,30 @@ def build_agent(slug: str) -> Agent:
     locally attached gas sensor, and `caller` and `replay` read only `master`.
     """
     mesh = build_mesh(slug)
-    # realtime: a running agent has no test driving the clock, so the feed
-    # catches up to the wall clock on read. See `agents.core.dev`.
-    #
-    # `history_s` has to exceed `BASELINE_SEED_S`, or the seed window is capped
-    # by the buffer and the baseline lands a hair under its minimum age - which
-    # presents as an agent that is up, ticking, and permanently unhealthy.
-    feed = SyntheticCsiFeed(DEMO_ZONES, realtime=True, history_s=240.0)
     roster = StaticRoster()
 
     match slug:
         case "presence":
             from agents.presence import PresenceAgent
 
+            # `--feed rssi` swaps the synthetic radio for the real Mac WiFi-RSSI
+            # motion classifier, scoped to the one room it can resolve. It fails
+            # over to *blind*, never to a fabricated "absent", when no radio is
+            # available - see `agents.presence.rssi`. The default stays synthetic
+            # because the demo must never depend on hardware being alive.
+            if feed_kind == "rssi":
+                from agents.presence.rssi import RssiCsiFeed
+
+                feed = RssiCsiFeed(room=VISION_ROOM)
+            else:
+                # realtime: a running agent has no test driving the clock, so the
+                # feed catches up to the wall clock on read. See `agents.core.dev`.
+                #
+                # `history_s` has to exceed `BASELINE_SEED_S`, or the seed window
+                # is capped by the buffer and the baseline lands a hair under its
+                # minimum age - which presents as an agent that is up, ticking,
+                # and permanently unhealthy.
+                feed = SyntheticCsiFeed(DEMO_ZONES, realtime=True, history_s=240.0)
             return PresenceAgent(feed, roster)
         case "intruder":
             from agents.intruder import IntruderAgent
@@ -115,23 +131,31 @@ def build_agent(slug: str) -> Agent:
         case "master":
             from agents.master import MasterAgent, SimulatedCoSensor
 
-            return MasterAgent(mesh, gas=SimulatedCoSensor())
+            return MasterAgent(mesh, gas=SimulatedCoSensor(), shutter_client=shutter_client())
         case "caller":
             from agents.caller import CallerAgent
 
             return CallerAgent(mesh)
         case "vision":
-            from hawkeye_backend.models.common import Source
-
-            from agents.core.dev import SyntheticOccupancy
+            from agents.core.dev import DevNarrations, DevOpenAttestations
             from agents.vision import VisionAgent
 
-            # `CAMERA_SIM` because that is what this is. The agent refuses any
-            # source label that is not a camera, and the honest camera label for
-            # a process with no lens attached is the simulated one - which the
-            # app renders a badge from rather than hiding.
+            # `occupancy_source()` is the real camera relay by default (synthetic
+            # via `HAWKEYE_VISION_SOURCE`), and it reports its own camera label,
+            # so `source_kind` is left to its `CAMERA_SIM` default until it does.
+            #
+            # `vision` claims nothing without a fresh, open attestation from
+            # `shutter`. In the live mesh that attestation arrives over ANS; this
+            # single-process dev runner has no `shutter` on the wire and runs on
+            # `LocalMesh`, which verifies nothing - so the dev attestation and
+            # narration fixtures stand in here exactly as `LocalMesh` does. They
+            # are NOT the verified path: that runs as separate processes, and the
+            # gate's real enforcement is covered in `tests/test_vision_agent.py`.
             return VisionAgent(
-                SyntheticOccupancy(), room=VISION_ROOM, source_kind=Source.CAMERA_SIM
+                occupancy_source(),
+                attestations=DevOpenAttestations(),
+                narrations=DevNarrations(),
+                room=VISION_ROOM,
             )
         case "replay":
             from agents.replay import ReplayAgent
@@ -148,6 +172,108 @@ def build_agent(slug: str) -> Agent:
             return ShutterAgent(trust=trust_store(slug), backend=shutter_backend())
         case _:
             raise SystemExit(f"no agent {slug!r}. Try --list.")
+
+
+def occupancy_source():  # noqa: ANN201 - OccupancySource, a Protocol
+    """Where `vision` gets its personhood verdict.
+
+    The real one by default, reading the hub's camera relay and running YOLO11m
+    plus BoT-SORT on this machine. `HAWKEYE_VISION_SOURCE=synthetic` opts back
+    into the scripted verdict for a laptop with no hub up.
+
+    **The real path is the default and the synthetic one is the opt-in**, which
+    is the reverse of how this started. A synthetic default is how you get to a
+    judging table with a camera pointed at a room and an agent answering from a
+    script, and nothing on any screen tells you which one you are watching -
+    because a `CAMERA_SIM` badge is exactly what a real camera relay reports
+    until the hub says otherwise.
+
+    Failing to build the real one is **not** a fallback to the synthetic one. It
+    returns a source that reports `tracker_unavailable` forever, which is the
+    honest answer: this process could not look. A silent downgrade to a scripted
+    verdict would let a demo with no camera present as a demo with one.
+    """
+    from hawkeye_vision.occupancy import Occupancy
+
+    choice = os.environ.get("HAWKEYE_VISION_SOURCE", "relay").strip().lower()
+    if choice == "synthetic":
+        from agents.core.dev import SyntheticOccupancy
+
+        logger.warning(
+            "HAWKEYE_VISION_SOURCE=synthetic: vision is answering from a script, not "
+            "from a camera. Every claim it makes will be labelled camera-sim."
+        )
+        return SyntheticOccupancy()
+    if choice != "relay":
+        raise SystemExit(
+            f"HAWKEYE_VISION_SOURCE={choice!r}; expected 'relay' or 'synthetic'"
+        )
+
+    hub = os.environ.get("HAWKEYE_HUB_URL", "http://127.0.0.1:8787")
+    try:
+        from hawkeye_vision.config import VisionConfig
+        from hawkeye_vision.live_occupancy import LiveOccupancySource
+        from hawkeye_vision.relay import RelayFrameSource
+        from hawkeye_vision.yolo_tracker import build_tracker
+
+        config = VisionConfig()
+        source = LiveOccupancySource(
+            RelayFrameSource(hub), build_tracker(config), config=config
+        )
+        source.start()
+        logger.info("vision reading the camera relay at %s", hub)
+        return source
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        logger.error(
+            "could not build the camera path (%s). vision will report "
+            "tracker_unavailable rather than falling back to a script: an agent that "
+            "answered from a fixture while a camera was on the table would be lying "
+            "about which sensor produced the claim.",
+            exc,
+        )
+
+        class _Blind:
+            """Reports that it could not look. Never that the room is empty."""
+
+            def occupancy(self) -> Occupancy:
+                return Occupancy.TRACKER_UNAVAILABLE
+
+        return _Blind()
+
+
+def shutter_client() -> "ShutterClient | None":
+    """How `master` reaches the shield, from `HAWKEYE_PEERS`.
+
+    The same env var that turns the mesh on turns this on, and for the same
+    reason: both are the difference between an in-process stand-in that verifies
+    nothing about a transport and two independently registered agents talking
+    over one.
+
+    `None` when `shutter` is not in the peer list, and that is the correct
+    degenerate behaviour rather than a fallback. A master with no shutter client
+    never issues a grant, so the lens stays covered - and a silent in-process
+    substitute here would be a shield that moved without anything crossing the
+    wire, which is the one outcome this project must never demonstrate by
+    accident.
+    """
+    raw = os.environ.get("HAWKEYE_PEERS", "").strip()
+    base_urls = dict(part.split("=", 1) for part in raw.split(",") if "=" in part)
+    url = base_urls.get("shutter")
+    if not url:
+        logger.warning(
+            "no shutter in HAWKEYE_PEERS, so master holds no shutter client and will "
+            "never issue a grant. The lens stays covered, which is safe and is not a "
+            "working demo."
+        )
+        return None
+
+    from agents.master.shutter_client import A2AShutterClient
+
+    return A2AShutterClient(
+        url,
+        key=load_or_create("master"),
+        issuer=identity("master").ansname,
+    )
 
 
 def shutter_backend() -> "ShutterBackend":
@@ -237,6 +363,56 @@ def build_mesh(slug: str) -> ObservationSource:
     )
 
 
+def build_master_app(
+    agent: Agent, signer: ClaimSigner, key: "Ed25519PrivateKey"
+) -> "FastAPI":
+    """Master serves two surfaces on one app, and this wires the first of them.
+
+    `hub_router` is the read/incident/grant/stream surface `app/backend`'s
+    `LiveMasterClient` polls - `/v1/state`, `/v1/sensor`, `/v1/agents`,
+    `/v1/stream`, `/v1/shutter/grant`. It is mounted through `build_app`'s
+    `routers`/`on_start`/`on_stop` hooks, which exist for exactly this agent:
+    the hub needs a background publisher started alongside the agent's own tick
+    and stopped before it. Every other agent passes those hooks nothing.
+
+    The second surface, the `/a2a/{start-call,set-mode}` call bridge, is added
+    by `attach_call_bridge_routes` after this returns. The two are deliberately
+    separate implementations: this surface reports and never dials, and the call
+    bridge is the only path to a phone call. `hub_api.a2a_hub_router` is
+    intentionally *not* mounted here - it duplicates those two paths but gates
+    without triggering `agents/caller`, so mounting it would both shadow the
+    dialing routes and serve a start-call that never dials.
+
+    Site id and address come from the same `hawkeye_backend` settings the hub's
+    `SimulatedMasterClient` reads, so the live state a surface renders is scoped
+    to the same installation the mock one was.
+    """
+    from agents.master import MasterAgent
+    from agents.master.hub_api import MasterHub, hub_router
+    from hawkeye_backend.config import get_settings
+    from hawkeye_backend.master.scenario import build_floorplan
+
+    if not isinstance(agent, MasterAgent):  # pragma: no cover - guarded by caller
+        raise SystemExit("build_master_app called for a non-master agent")
+
+    settings = get_settings()
+    hub = MasterHub(
+        agent,
+        site_id=settings.site_id,
+        site_address=settings.site_address,
+        floorplan=build_floorplan(settings.site_id),
+        key=key,
+        camera_room=VISION_ROOM,
+    )
+    return build_app(
+        agent,
+        signer=signer,
+        routers=[hub_router(hub)],
+        on_start=hub.start,
+        on_stop=hub.stop,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m agents", description=__doc__)
     parser.add_argument("slug", nargs="?", help="Which agent to run.")
@@ -244,6 +420,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--transport-port", type=int, default=8107, help="Transport server port (caller only)")
     parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - must be reachable
     parser.add_argument("--list", action="store_true", help="List the roster and exit.")
+    parser.add_argument(
+        "--feed",
+        choices=["synthetic", "rssi"],
+        default="synthetic",
+        help=(
+            "presence only. `synthetic` is the ruview-sim radio (default, no "
+            "hardware). `rssi` reads the real Mac WiFi-RSSI motion classifier."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -256,9 +441,17 @@ def main(argv: list[str] | None = None) -> int:
     if not args.slug:
         parser.error("name an agent, or pass --list")
 
-    agent = build_agent(args.slug)
-    signer = ClaimSigner(identity(args.slug), load_or_create(args.slug))
-    app = build_app(agent, signer=signer)
+    agent = build_agent(args.slug, feed_kind=args.feed)
+    key = load_or_create(args.slug)
+    signer = ClaimSigner(identity(args.slug), key)
+    # `master` alone serves a second surface - the one `app/backend` reads - so
+    # its app is built with the hub router and its background publisher. The
+    # `/a2a` call bridge is attached to this same app in the `master` branch
+    # below. Every other agent gets the plain single-surface app.
+    if args.slug == "master":
+        app = build_master_app(agent, signer, key)
+    else:
+        app = build_app(agent, signer=signer)
 
     import uvicorn
 
@@ -266,38 +459,82 @@ def main(argv: list[str] | None = None) -> int:
 
     # If this is the caller agent, also launch the Twilio transport server.
     if args.slug == "caller":
-        from agents.caller.transport.orchestrator import CallOrchestrator
-        from agents.caller.transport.server import build_transport_app
-        from agents.caller.transport.twilio_client import RealTwilioVoiceClient
-        from agents.caller.transport.simulated import SimulatedCallTransport
+        # `os` is imported at module top and must not be re-imported here: a
+        # local `import os` inside this function makes `os` a local of `main()`
+        # for the whole body, so the `master` branch below raises
+        # UnboundLocalError reading `os.environ` when its own branch never ran.
         from hawkeye_backend.config import get_settings
 
         settings = get_settings()
+        transport = (settings.call_transport or "retell").strip().lower()
+        internal_token = os.environ.get("HAWKEYE_INTERNAL_TRIGGER_TOKEN", "").strip() or None
 
-        # Choose real or simulated transport, mirroring app/backend's build_client pattern.
-        if settings.mode == "live" and settings.twilio_voice_configured:
-            voice_client = RealTwilioVoiceClient(
-                account_sid=settings.twilio_account_sid,
-                auth_token=settings.twilio_auth_token.get_secret_value(),
+        if transport == "twilio":
+            # Dormant path, retained. Paywalled; not the default.
+            from agents.caller.transport.orchestrator import CallOrchestrator
+            from agents.caller.transport.server import build_transport_app
+            from agents.caller.transport.simulated import SimulatedCallTransport
+            from agents.caller.transport.twilio_client import RealTwilioVoiceClient
+
+            if settings.mode == "live" and settings.twilio_voice_configured:
+                voice_client = RealTwilioVoiceClient(
+                    account_sid=settings.twilio_account_sid,
+                    auth_token=settings.twilio_auth_token.get_secret_value(),
+                )
+            else:
+                voice_client = SimulatedCallTransport()
+            orchestrator = CallOrchestrator(
+                caller=agent,
+                transport=voice_client,
+                mock_911_number=settings.mock_911_number or "+15550004444",
+                twilio_voice_number=settings.twilio_voice_number or "+15550003333",
+                twiml_app_sid=settings.twilio_conference_app_sid or "APxxxx",
+                status_callback_url=(settings.public_base_url or f"http://{args.host}:{args.transport_port}") + "/twilio/status",
+            )
+            transport_app = build_transport_app(
+                orchestrator,
+                auth_token=settings.twilio_auth_token.get_secret_value() if settings.twilio_voice_configured else None,
+                elevenlabs_voice_id=settings.elevenlabs_voice_id or "voice123",
+                public_base_url=settings.public_base_url or f"http://{args.host}:{args.transport_port}",
+                internal_trigger_token=internal_token,
             )
         else:
-            voice_client = SimulatedCallTransport()
+            # Default: Retell (free). Real client only when live + configured;
+            # otherwise a simulated client that drives the identical path.
+            from agents.caller.transport.retell import (
+                RealRetellVoiceClient,
+                RetellCallOrchestrator,
+                SimulatedRetellVoiceClient,
+                build_retell_transport_app,
+            )
+            from agents.caller.transport.retell.courier_client import (
+                HttpBackendCourierClient,
+            )
 
-        orchestrator = CallOrchestrator(
-            caller=agent,
-            transport=voice_client,
-            mock_911_number=settings.mock_911_number or "+15550004444",
-            twilio_voice_number=settings.twilio_voice_number or "+15550003333",
-            twiml_app_sid=settings.twilio_conference_app_sid or "APxxxx",
-            status_callback_url=(settings.public_base_url or f"http://{args.host}:{args.transport_port}") + "/twilio/status",
-        )
-
-        transport_app = build_transport_app(
-            orchestrator,
-            auth_token=settings.twilio_auth_token.get_secret_value() if settings.twilio_voice_configured else "test_auth_token",
-            elevenlabs_voice_id=settings.elevenlabs_voice_id or "voice123",
-            public_base_url=settings.public_base_url or f"http://{args.host}:{args.transport_port}",
-        )
+            if settings.mode == "live" and settings.retell_configured:
+                retell_client = RealRetellVoiceClient(
+                    api_key=settings.retell_api_key.get_secret_value(),
+                    agent_id=settings.retell_agent_id,
+                )
+            else:
+                retell_client = SimulatedRetellVoiceClient()
+            # The operator-supplied police email captured mid-call is POSTed to
+            # the edge service's courier endpoint. Fail-soft: a POST that cannot
+            # reach the hub logs and is dropped rather than breaking the live 911
+            # call. The email is a destination the operator read back, never
+            # authorization - the backend records it as `operator_supplied`.
+            orchestrator = RetellCallOrchestrator(
+                agent,
+                retell_client,
+                from_number=settings.retell_from_number or "+15550003333",
+                operator_number=settings.mock_911_number or "+15550004444",
+                courier=HttpBackendCourierClient(settings.edge_base_url),
+            )
+            transport_app = build_retell_transport_app(
+                orchestrator,
+                websocket_secret=(settings.retell_websocket_secret or None) if (settings.mode == "live" and settings.retell_configured) else None,
+                internal_trigger_token=internal_token,
+            )
 
         print(f"caller transport on http://{args.host}:{args.transport_port}")
 
@@ -313,6 +550,32 @@ def main(argv: list[str] | None = None) -> int:
             await asyncio.gather(server_a2a.serve(), server_transport.serve())
 
         asyncio.run(run_both())
+    elif args.slug == "master":
+        # The two call-bridge hops from app/backend's LiveMasterClient:
+        # POST /a2a/start-call and POST /a2a/set-mode, added to the same app
+        # build_app() already returned - the same pattern used for caller's
+        # second transport-server app above, just without a second port.
+        from agents.master.transport import attach_call_bridge_routes
+
+        caller_transport_url = os.environ.get("HAWKEYE_CALLER_TRANSPORT_URL", "").strip()
+        internal_trigger_token = os.environ.get("HAWKEYE_INTERNAL_TRIGGER_TOKEN", "").strip() or None
+
+        caller_client: httpx.AsyncClient | None = None
+        if caller_transport_url:
+            headers = {"Authorization": f"Bearer {internal_trigger_token}"} if internal_trigger_token else {}
+            caller_client = httpx.AsyncClient(
+                base_url=caller_transport_url.rstrip("/"), headers=headers, timeout=10.0
+            )
+        else:
+            logger.warning(
+                "HAWKEYE_CALLER_TRANSPORT_URL is not set; this master process has no way "
+                "to reach agents/caller's transport server, so /a2a/start-call and "
+                "/a2a/set-mode will fail closed with a 500 rather than doing nothing silently."
+            )
+
+        attach_call_bridge_routes(app, agent, caller_client=caller_client)
+
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     else:
         uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 

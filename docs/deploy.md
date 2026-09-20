@@ -57,6 +57,16 @@ So the Caddyfile has an explicit `http://` block for all seven hosts that serves
 
 This is separate from the Let's Encrypt HTTP-01 challenge Caddy solves for itself; Caddy's own solver is registered ahead of these routes and still wins for renewals.
 
+## The caller transport port collides with vision, and systemd hides it
+
+`caller` runs **two** servers: the A2A/MCP surface on `HAWKEYE_PORT`, and the call transport that serves TwiML webhooks on `--transport-port`.
+
+That flag defaults to **8107** in `agents/__main__.py`, which is `vision`'s port. The unit file passes only `--port`, so the default applies, and `caller` crash-loops on `[Errno 98] address already in use` the moment both are deployed together. systemd reports it as `activating`, not `failed`, because `Restart=always` keeps retrying - so a casual `is-active` check looks like a slow start rather than a broken agent.
+
+Fixed on the box with a caller-scoped drop-in at `/etc/systemd/system/hawkeye-agent@caller.service.d/override.conf`, pinning `--transport-port 8108`. **8108 is outside the 8101-8107 roster range deliberately**: the next agent added takes 8108 otherwise and this collides again, just as silently.
+
+**The default in `agents/__main__.py` is still 8107 and should be changed**, because the drop-in only protects this one host.
+
 ## Security headers
 
 Set 2026-09-20, in the `(agent)` snippet so all seven hostnames inherit them. `ans/CARD.md` measure 9.
