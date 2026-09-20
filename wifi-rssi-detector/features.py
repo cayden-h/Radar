@@ -16,8 +16,17 @@ def extract_features(samples, window_seconds=12.0):
     mean = sum(values) / len(values)
     variance = sum((v - mean) ** 2 for v in values) / len(values)
 
-    deltas = [values[i] - values[i - 1] for i in range(1, len(values))]
-    motion_energy = sum(d ** 2 for d in deltas) / len(deltas)
+    # Rate of change (dBm/s) rather than a raw per-sample delta, so a dropped
+    # read that widens the gap between two consecutive buffer entries doesn't
+    # get treated as a bigger swing than it is.
+    rates = []
+    for i in range(1, len(window)):
+        dt = window[i][0] - window[i - 1][0]
+        if dt <= 0:
+            continue
+        rates.append((values[i] - values[i - 1]) / dt)
+
+    motion_energy = sum(r ** 2 for r in rates) / len(rates) if rates else 0.0
 
     return {"variance": variance, "motion_energy": motion_energy, "n": len(window)}
 
