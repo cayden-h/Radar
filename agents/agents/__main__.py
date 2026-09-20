@@ -28,6 +28,8 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
+import httpx
+
 from agents.core.base import Agent
 from agents.core.dev import SyntheticCsiFeed, StaticRoster
 from agents.core.identity import ROSTER, identity
@@ -266,38 +268,71 @@ def main(argv: list[str] | None = None) -> int:
 
     # If this is the caller agent, also launch the Twilio transport server.
     if args.slug == "caller":
-        from agents.caller.transport.orchestrator import CallOrchestrator
-        from agents.caller.transport.server import build_transport_app
-        from agents.caller.transport.twilio_client import RealTwilioVoiceClient
-        from agents.caller.transport.simulated import SimulatedCallTransport
+        import os
+
         from hawkeye_backend.config import get_settings
 
         settings = get_settings()
+        transport = (settings.call_transport or "retell").strip().lower()
+        internal_token = os.environ.get("HAWKEYE_INTERNAL_TRIGGER_TOKEN", "").strip() or None
 
-        # Choose real or simulated transport, mirroring app/backend's build_client pattern.
-        if settings.mode == "live" and settings.twilio_voice_configured:
-            voice_client = RealTwilioVoiceClient(
-                account_sid=settings.twilio_account_sid,
-                auth_token=settings.twilio_auth_token.get_secret_value(),
+        if transport == "twilio":
+            # Dormant path, retained. Paywalled; not the default.
+            from agents.caller.transport.orchestrator import CallOrchestrator
+            from agents.caller.transport.server import build_transport_app
+            from agents.caller.transport.simulated import SimulatedCallTransport
+            from agents.caller.transport.twilio_client import RealTwilioVoiceClient
+
+            if settings.mode == "live" and settings.twilio_voice_configured:
+                voice_client = RealTwilioVoiceClient(
+                    account_sid=settings.twilio_account_sid,
+                    auth_token=settings.twilio_auth_token.get_secret_value(),
+                )
+            else:
+                voice_client = SimulatedCallTransport()
+            orchestrator = CallOrchestrator(
+                caller=agent,
+                transport=voice_client,
+                mock_911_number=settings.mock_911_number or "+15550004444",
+                twilio_voice_number=settings.twilio_voice_number or "+15550003333",
+                twiml_app_sid=settings.twilio_conference_app_sid or "APxxxx",
+                status_callback_url=(settings.public_base_url or f"http://{args.host}:{args.transport_port}") + "/twilio/status",
+            )
+            transport_app = build_transport_app(
+                orchestrator,
+                auth_token=settings.twilio_auth_token.get_secret_value() if settings.twilio_voice_configured else None,
+                elevenlabs_voice_id=settings.elevenlabs_voice_id or "voice123",
+                public_base_url=settings.public_base_url or f"http://{args.host}:{args.transport_port}",
+                internal_trigger_token=internal_token,
             )
         else:
-            voice_client = SimulatedCallTransport()
+            # Default: Retell (free). Real client only when live + configured;
+            # otherwise a simulated client that drives the identical path.
+            from agents.caller.transport.retell import (
+                RealRetellVoiceClient,
+                RetellCallOrchestrator,
+                SimulatedRetellVoiceClient,
+                build_retell_transport_app,
+            )
 
-        orchestrator = CallOrchestrator(
-            caller=agent,
-            transport=voice_client,
-            mock_911_number=settings.mock_911_number or "+15550004444",
-            twilio_voice_number=settings.twilio_voice_number or "+15550003333",
-            twiml_app_sid=settings.twilio_conference_app_sid or "APxxxx",
-            status_callback_url=(settings.public_base_url or f"http://{args.host}:{args.transport_port}") + "/twilio/status",
-        )
-
-        transport_app = build_transport_app(
-            orchestrator,
-            auth_token=settings.twilio_auth_token.get_secret_value() if settings.twilio_voice_configured else "test_auth_token",
-            elevenlabs_voice_id=settings.elevenlabs_voice_id or "voice123",
-            public_base_url=settings.public_base_url or f"http://{args.host}:{args.transport_port}",
-        )
+            if settings.mode == "live" and settings.retell_configured:
+                retell_client = RealRetellVoiceClient(
+                    api_key=settings.retell_api_key.get_secret_value(),
+                    agent_id=settings.retell_agent_id,
+                )
+            else:
+                retell_client = SimulatedRetellVoiceClient()
+            orchestrator = RetellCallOrchestrator(
+                agent,
+                retell_client,
+                from_number=settings.retell_from_number or "+15550003333",
+                operator_number=settings.mock_911_number or "+15550004444",
+            )
+            transport_app = build_retell_transport_app(
+                orchestrator,
+                websocket_secret=(settings.retell_websocket_secret or None) if (settings.mode == "live" and settings.retell_configured) else None,
+                internal_trigger_token=internal_token,
+            )
 
         print(f"caller transport on http://{args.host}:{args.transport_port}")
 
@@ -313,6 +348,32 @@ def main(argv: list[str] | None = None) -> int:
             await asyncio.gather(server_a2a.serve(), server_transport.serve())
 
         asyncio.run(run_both())
+    elif args.slug == "master":
+        # The two call-bridge hops from app/backend's LiveMasterClient:
+        # POST /a2a/start-call and POST /a2a/set-mode, added to the same app
+        # build_app() already returned - the same pattern used for caller's
+        # second transport-server app above, just without a second port.
+        from agents.master.transport import attach_call_bridge_routes
+
+        caller_transport_url = os.environ.get("HAWKEYE_CALLER_TRANSPORT_URL", "").strip()
+        internal_trigger_token = os.environ.get("HAWKEYE_INTERNAL_TRIGGER_TOKEN", "").strip() or None
+
+        caller_client: httpx.AsyncClient | None = None
+        if caller_transport_url:
+            headers = {"Authorization": f"Bearer {internal_trigger_token}"} if internal_trigger_token else {}
+            caller_client = httpx.AsyncClient(
+                base_url=caller_transport_url.rstrip("/"), headers=headers, timeout=10.0
+            )
+        else:
+            logger.warning(
+                "HAWKEYE_CALLER_TRANSPORT_URL is not set; this master process has no way "
+                "to reach agents/caller's transport server, so /a2a/start-call and "
+                "/a2a/set-mode will fail closed with a 500 rather than doing nothing silently."
+            )
+
+        attach_call_bridge_routes(app, agent, caller_client=caller_client)
+
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     else:
         uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
