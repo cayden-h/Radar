@@ -18,14 +18,12 @@ def test_build_tick_payload_uses_latest_rssi():
     snapshot = [(0.0, -60.0), (1.0, -61.0), (2.0, -59.0)]
     payload = build_tick_payload(snapshot, clf, window_seconds=12.0, clock=lambda: 2.0)
     assert payload["rssi"] == -59.0
-    assert payload["state"] in {"absent", "present-still", "active"}
+    assert payload["state"] in {"absent", "active"}
 
 
 def test_build_tick_payload_flags_active_on_large_swings():
     clf = BaselineClassifier(
-        present_variance_ratio=3.0,
         active_motion_ratio=4.0,
-        initial_baseline_variance=0.5,
         initial_baseline_motion_energy=0.5,
     )
     # first, a few quiet ticks to look "normal"

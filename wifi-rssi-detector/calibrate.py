@@ -18,7 +18,7 @@ def capture(seconds, label, poll_hz=3.0):
     return {"label": label, "samples": [[ts, rssi] for ts, rssi in samples]}
 
 
-def summarize(samples, window_seconds=12.0):
+def summarize(samples, window_seconds=4.0):
     windows = sliding_window_features(samples, window_seconds=window_seconds, step_seconds=1.0)
     windows = [w for w in windows if w["n"] >= 2]
 
@@ -38,18 +38,18 @@ def summarize(samples, window_seconds=12.0):
 
 
 def suggest_thresholds(still_summary, walk_summary, floor=1e-6):
-    """Ratios, in the units BaselineClassifier actually consumes: the midpoint
-    of the still/walk absolute-value distributions, expressed as a multiple of
-    the still capture's own mean (i.e. what the runtime baseline will look
-    like). Dividing by the raw absolute midpoint would be a units mismatch --
-    the classifier compares live features against a dimensionless ratio of its
-    EMA baseline, not against an absolute dBm^2 number."""
-    variance_midpoint = (still_summary["variance"]["mean"] + walk_summary["variance"]["mean"]) / 2
+    """A ratio, in the units BaselineClassifier actually consumes: the
+    midpoint of the still/walk motion_energy distributions, expressed as a
+    multiple of the still capture's own mean (i.e. what the runtime baseline
+    will look like). Dividing by the raw absolute midpoint would be a units
+    mismatch -- the classifier compares live features against a
+    dimensionless ratio of its EMA baseline, not against an absolute dBm^2
+    number. `variance` is still summarized by `summarize()` for diagnostic
+    display (eyeballing separation) but no longer drives a threshold --
+    the classifier is a binary absent/active motion detector."""
     motion_midpoint = (still_summary["motion_energy"]["mean"] + walk_summary["motion_energy"]["mean"]) / 2
-    still_variance_mean = max(still_summary["variance"]["mean"], floor)
     still_motion_mean = max(still_summary["motion_energy"]["mean"], floor)
     return {
-        "present_variance_ratio": variance_midpoint / still_variance_mean,
         "active_motion_ratio": motion_midpoint / still_motion_mean,
     }
 

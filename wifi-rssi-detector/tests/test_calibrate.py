@@ -13,8 +13,8 @@ def test_summarize_returns_min_mean_max_for_each_metric():
 
 def test_suggest_thresholds_is_midpoint_of_means_expressed_as_a_ratio_of_the_still_baseline():
     # suggest_thresholds() must return the same dimensionless units
-    # BaselineClassifier's present_variance_ratio / active_motion_ratio consume
-    # (a ratio against the runtime EMA baseline), not raw absolute dBm^2 means.
+    # BaselineClassifier's active_motion_ratio consumes (a ratio against the
+    # runtime EMA baseline), not a raw absolute dBm^2 mean.
     still_summary = {
         "variance": {"min": 0.1, "mean": 0.5, "max": 1.0},
         "motion_energy": {"min": 0.1, "mean": 0.4, "max": 0.9},
@@ -24,9 +24,8 @@ def test_suggest_thresholds_is_midpoint_of_means_expressed_as_a_ratio_of_the_sti
         "motion_energy": {"min": 3.0, "mean": 6.4, "max": 10.0},
     }
     thresholds = suggest_thresholds(still_summary, walk_summary)
-    variance_midpoint = (0.5 + 4.5) / 2
     motion_midpoint = (0.4 + 6.4) / 2
-    assert thresholds["present_variance_ratio"] == pytest.approx(variance_midpoint / 0.5)
+    assert set(thresholds.keys()) == {"active_motion_ratio"}
     assert thresholds["active_motion_ratio"] == pytest.approx(motion_midpoint / 0.4)
 
 
