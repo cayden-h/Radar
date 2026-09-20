@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     master_base_url: str = "http://127.0.0.1:8900"
     master_timeout_s: float = 5.0
 
+    # Origin of this app-facing edge service, as `agents/caller` reaches it to
+    # POST the operator-supplied police email to `/v1/incident/{id}/courier`.
+    # The `caller` process runs separately from the hub, so it needs the hub's
+    # own address rather than assuming co-location. Just the origin: the courier
+    # client appends the `/v1/...` path itself.
+    edge_base_url: str = "http://127.0.0.1:8787"
+
     # Simulated mode only. Multiply every scripted delay; 0.25 makes the demo run
     # four times faster for a rehearsal, 1.0 is realistic timing.
     sim_speed: float = 1.0
