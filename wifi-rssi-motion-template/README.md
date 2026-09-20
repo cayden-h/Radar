@@ -1,10 +1,17 @@
-# WiFi RSSI Motion/Presence Detector
+# wifi-rssi-motion-template
 
 Mac-only, self-contained backup to the Pi/CSI presence-detection path. Polls
 this laptop's WiFi RSSI via CoreWLAN, computes rolling variance and
 frame-to-frame motion energy over a sliding window, and classifies
 **no motion / motion** using a threshold calibrated against your
 environment — not a fixed dBm number.
+
+**This directory is a working starting point, not a finished feature** --
+the core sensing/calibration/UI loop works end to end (see below), but it's
+meant to be extended: e.g. wiring its motion events into the agent mesh,
+richer visualization, persisting calibration across restarts, multi-room
+support. Keep it self-contained (no dependency on `sensor/`, `agents/`,
+`app/`, or ANS) unless a change deliberately extends its scope.
 
 ## How it works, and what it can't do
 
@@ -36,7 +43,7 @@ that specific location and AP.
 
 ## Setup
 
-    cd wifi-rssi-detector
+    cd wifi-rssi-motion-template
     python3 -m venv .venv
     .venv/bin/pip install -r requirements.txt
 
@@ -75,7 +82,7 @@ useful result, and recalibrate if the first pass feels off.
 
 ## Run
 
-    cd wifi-rssi-detector
+    cd wifi-rssi-motion-template
     .venv/bin/python3 server.py
 
 Then open the URL the server prints for the static frontend, e.g.
