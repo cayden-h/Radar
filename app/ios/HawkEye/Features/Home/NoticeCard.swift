@@ -9,7 +9,7 @@ import UIKit
 /// underneath, so the card looks like a normal surface — `Palette.surface`,
 /// a neutral hairline, the same shape every other sheet-presented card in
 /// this app uses — and colour is reserved for the one place it still carries
-/// state: a small accent dot and the header's tint. See `HomeView` for how
+/// state: a small accent dot next to the header. See `HomeView` for how
 /// this is presented (`.sheet(item:)` over the newest notice).
 ///
 /// It is dismissible and it does not dial. The incident controls live on
@@ -44,7 +44,7 @@ struct NoticeCard: View {
         VStack(alignment: .leading, spacing: Space.md) {
             header
             frame
-            Text(notice.narration ?? notice.body)
+            Text(notice.headline)
                 .font(TypeScale.body)
                 .foregroundStyle(Palette.ink)
                 .fixedSize(horizontal: false, vertical: true)

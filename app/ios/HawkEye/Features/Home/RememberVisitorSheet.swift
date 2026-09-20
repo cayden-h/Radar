@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// Names a visitor and, optionally, binds the device that just joined the
-/// network. Permanent, unlike "This is expected" on the banner, which vouches
-/// for a presence for this session only and writes nothing down.
+/// network. Permanent, unlike "This is expected" on the notice card, which
+/// vouches for a presence for this session only and writes nothing down.
 ///
 /// One control does not serve both purposes. Conflating them would routinely
-/// persist a stranger because someone just wanted the banner to go away, which
+/// persist a stranger because someone just wanted the card to go away, which
 /// is the exact failure this sheet exists to prevent: the resident sees, in
 /// words, what they are about to remember, before they remember it.
 struct RememberVisitorSheet: View {
@@ -64,6 +64,7 @@ struct RememberVisitorSheet: View {
             }
             .navigationTitle("Remember Visitor")
             .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     // Disabled while a save is in flight: dismissing here
