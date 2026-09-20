@@ -1,9 +1,15 @@
 import XCTest
 
-/// The notice banner, in the running app.
+/// The notice card, in the running app.
 ///
-/// The banner is the in-app half of a notice; the other half is an SMS. This
+/// The card is the in-app half of a notice; the other half is an SMS. This
 /// covers the half that can be driven here.
+///
+/// `NoticeCard` replaced the old inline `NoticeBanner` and is now presented
+/// as a modal sheet over the camera page (see `HomeView.latestNoticeBinding`),
+/// so this file asserts on the sheet's own header rather than on the string
+/// "Unexpected person" — that text now belongs solely to the roster row in
+/// `InteriorView`, which must keep showing it once the card is dismissed.
 ///
 /// The dismissal case is the reason this file exists. The first implementation
 /// gated re-raising on `notices.isEmpty`, and `dismissNotice` empties that
@@ -27,46 +33,44 @@ final class NoticeTour: XCTestCase {
         home.tap()
     }
 
-    func testTheBannerAppearsAndStaysDismissed() {
+    func testTheCardAppearsAndStaysDismissed() {
         enterHome()
 
-        // The notice lands `Config.mockNoticeHoldSeconds` after the intruder is
-        // identified, which is itself after `Config.mockDetectionAfter`. Poll
-        // rather than guessing at a sleep.
-        let banner = app.staticTexts["Unexpected person"].firstMatch
+        // The roster already carries "Unexpected person" once the presence is
+        // identified as unaccounted-for, ahead of the notice itself firing.
+        let rosterHeadline = app.staticTexts["Unexpected person"].firstMatch
+        XCTAssertTrue(rosterHeadline.waitForExistence(timeout: 45), "no unexpected person was identified on the roster")
+
+        // The notice lands `Config.mockNoticeHoldSeconds` after that, which
+        // presents `NoticeCard` as a sheet. Poll rather than guessing at a
+        // sleep.
+        let cardHeader = app.staticTexts["Unexpected motion detected"].firstMatch
         XCTAssertTrue(
-            banner.waitForExistence(timeout: 60),
-            "the notice banner never appeared"
+            cardHeader.waitForExistence(timeout: 30),
+            "the notice card never appeared"
         )
 
-        // Two elements now carry this text: the banner and the roster row. That
-        // is expected and is the point of the pair, so assert on the count
-        // rather than on a single match, and dismiss via the banner's button.
         let dismiss = app.buttons["Dismiss"].firstMatch
-        XCTAssertTrue(dismiss.waitForExistence(timeout: 10), "no dismiss control on the banner")
-
-        let before = app.staticTexts.matching(identifier: "Unexpected person").count
-        XCTAssertGreaterThanOrEqual(before, 1, "expected the banner and the roster row")
+        XCTAssertTrue(dismiss.waitForExistence(timeout: 10), "no dismiss control on the notice card")
 
         dismiss.tap()
 
         // The sensor loop ticks about every 250ms. If dismissal is gated on the
-        // array being empty rather than on a raised flag, the banner is back
+        // array being empty rather than on a raised flag, the card is back
         // within one tick. Five seconds is twenty ticks, which is emphatic.
         sleep(5)
 
         XCTAssertFalse(
-            app.buttons["Dismiss"].firstMatch.exists,
-            "the banner came back after being dismissed: the raise guard is wrong"
+            app.staticTexts["Unexpected motion detected"].firstMatch.exists,
+            "the notice card came back after being dismissed: the raise guard is wrong"
         )
 
-        // The roster row must survive. The banner is a discrete event the
+        // The roster row must survive. The card is a discrete event the
         // resident acknowledged; the roster is the live readout of who is in
         // the building, and that person is still in the building.
-        let after = app.staticTexts.matching(identifier: "Unexpected person").count
-        XCTAssertGreaterThanOrEqual(
-            after, 1,
-            "dismissing the banner also cleared the roster row, which tracks a person who is still there"
+        XCTAssertTrue(
+            app.staticTexts["Unexpected person"].firstMatch.exists,
+            "dismissing the notice card also cleared the roster row, which tracks a person who is still there"
         )
     }
 }

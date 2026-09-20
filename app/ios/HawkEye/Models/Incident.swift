@@ -71,6 +71,31 @@ enum IncidentPhase: String, Codable, Sendable, Hashable, CaseIterable {
     case raised, classified, updated, resolved, refused
 }
 
+/// The resident's leg of the call. See the mode table in the root `app/CLAUDE.md`:
+/// watching is receive-only silence, whisper sends without receiving, full
+/// voice is both.
+///
+/// **Automation may only ever move this toward `.watching`.** Moving toward
+/// `.fullVoice` is a human action — a tapped control or a held `TAKE OVER` —
+/// never something the app or the hub decides on its own. The backend enforces
+/// the same rule server-side via `by_human` on `POST /v1/incident/{id}/mode`;
+/// this enum only names the three states, it does not gate the transition.
+enum ParticipationMode: String, Codable, Sendable, Hashable, CaseIterable {
+    case watching, whisper
+    case fullVoice = "full_voice"
+
+    /// What actually happens on the bridge, named by consequence rather than
+    /// by this enum's jargon. The view should prefer this over the raw case
+    /// name, per the "label by consequence" rule in `app/CLAUDE.md`.
+    var label: String {
+        switch self {
+        case .watching: "Listening only"
+        case .whisper: "Speaking, phone stays silent"
+        case .fullVoice: "Sound on"
+        }
+    }
+}
+
 /// State of the phone call to the 911 operator.
 enum CallState: String, Codable, Sendable, Hashable, CaseIterable {
     case notStarted = "not_started"
@@ -249,6 +274,22 @@ struct IncidentAck: Codable, Sendable, Hashable {
 /// `POST /v1/incident/{id}/context` request body.
 struct ContextRequest: Codable, Sendable, Hashable {
     var text: String
+}
+
+/// `POST /v1/incident/{id}/mode` request body.
+///
+/// `byHuman` defaults true, matching the backend's `SetParticipationModeRequest`
+/// and the comment on it: the only caller that should ever send `false` is
+/// the automation itself asking to move quieter, and nothing on this client
+/// does that. See `ParticipationMode`'s doc.
+struct SetParticipationModeRequest: Codable, Sendable, Hashable {
+    var mode: ParticipationMode
+    var byHuman: Bool = true
+
+    enum CodingKeys: String, CodingKey {
+        case mode
+        case byHuman = "by_human"
+    }
 }
 
 /// One line of the caller to 911 conversation, shown to the resident.

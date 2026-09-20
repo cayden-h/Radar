@@ -27,6 +27,16 @@ final class LiveHawkEyeClient: HawkEyeClienting {
     private(set) var household: [HouseholdMember] = []
     private(set) var unclaimedDevices: [ObservedDevice] = []
 
+    /// The resident's leg of the call bridge. Client-tracked: the backend has
+    /// no wire field for it on `incident`/`state` frames, only the
+    /// `POST /v1/incident/{id}/mode` route that changes it. Set optimistically
+    /// by `setParticipationMode` on success.
+    private(set) var participationMode: ParticipationMode = .watching
+
+    /// Mirrors `incident?.callState`, `.notPlaced` with nothing open, so a
+    /// view can ask this directly instead of unwrapping `incident` first.
+    var callState: CallState { incident?.callState ?? .notPlaced }
+
     // The camera path, added 2026-09-20. The views for these are T32 and T33;
     // the state is carried here now so the hub's events are not dropped on the
     // floor in the meantime.
@@ -99,6 +109,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
         missedFrames = false
         hello = nil
         link = .offline
+        participationMode = .watching
     }
 
     // MARK: Commands
@@ -125,6 +136,26 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             path: "\(Config.incidentPath)/\(incident.id)/context",
             body: ContextRequest(text: trimmed)
         )
+    }
+
+    /// Switches the resident's leg on the bridge via `POST /v1/incident/{id}/mode`.
+    /// `byHuman` defaults `true` on `SetParticipationModeRequest`, matching the
+    /// backend's rule that only the automation itself is allowed to ask for
+    /// `false` — nothing on this client does that. See `ParticipationMode`'s doc.
+    func setParticipationMode(_ mode: ParticipationMode) async throws {
+        guard let incident else { throw HawkEyeClientError.notConnected }
+        _ = try await post(
+            path: "\(Config.incidentPath)/\(incident.id)/mode",
+            body: SetParticipationModeRequest(mode: mode)
+        )
+        participationMode = mode
+    }
+
+    /// `TAKE OVER`. Always a human action — the UI holds this for 1.5s before
+    /// calling it — so it goes straight to `.fullVoice` rather than through
+    /// whisper first.
+    func takeOver() async throws {
+        try await setParticipationMode(.fullVoice)
     }
 
     // MARK: Household
@@ -303,6 +334,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             transcript = []
             instructions = []
             verifications = []
+            participationMode = .watching
         }
         incident = value
         if value.status == .resolved || phase == .resolved {
@@ -310,6 +342,7 @@ final class LiveHawkEyeClient: HawkEyeClienting {
             transcript = []
             instructions = []
             verifications = []
+            participationMode = .watching
         }
     }
 

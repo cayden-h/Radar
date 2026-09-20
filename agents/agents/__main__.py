@@ -30,6 +30,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+import httpx
+
 from agents.core.base import Agent
 from agents.core.dev import SyntheticCsiFeed, StaticRoster
 from agents.core.identity import ROSTER, identity

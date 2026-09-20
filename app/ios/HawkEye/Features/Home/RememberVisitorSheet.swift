@@ -1,21 +1,26 @@
 import SwiftUI
 
 /// Names a visitor and, optionally, binds the device that just joined the
-/// network. Permanent, unlike "This is expected" on the banner, which vouches
-/// for a presence for this session only and writes nothing down.
+/// network. Permanent, unlike "This is expected" on the notice card, which
+/// vouches for a presence for this session only and writes nothing down.
 ///
 /// One control does not serve both purposes. Conflating them would routinely
-/// persist a stranger because someone just wanted the banner to go away, which
+/// persist a stranger because someone just wanted the card to go away, which
 /// is the exact failure this sheet exists to prevent: the resident sees, in
 /// words, what they are about to remember, before they remember it.
 struct RememberVisitorSheet: View {
     let unclaimedDevices: [ObservedDevice]
-    let onSave: (_ name: String, _ kind: HouseholdMember.Kind, _ deviceID: String?) -> Void
+    let onSave: (_ name: String, _ kind: HouseholdMember.Kind, _ deviceID: String?) async -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var kind: HouseholdMember.Kind = .guest
     @State private var deviceID: String?
+    /// True while the Save action's `Task` is awaiting `onSave`. Keeps a
+    /// resident from double-tapping Save during the (normally fast, but real
+    /// over `LiveHawkEyeClient`) await, which would otherwise race two
+    /// `rememberVisitor` calls for the same notice.
+    @State private var isSaving = false
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -59,16 +64,25 @@ struct RememberVisitorSheet: View {
             }
             .navigationTitle("Remember Visitor")
             .navigationBarTitleDisplayMode(.inline)
+            .interactiveDismissDisabled(isSaving)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
+                    // Disabled while a save is in flight: dismissing here
+                    // would race the awaited `onSave` the same way the Save
+                    // button itself used to, popping the notice card back
+                    // once the still-running save finally clears it.
                     Button("Cancel") { dismiss() }
+                        .disabled(isSaving)
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        onSave(trimmedName, kind, deviceID)
-                        dismiss()
+                        isSaving = true
+                        Task {
+                            await onSave(trimmedName, kind, deviceID)
+                            dismiss()
+                        }
                     }
-                    .disabled(trimmedName.isEmpty)
+                    .disabled(trimmedName.isEmpty || isSaving)
                 }
             }
         }

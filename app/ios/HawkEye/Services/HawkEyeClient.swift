@@ -98,6 +98,29 @@ protocol HawkEyeClienting: AnyObject {
 
     /// Refresh the roster and the unclaimed device list.
     func refreshHousehold() async
+
+    /// The resident's current leg on the call bridge. Defaults to `.watching`
+    /// and stays there for as long as no incident is open.
+    ///
+    /// This is client-tracked state, not something the hub streams back on
+    /// `incident` frames: the backend has no wire field for it, only the
+    /// `POST /v1/incident/{id}/mode` route that changes it. Set optimistically
+    /// on a successful call to `setParticipationMode`.
+    var participationMode: ParticipationMode { get }
+
+    /// State of the call to the 911 operator. Mirrors `incident?.callState`
+    /// so a view asking "is a call happening" does not have to unwrap
+    /// `incident` first; `.notPlaced` when there is no open incident.
+    var callState: CallState { get }
+
+    /// Switches the resident's leg on the bridge. `mode` moving toward
+    /// `.fullVoice` must only ever be called from a human-initiated control —
+    /// see the automation rule on `ParticipationMode`.
+    func setParticipationMode(_ mode: ParticipationMode) async throws
+
+    /// The `TAKE OVER` control. Moves straight to `.fullVoice`; always a
+    /// human action, held for 1.5s in the UI before this is called.
+    func takeOver() async throws
 }
 
 enum HawkEyeClientError: Error, LocalizedError {
