@@ -51,12 +51,12 @@ enum Palette {
     static let glassBorder = Color.white.opacity(0.20)
     /// A light, neutral grey wash over every frosted panel — deliberately
     /// *not* tinted purple, so glass reads as glass and the brand colour
-    /// stays reserved for accents, state and the mascot. Turned back down to
-    /// 0.14 now that the panel's own material is cut further (see
-    /// `glassPanel`) and its icons/text carry brightness instead of the fill
-    /// — a panel this transparent only reads as *glass* rather than *empty*
-    /// because something legible sits on top of it.
-    static let glassTint = Color.white.opacity(0.14)
+    /// stays reserved for accents, state and the mascot. Down to 0.08, paired
+    /// with `glassPanel`'s material at 0.18 — around 75% see-through
+    /// altogether. A panel this transparent only reads as *glass* rather
+    /// than *empty* because its icons/text carry brightness instead of the
+    /// fill (`Palette.ink`, not `inkMuted`, wherever it sits on glass).
+    static let glassTint = Color.white.opacity(0.08)
 
     // MARK: Ink
 
