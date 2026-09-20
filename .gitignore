@@ -29,3 +29,6 @@ agents/build/
 # server certificates, issued 2026-09-19. Never commit these: the identity key
 # IS the agent, and anything holding it can speak as a verified Hawk Eye agent.
 agents/.ans/
+
+# Local git worktrees
+.worktrees/
