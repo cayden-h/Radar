@@ -64,6 +64,30 @@ class AutonomousDialRefused(RuntimeError):
     """
 
 
+class ParticipationModeRefused(RuntimeError):
+    """master declined to move a call's participation mode automatically.
+
+    A local type rather than an import of `hawkeye_backend.master.base`'s
+    class of the same name and the same shape: that module documents itself
+    as living on the app/backend side of a process boundary this module
+    already crosses in the other direction (this file already imports
+    `hawkeye_backend.models.*`), but the two exceptions still belong to
+    different processes and `agents/master/transport.py` is what translates
+    this one into the 403 `LiveMasterClient` expects.
+
+    Raised when automation - not a human hand - tries to move participation
+    louder than it already is. See the `_MODE_LEVEL` table below: automation
+    may only ever move a call toward quieter.
+    """
+
+
+#: Ordering for the "automation may only move quieter" rule in
+#: `MasterAgent.set_participation_mode`. Mirrors
+#: `app/backend/hawkeye_backend/master/simulated.py`'s `_MODE_LEVEL` exactly,
+#: because the app and the agent must agree on what "louder" means.
+_MODE_LEVEL = {"watching": 0, "whisper": 1, "full_voice": 2}
+
+
 @dataclass
 class Incident:
     """Master's own incident state. Small on purpose.
@@ -85,6 +109,12 @@ class Incident:
     classification: Classification | None = None
     released_for_call: bool = False
     context_notes: list[str] = field(default_factory=list)
+    participation_mode: str = "watching"
+    """The resident's current call participation mode, as master last saw it
+    set. Tracked here so `set_participation_mode` below has a current value
+    to check "louder" against - the same guard
+    `SimulatedMasterClient.set_participation_mode` holds in simulated mode,
+    now held on the agents side for a live call."""
 
 
 class MasterAgent(Agent):
@@ -410,7 +440,12 @@ class MasterAgent(Agent):
     # -------------------------------------------------------------- the incident
 
     def raise_incident(
-        self, incident_type: IncidentType, raised_by: RaisedBy, note: str | None = None
+        self,
+        incident_type: IncidentType,
+        raised_by: RaisedBy,
+        note: str | None = None,
+        *,
+        incident_id: str | None = None,
     ) -> Incident:
         """Open an incident. A person taps; master records and classifies.
 
@@ -419,9 +454,15 @@ class MasterAgent(Agent):
         master's own gas reading should surface as incidents in the app,
         because surfacing them is the entire point of detecting them. What a
         SYSTEM raise cannot do is reach `release_for_call`.
+
+        `incident_id` defaults to a fresh uuid, same as before this parameter
+        existed. `agents/master/transport.py`'s `/a2a/start-call` handler
+        passes the id `app/backend`'s hub already minted for this incident,
+        so the hub's record and master's own carry the same id rather than
+        two ids for one incident.
         """
         incident = Incident(
-            incident_id=f"i-{uuid.uuid4().hex[:12]}",
+            incident_id=incident_id or f"i-{uuid.uuid4().hex[:12]}",
             incident_type=incident_type,
             raised_by=raised_by,
             raised_at=utc_now(),
@@ -464,6 +505,40 @@ class MasterAgent(Agent):
             )
         self._incident.released_for_call = True
         return self._incident
+
+    def set_participation_mode(self, mode: str, *, by_human: bool) -> str:
+        """Change the tracked participation mode for the active call.
+
+        Same rule as everywhere else this project enforces it: automation may
+        only ever move a call toward quieter (watching -> whisper ->
+        full_voice is "louder"). Going louder without `by_human=True` is
+        refused rather than silently capped, for the same reason
+        `AutonomousDialRefused` is raised rather than logged above - a
+        refusal that fails loudly is checkable; one that fails quietly is
+        not.
+
+        This is a second, independent copy of the guard `agents/caller`'s own
+        `Bridge.set_mode` already holds (`ModeChangeRefused` there). Holding
+        it here too is deliberate: master is the trust boundary this
+        `/a2a/set-mode` handler sits behind, and the fact that `caller` would
+        also catch a bad request is not a reason for the boundary agent to
+        skip its own check.
+        """
+        if self._incident is None:
+            raise ParticipationModeRefused(
+                "there is no active incident to change participation mode for."
+            )
+        current = self._incident.participation_mode
+        if mode not in _MODE_LEVEL:
+            raise ParticipationModeRefused(f"unknown participation mode {mode!r}.")
+        if not by_human and _MODE_LEVEL[mode] > _MODE_LEVEL[current]:
+            raise ParticipationModeRefused(
+                f"automation may only move participation toward quieter; refusing "
+                f"{current!r} -> {mode!r} for incident {self._incident.incident_id} "
+                "without a human hand"
+            )
+        self._incident.participation_mode = mode
+        return mode
 
     @property
     def incident(self) -> Incident | None:

@@ -26,6 +26,8 @@ import logging
 import os
 import sys
 
+import httpx
+
 from agents.core.base import Agent
 from agents.core.dev import SyntheticCsiFeed, StaticRoster
 from agents.core.identity import ROSTER, identity
@@ -217,11 +219,19 @@ def main(argv: list[str] | None = None) -> int:
         # every webhook and WS connection closed rather than falling back to a
         # constant - see that module's docstring for why a fallback secret is
         # unsafe once this process is publicly reachable but unconfigured.
+        #
+        # HAWKEYE_INTERNAL_TRIGGER_TOKEN gates /internal/start-call and
+        # /internal/set-mode the same way: it is the bearer token
+        # agents/master's process presents when it POSTs into this server
+        # after its own /a2a/start-call and /a2a/set-mode guards pass. Shared
+        # out of band between the two processes' environments; not derived
+        # from the Twilio auth token, which protects a different boundary.
         transport_app = build_transport_app(
             orchestrator,
             auth_token=settings.twilio_auth_token.get_secret_value() if settings.twilio_voice_configured else None,
             elevenlabs_voice_id=settings.elevenlabs_voice_id or "voice123",
             public_base_url=settings.public_base_url or f"http://{args.host}:{args.transport_port}",
+            internal_trigger_token=os.environ.get("HAWKEYE_INTERNAL_TRIGGER_TOKEN", "").strip() or None,
         )
 
         print(f"caller transport on http://{args.host}:{args.transport_port}")
@@ -238,6 +248,32 @@ def main(argv: list[str] | None = None) -> int:
             await asyncio.gather(server_a2a.serve(), server_transport.serve())
 
         asyncio.run(run_both())
+    elif args.slug == "master":
+        # The two call-bridge hops from app/backend's LiveMasterClient:
+        # POST /a2a/start-call and POST /a2a/set-mode, added to the same app
+        # build_app() already returned - the same pattern used for caller's
+        # second transport-server app above, just without a second port.
+        from agents.master.transport import attach_call_bridge_routes
+
+        caller_transport_url = os.environ.get("HAWKEYE_CALLER_TRANSPORT_URL", "").strip()
+        internal_trigger_token = os.environ.get("HAWKEYE_INTERNAL_TRIGGER_TOKEN", "").strip() or None
+
+        caller_client: httpx.AsyncClient | None = None
+        if caller_transport_url:
+            headers = {"Authorization": f"Bearer {internal_trigger_token}"} if internal_trigger_token else {}
+            caller_client = httpx.AsyncClient(
+                base_url=caller_transport_url.rstrip("/"), headers=headers, timeout=10.0
+            )
+        else:
+            logger.warning(
+                "HAWKEYE_CALLER_TRANSPORT_URL is not set; this master process has no way "
+                "to reach agents/caller's transport server, so /a2a/start-call and "
+                "/a2a/set-mode will fail closed with a 500 rather than doing nothing silently."
+            )
+
+        attach_call_bridge_routes(app, agent, caller_client=caller_client)
+
+        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
     else:
         uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 

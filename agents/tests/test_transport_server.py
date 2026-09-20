@@ -24,9 +24,10 @@ from agents.caller.transport.simulated import SimulatedCallTransport
 
 AUTH_TOKEN = "test_auth_token"
 PUBLIC_BASE_URL = "https://example.ngrok-free.app"
+INTERNAL_TOKEN = "test_internal_trigger_token"
 
 
-def _app_and_client(mesh, *, auth_token: str | None = AUTH_TOKEN):
+def _app_and_client(mesh, *, auth_token: str | None = AUTH_TOKEN, internal_trigger_token: str | None = INTERNAL_TOKEN):
     orch = CallOrchestrator(
         caller=CallerAgent(mesh),
         transport=SimulatedCallTransport(),
@@ -40,6 +41,7 @@ def _app_and_client(mesh, *, auth_token: str | None = AUTH_TOKEN):
         auth_token=auth_token,
         elevenlabs_voice_id="voice123",
         public_base_url=PUBLIC_BASE_URL,
+        internal_trigger_token=internal_trigger_token,
     )
     return orch, TestClient(app)
 
@@ -257,3 +259,112 @@ def test_unconfigured_transport_app_rejects_a_conversation_relay_connection(mesh
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/twilio/conversation-relay?token=anything"):
             pass
+
+
+# ---------------------------------------------------- /internal/start-call and /internal/set-mode
+#
+# These are the trigger routes `agents/master/transport.py`'s `/a2a/start-call`
+# and `/a2a/set-mode` handlers POST into, over plain HTTP, once master's own
+# guards (AutonomousDialRefused, ParticipationModeRefused) have already
+# passed. They carry no X-Twilio-Signature - Twilio never calls them - so
+# they are gated by a separate bearer token instead, and must fail exactly as
+# closed as every Twilio-facing route above when that token is absent, wrong,
+# or missing.
+
+
+def test_internal_start_call_rejects_a_request_with_no_token(mesh):
+    """No Authorization header at all must be refused, not treated as an
+    internal, trusted caller - this server is reachable on the public
+    internet like every agent in this project, not just from agents/master.
+    """
+    _, client = _app_and_client(mesh)
+    resp = client.post(
+        "/internal/start-call",
+        json={"incident_id": "inc-1", "incident_type": "burglary", "address": "1872 Ridgeview Lane"},
+    )
+    assert resp.status_code == 403
+
+
+def test_internal_start_call_rejects_the_wrong_token(mesh):
+    """A present-but-incorrect bearer token is refused identically to a missing
+    one, the same principle already established for X-Twilio-Signature above.
+    """
+    _, client = _app_and_client(mesh)
+    resp = client.post(
+        "/internal/start-call",
+        json={"incident_id": "inc-1", "incident_type": "burglary", "address": "1872 Ridgeview Lane"},
+        headers={"Authorization": "Bearer not-the-real-token"},
+    )
+    assert resp.status_code == 403
+
+
+def test_internal_start_call_with_the_correct_token_places_the_call(mesh):
+    """A correctly-authorized trigger actually invokes
+    `CallOrchestrator.start_call`, which is what this route exists for -
+    the conference name it produces must show up on the orchestrator.
+    """
+    orch, client = _app_and_client(mesh)
+    resp = client.post(
+        "/internal/start-call",
+        json={"incident_id": "inc-2", "incident_type": "burglary", "address": "1872 Ridgeview Lane"},
+        headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["conference_name"] == "incident-inc-2"
+    assert orch.conference_name == "incident-inc-2"
+
+
+def test_unconfigured_internal_trigger_token_rejects_start_call_even_when_bearing_a_token(mesh):
+    """When `HAWKEYE_INTERNAL_TRIGGER_TOKEN` isn't set, `internal_trigger_token`
+    is `None` rather than falling back to a known constant - same rule
+    `auth_token=None` follows for the Twilio-facing routes, same reason: a
+    fallback string printed in this test suite must not be a usable secret
+    against a publicly reachable but unconfigured instance.
+    """
+    _, client = _app_and_client(mesh, internal_trigger_token=None)
+    resp = client.post(
+        "/internal/start-call",
+        json={"incident_id": "inc-3", "incident_type": "burglary", "address": "x"},
+        headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
+    )
+    assert resp.status_code == 503
+
+
+def test_internal_set_mode_rejects_an_unauthorized_request(mesh):
+    """Same token gate applies to /internal/set-mode independently of
+    /internal/start-call - guarding one route must not be assumed to guard
+    the other.
+    """
+    _, client = _app_and_client(mesh)
+    resp = client.post("/internal/set-mode", json={"mode": "full_voice", "by_human": True})
+    assert resp.status_code == 403
+
+
+def test_internal_set_mode_with_the_correct_token_changes_the_bridge(mesh):
+    """A correctly-authorized, human-confirmed mode change reaches
+    `CallOrchestrator.set_mode` and returns its announcement text.
+    """
+    _, client = _app_and_client(mesh)
+    resp = client.post(
+        "/internal/set-mode",
+        json={"mode": "full_voice", "by_human": True},
+        headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
+    )
+    assert resp.status_code == 200
+    assert "announcement" in resp.json()
+
+
+def test_internal_set_mode_refuses_automation_moving_louder(mesh):
+    """`agents/caller`'s own `Bridge.set_mode` guard
+    (`ModeChangeRefused`) must still stand behind this route even though
+    `agents/master` is expected to have already refused this upstream - a
+    second, independent check, not a redundant one, since this route has no
+    way to know whether its caller actually checked.
+    """
+    _, client = _app_and_client(mesh)
+    resp = client.post(
+        "/internal/set-mode",
+        json={"mode": "full_voice", "by_human": False},
+        headers={"Authorization": f"Bearer {INTERNAL_TOKEN}"},
+    )
+    assert resp.status_code == 403
