@@ -2,26 +2,28 @@ import SwiftUI
 
 /// Stage 2. The product.
 ///
-/// A persistent bottom tab bar (`RadarTabBar`) switches between three pages —
-/// Camera, Videos, and People — without tearing any of them down, so the
-/// resident can add a family member or glance at a past recording mid-call
-/// without losing anything. Videos and People used to be modal pop-ups
-/// reached from header icons; they are real pages now, reached from the bar,
-/// and their own content is unchanged.
+/// A persistent bottom tab bar (`RadarTabBar`) switches between Camera and
+/// People without tearing either down, so the resident can add a family
+/// member mid-call without losing anything. Videos and Household used to be
+/// reachable from here too — Videos as a third tab, Household as a fourth
+/// side button — and both are gone now: Videos' own page did nothing but
+/// point at the desktop replay console, and Household had no remaining
+/// entry point once its button left the bar, so both the pages and their
+/// files were removed rather than left reachable by nothing.
 ///
-/// A live 911 call is deliberately **not** one of those tabs. It is the one
-/// screen in this app that still bleeds full-screen with nothing competing
-/// with it, exactly as before — see `IncidentView`. The bar's own Back
-/// button leaves the call screen without ending the call (typing to the
-/// operator and the transcript both keep running underneath), and
-/// `LiveCallBanner` is how the resident gets back to it: a thin bar, the
-/// same idea as iOS's own "tap to return to call," shown on every tab
-/// whenever a call is live but not on screen.
+/// A live 911 call is deliberately **not** a tab. It is the one screen in
+/// this app that still bleeds full-screen with nothing competing with it,
+/// exactly as before — see `IncidentView`. The bar's own Back button leaves
+/// the call screen without ending the call (typing to the operator and the
+/// transcript both keep running underneath), and `LiveCallBanner` is how the
+/// resident gets back to it: a thin bar, the same idea as iOS's own "tap to
+/// return to call," shown on every tab whenever a call is live but not on
+/// screen.
 ///
-/// Notices and the household are a separate axis from all of that: a notice
-/// is the sensing layer flagging an unexpected presence, and it never raises
-/// an incident on its own — a human tap still does that, on the Camera page,
-/// same as ever.
+/// Notices are a separate axis from all of that: the sensing layer flagging
+/// an unexpected presence, reached from the bell rather than a tab, and it
+/// never raises an incident on its own — a human tap still does that, on the
+/// Camera page, same as ever.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     var hubName: String
@@ -33,7 +35,6 @@ struct HomeView: View {
     /// sheet off the notice itself, rather than a bare `Bool`, is what lets
     /// the save action know which presence to approve alongside naming it.
     @State private var rememberingNotice: Notice?
-    @State private var showingHousehold = false
     @State private var showingNotices = false
 
     private var client: any HawkEyeClienting { model.client }
@@ -51,7 +52,6 @@ struct HomeView: View {
             Group {
                 switch selectedTab {
                 case .camera: cameraPage
-                case .videos: VideoLibraryView()
                 case .people: AddFamilyMemberView()
                 }
             }
@@ -70,8 +70,7 @@ struct HomeView: View {
             // through around it rather than being papered over.
             RadarTabBar(
                 selection: $selectedTab,
-                onBack: { model.disconnectAndForget() },
-                onHousehold: { showingHousehold = true }
+                onBack: { model.disconnectAndForget() }
             )
         }
         .task { await client.refreshHousehold() }
@@ -91,11 +90,6 @@ struct HomeView: View {
                         client.dismissNotice(notice.id)
                     }
                 }
-            }
-        }
-        .sheet(isPresented: $showingHousehold) {
-            HouseholdList(members: client.household) { memberID in
-                Task { try? await client.forgetMember(memberID) }
             }
         }
         .sheet(isPresented: $showingNotices) {
@@ -163,16 +157,19 @@ struct HomeView: View {
                     CoAlertRow(coPpm: co, simulated: client.interior.coSourceIsSimulated)
                 }
             }
+            .padding(.top, Space.md)
 
-            // Two flexible spacers rather than padding, so the button
-            // centers in whatever room is actually left between the camera
-            // panel and the tab bar instead of sitting wherever a fixed
-            // offset happens to land it.
+            // A single flexible spacer above the button, and a fixed
+            // distance below it to the tab bar, rather than two flexible
+            // spacers splitting the space evenly — that way nudging the
+            // camera panel down (the padding above) only eats into the
+            // flexible gap and never moves the button itself, which stays
+            // pinned the same distance off the bar regardless of what's
+            // above it.
             Spacer(minLength: Space.xl)
 
             IncidentBar(client: client)
-
-            Spacer(minLength: Space.xl)
+                .padding(.bottom, Space.xxxl)
         }
         .padding(.horizontal, Space.gutter)
         .padding(.top, Space.sm)
