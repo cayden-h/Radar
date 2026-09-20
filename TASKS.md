@@ -401,7 +401,12 @@ Four limits, said out loud before anyone asks: no face recognition against any d
 - **T60** - Full hardware integration run at the house, end to end, three times · hw · needs T21-T24, T50
 - **T61** - mTLS at the reverse proxy, and `x-security-note` updated in the same commit · ops · needs T11
 - **T62** - DANE for Silver, stapled receipt for Gold · ops · needs T12
-- **T63** - MongoDB Atlas behind `HAWKEYE_STORE_BACKEND`, for the stackable track · py
+- ~~**T63** - MongoDB Atlas behind `HAWKEYE_STORE_BACKEND`, for the stackable track · py~~ **Done differently, and deliberately.**
+  The MongoDB Atlas track is served by `HAWKEYE_REPLAY_ARCHIVE=mongodb`, which persists **sealed replay records** - one collection, one document per record, written once when a call ends and read by `/replay` afterwards.
+  `HAWKEYE_STORE_BACKEND` stays `memory` and `MongoStore` stays unimplemented on purpose: the store is on the incident path, where motion has to reach a wrist in about three seconds, and there is no room in that for a round trip to Atlas.
+  See `hawkeye_backend/replay/archive.py` and the archive section of `docs/swapping-in-real-parts.md`.
+  **Verified against the real Atlas cluster on 2026-09-19**: sealed a 32-entry record, confirmed the document in Atlas, killed the hub, restarted, and got the record back with the chain verifying INTACT under the server check, the exported standalone `verify.py`, and the in-browser verifier.
+  **One recurring gotcha, not a code problem:** Atlas refuses the TLS handshake before authentication when the client IP is not on the project's Network Access list. Expect to re-add it at the venue, whose egress IP will differ.
 - **T64** - Blender hero loop: a shield rotating off a lens with the grant's signature resolving alongside · any
 
 ---

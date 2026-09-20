@@ -287,10 +287,19 @@ class InMemoryStore:
 class MongoStore:
     """MongoDB Atlas seam. Not implemented.
 
-    MongoDB Atlas is a listed sponsor track and the event timeline has to persist
-    somewhere eventually. Implementing this is one class: every method above maps
-    onto one collection, keyed by incident_id, with `events` as a capped
-    collection. Nothing above store.py changes.
+    MongoDB Atlas is a listed sponsor track. **That track is already served, by
+    `replay/archive.py`, and this is still not the way to serve it.**
+
+    The archive persists a sealed record: one document, written once, when a 911
+    call ends, read afterwards by the console at /replay. This class would put
+    MongoDB on the incident path instead, between a motion claim and a wrist,
+    and the timing budget in the root CLAUDE.md has no room for a round trip to
+    Atlas at 0.3s. `HAWKEYE_STORE_BACKEND` should stay `memory` even once a
+    cluster is reachable.
+
+    If it is ever implemented anyway: every method above maps onto one
+    collection, keyed by incident_id, with `events` as a capped collection.
+    Nothing above store.py changes.
 
     Deliberately raises rather than silently degrading to memory, because a
     service that claims to be persisting and is not is exactly the kind of quiet
@@ -301,7 +310,9 @@ class MongoStore:
         self._uri = uri
         self._database = database
         raise NotImplementedError(
-            "MongoStore is a seam, not an implementation. Set HAWKEYE_STORE_BACKEND=memory. "
+            "MongoStore is a seam, not an implementation. Set HAWKEYE_STORE_BACKEND=memory; "
+            "for MongoDB persistence of sealed records use HAWKEYE_REPLAY_ARCHIVE=mongodb, "
+            "which is implemented. "
             "To implement: add motor>=3.6 to pyproject, map each Store method onto a collection "
             "keyed by incident_id, and make `events` capped at the same size as the in-memory buffer."
         )

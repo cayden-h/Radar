@@ -79,6 +79,8 @@ const HawkEye = (() => {
       el("span", "stamp", `${data.records.length} record${data.records.length === 1 ? "" : "s"}`)
     );
 
+    drawArchive(data.archive);
+
     if (!data.records.length) {
       $("empty").hidden = false;
       return;
@@ -89,7 +91,19 @@ const HawkEye = (() => {
       const card = el("a", "card");
       card.href = `record.html?incident=${encodeURIComponent(r.incident_id)}`;
 
-      card.append(el("div", `type ${r.incident_type}`, r.incident_type));
+      const type = el("div", `type ${r.incident_type}`, r.incident_type);
+      // Only the archived rows are labelled. A row this hub is currently
+      // holding is the unremarkable case and does not need a badge saying so;
+      // a row read back out of storage was written by a process that is gone,
+      // and that is a different claim.
+      if (r.source === "archive") {
+        const badge = el("span", "src", "archived");
+        badge.title =
+          "Read back from the replay archive. This hub did not record it in " +
+          "this run; it was written by an earlier one and stored.";
+        type.append(badge);
+      }
+      card.append(type);
       card.append(el("div", "when", stamp(r.opened_at)));
       card.append(el("div", "addr", r.address));
 
@@ -115,6 +129,31 @@ const HawkEye = (() => {
       card.append(state);
       host.append(card);
     }
+  }
+
+  /* Whether sealed records are outliving this process.
+   *
+   * Drawn on every load rather than only when something is wrong. A page that
+   * only speaks up on failure teaches the reader that silence means healthy,
+   * and silence here is also what a page that forgot to check looks like.
+   */
+  function drawArchive(status) {
+    const host = $("archive");
+    if (!host || !status) return;
+
+    let cls = "off";
+    let tag = "no archive";
+    if (status.configured && status.connected) {
+      cls = "ok";
+      tag = status.backend;
+    } else if (status.configured) {
+      cls = "warn";
+      tag = "archive down";
+    }
+
+    host.className = `archive ${cls}`;
+    host.replaceChildren(el("span", "tag", tag), el("span", null, status.detail));
+    host.hidden = false;
   }
 
   // -------------------------------------------------------------- the record

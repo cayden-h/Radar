@@ -36,3 +36,33 @@ def entry_hash(body: dict[str, object], prev_hash: str | None) -> str:
     return hashlib.sha256(
         canonical({"prev": prev_hash, "entry": body}).encode("utf-8")
     ).hexdigest()
+
+
+def verify_entries(entries: object) -> tuple[bool, str, int | None]:
+    """Recompute every link. Returns (intact, detail, first_failed_seq).
+
+    Takes anything with `ReplayEntry`'s fields, so an open session's live
+    entries and a record read back out of the archive go through the same code.
+    Having one implementation is the same argument `entry_hash` makes one line
+    up: two verifiers that must agree by convention will eventually disagree by
+    accident, and a chain that disagrees with itself looks exactly like a chain
+    that was tampered with.
+    """
+    prev: str | None = None
+    count = 0
+    for entry in entries:  # type: ignore[union-attr]
+        count += 1
+        if entry.prev_hash != prev:
+            return False, f"entry {entry.seq} does not follow entry {entry.seq - 1}", entry.seq
+        body: dict[str, object] = {
+            "seq": entry.seq,
+            "kind": entry.kind,
+            "summary": entry.summary,
+            "detail": entry.detail,
+        }
+        if entry.actor is not None:
+            body["actor"] = entry.actor
+        if entry_hash(body, prev) != entry.entry_hash:
+            return False, f"entry {entry.seq} has been altered since it was written", entry.seq
+        prev = entry.entry_hash
+    return True, f"{count} entries, chain intact to {(prev or '')[:12]}", None
