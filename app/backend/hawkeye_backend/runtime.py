@@ -9,6 +9,7 @@ without being recorded.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import logging
 import time
@@ -18,9 +19,11 @@ from hawkeye_backend.edge.camera import LiveCamera
 from hawkeye_backend.config import Settings
 from hawkeye_backend.household import Roster, unaccounted_count
 from hawkeye_backend.master.base import MasterClient
+from hawkeye_backend.models.common import Source
 from hawkeye_backend.models.events import (
     ContextEvent,
     Envelope,
+    FrameEvent,
     EventPayload,
     IncidentEvent,
     InstructionEvent,
@@ -112,6 +115,7 @@ class HubRuntime:
         #: request_id -> the future waiting on that attestation.
         self._pending_attestations: dict[str, asyncio.Future[object]] = {}
         self._thumbnail_task: asyncio.Task[None] | None = None
+        self._thumb_warned = False
         self._sensor_task: asyncio.Task[None] | None = None
 
     @property
@@ -221,6 +225,18 @@ class HubRuntime:
         self._pending_attestations[request_id] = future
         return future
 
+    def cancel_attestation(self, request_id: str) -> None:
+        """Stop waiting for an attestation that is never coming.
+
+        Called on every path out of the shutter endpoint that is not a delivered
+        attestation. Without it a failed grant leaves an entry in the pending
+        map forever, and a process that runs for days accumulates one per
+        failure.
+        """
+        future = self._pending_attestations.pop(request_id, None)
+        if future is not None and not future.done():
+            future.cancel()
+
     async def send_grant(self, grant_json: str, request_id: str) -> None:
         """Push a signed grant down the edge link.
 
@@ -287,6 +303,7 @@ class HubRuntime:
     async def start(self) -> None:
         await self.client.start(self)
         self._sensor_task = asyncio.create_task(self._poll_sensor())
+        self._thumbnail_task = asyncio.create_task(self._publish_thumbnails())
         logger.info("hub runtime started in %s mode", self.settings.mode)
 
     async def _poll_sensor(self) -> None:
@@ -308,7 +325,86 @@ class HubRuntime:
                 logger.debug("sensor poll failed: %s", exc)
             await asyncio.sleep(SENSOR_POLL_INTERVAL_S)
 
+    async def _publish_thumbnails(self) -> None:
+        """Push a small frame onto the event stream, for the watch.
+
+        Publishes nothing at all when there is no frame. Silence is the honest
+        output: a watch drawing a grey rectangle labelled as a camera frame is
+        precisely the lie this design exists to prevent.
+
+        Re-encoding happens here rather than on the Pi because the Pi already
+        ships one size, and a second encode on a Pi 4B costs frames off the
+        stream a human is watching.
+        """
+        interval = self.settings.camera_thumbnail_interval_s
+        last_index: int | None = None
+        while True:
+            try:
+                frame = self.camera.latest
+                if frame is not None and frame.index != last_index:
+                    last_index = frame.index
+                    status = self.camera.status()
+                    thumb = self._thumbnail(frame.jpeg)
+                    await self.emit(
+                        FrameEvent(
+                            jpeg_base64=base64.b64encode(thumb).decode(),
+                            captured_at=frame.captured_at,
+                            source=status.source or Source.CAMERA_SIM,
+                            live=status.live,
+                            room=self.settings.camera_room,
+                        )
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # Broad on purpose, same as _poll_sensor. This task runs for the
+                # life of the process and must not die of one bad frame during
+                # an emergency.
+                logger.exception("thumbnail publish failed")
+            await asyncio.sleep(interval)
+
+    def _thumbnail(self, jpeg: bytes) -> bytes:
+        """Shrink a frame for the wrist, or hand back what we were given.
+
+        OpenCV is not a hard dependency of this service, and a hub that refused
+        to start because a thumbnail could not be resized would be trading the
+        whole demo for a few kilobytes. Falls back to the full frame and says so
+        once.
+        """
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            if not self._thumb_warned:
+                logger.warning(
+                    "thumbnails: OpenCV is not installed, so full frames are going "
+                    "to the watch. Install opencv-python-headless to shrink them."
+                )
+                self._thumb_warned = True
+            return jpeg
+
+        image = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+        if image is None:
+            return jpeg
+        height, width = image.shape[:2]
+        longest = max(height, width)
+        edge = self.settings.camera_thumbnail_long_edge
+        if longest > edge:
+            scale = edge / longest
+            image = cv2.resize(
+                image,
+                (max(1, round(width * scale)), max(1, round(height * scale))),
+                interpolation=cv2.INTER_AREA,
+            )
+        ok, buffer = cv2.imencode(".jpg", image, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+        return buffer.tobytes() if ok else jpeg
+
     async def stop(self) -> None:
+        if self._thumbnail_task is not None:
+            self._thumbnail_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._thumbnail_task
+            self._thumbnail_task = None
         if self._sensor_task is not None:
             self._sensor_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

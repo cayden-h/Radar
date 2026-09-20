@@ -34,10 +34,18 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import itertools
+import json
 import logging
 import random
+import secrets
 import time
 from dataclasses import dataclass
+from datetime import timedelta
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from hawkeye_backend.verification.b64 import b64u_encode
+from hawkeye_backend.verification.canonical import canonicalize
 from datetime import timedelta
 
 from hawkeye_backend.master.base import EventSink, assert_human_released
@@ -97,6 +105,11 @@ from hawkeye_backend.models.verification import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: How long a shutter grant stays valid. Seconds, not minutes, per
+#: `agents/shutter/grant.py`: a grant that outlives the situation that
+#: produced it is a replay waiting to happen.
+GRANT_TTL_S = 10
 
 # The source behind the simulated sensing pipeline.
 #
@@ -194,6 +207,17 @@ class SimulatedMasterClient:
         self._stopping = asyncio.Event()
         self._floorplan = build_floorplan(site_id)
         self._rng = random.Random(1872)
+
+        # Signs shutter grants in simulated mode, where there is no
+        # `agents/master` to sign them. Generated per process and never
+        # persisted: a demo key that survived a restart would be a key somebody
+        # could eventually find. `shutter` still verifies the signature and
+        # still refuses anything it cannot, so what is simulated here is which
+        # agent holds the key, not whether the check happens.
+        self._grant_key = Ed25519PrivateKey.generate()
+        self._master_ansname = "ans://v1.0.0.master.hawkeye.invalid"
+        #: Every nonce this client has spent, so a test can prove none was reused.
+        self.grant_nonces_used: list[str] = []
 
         self._incident: Incident | None = None
         self._call_started_for: str | None = None
@@ -1442,3 +1466,33 @@ class SimulatedMasterClient:
     def elapsed_hint(self) -> timedelta:
         """Roughly how long the script takes at the configured speed."""
         return timedelta(seconds=38.0 * self._speed)
+
+    async def issue_shutter_grant(self, *, action: str, reason: str) -> str:
+        """A grant signed by this process's own demo key.
+
+        **The nonce is fresh per grant and never cached.** Holding one open
+        across two grants would give an attacker a window in which a captured
+        grant is still live. `agents/master/shutter_client.py` states this from
+        the other end and this mirrors it.
+
+        Returned as a compact JSON string, which is the form `shutter` verifies
+        the signature over. Nothing between here and the servo may reformat it.
+        """
+        nonce = secrets.token_urlsafe(12)
+        self.grant_nonces_used.append(nonce)
+
+        now = utc_now()
+        payload: dict[str, object] = {
+            "schema_version": "1.0",
+            "nonce": nonce,
+            "issuer": self._master_ansname,
+            "action": action,
+            # Recorded, not trusted. It goes into the sealed record so an
+            # investigator can follow the chain backwards; nothing downstream
+            # reads it as authorization.
+            "reason": reason,
+            "issued_at": now.isoformat(),
+            "expires_at": (now + timedelta(seconds=GRANT_TTL_S)).isoformat(),
+        }
+        payload["signature"] = b64u_encode(self._grant_key.sign(canonicalize(payload)))
+        return json.dumps(payload, separators=(",", ":"))

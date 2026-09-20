@@ -25,7 +25,9 @@ opt-in that stands in for that person.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import secrets
 from datetime import datetime
 from typing import Literal
 
@@ -39,7 +41,13 @@ from hawkeye_backend.household import DeviceAlreadyClaimed, UnknownDevice
 from hawkeye_backend.master.base import MasterUnavailable
 from hawkeye_backend.master.simulated import SimulatedMasterClient
 from hawkeye_backend.models.common import utc_now
-from hawkeye_backend.models.events import Envelope, HelloEvent
+from hawkeye_backend.models.events import (
+    Envelope,
+    HelloEvent,
+    NarrationEvent,
+    OccupancyEvent,
+    ShieldEvent,
+)
 from hawkeye_backend.models.household import HouseholdMember, ObservedDevice, RememberRequest
 from hawkeye_backend.models.hub import HubStatus
 from hawkeye_backend.models.incident import (
@@ -55,7 +63,7 @@ from hawkeye_backend.models.incident import (
 from hawkeye_backend.models.state import InteriorState
 from hawkeye_backend.replay import build_export, verify_entries
 from hawkeye_backend.replay.archive import ArchiveStatus
-from hawkeye_backend.runtime import HubRuntime
+from hawkeye_backend.runtime import EdgeUnavailable, HubRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -786,3 +794,161 @@ async def edge_link(websocket: WebSocket, token: str | None = Query(default=None
     """
     runtime: HubRuntime = websocket.app.state.runtime
     await run_edge_link(websocket, runtime, token)
+
+
+class NarrationRequest(BaseModel):
+    """What `vision/` posts for each Gemini line."""
+
+    text: str = Field(min_length=1)
+    room: str = Field(
+        min_length=1,
+        description=(
+            "Required, never defaulted. One fixed camera sees one room, and a "
+            "scoped claim must not quietly become an unscoped one because a "
+            "producer left a field out."
+        ),
+    )
+    window_s: float = Field(default=1.0, gt=0)
+
+
+class OccupancyRequest(BaseModel):
+    person_present: bool
+    people: int = Field(ge=0)
+    room: str = Field(min_length=1)
+
+
+class ShutterRequest(BaseModel):
+    """Ask the shield to move.
+
+    Two actions exist and there is no third. An unknown one is a refusal rather
+    than a default, which is the rule `agents/shutter/grant.py` already states.
+    """
+
+    action: Literal["open", "close"]
+    reason: str = Field(
+        default="",
+        description=(
+            "Why. Recorded into the sealed record so an investigator can follow "
+            "the chain backwards. Nothing downstream reads it as authorization."
+        ),
+    )
+
+
+@router.post("/vision/narration", status_code=202, summary="One line from the camera")
+async def post_narration(request: Request, body: NarrationRequest) -> NarrationEvent:
+    """`vision/` posts here; every app sees it.
+
+    202 rather than 201: this creates nothing addressable, it publishes. The
+    line is on the stream by the time this returns.
+    """
+    if not body.text.strip():
+        raise HTTPException(status_code=422, detail="narration text cannot be blank")
+    runtime = _runtime(request)
+    active = await runtime.store.get_active_incident()
+    event = NarrationEvent(text=body.text.strip(), room=body.room, window_s=body.window_s)
+    await runtime.emit(event, active.incident_id if active else None)
+    return event
+
+
+@router.post("/vision/occupancy", status_code=202, summary="Whether the camera sees anybody")
+async def post_occupancy(request: Request, body: OccupancyRequest) -> OccupancyEvent:
+    """Personhood, and nothing more.
+
+    It says somebody is there. It never says who: we have no database and no
+    lawful basis for one. Identity is `intruder`'s question and it answers it
+    from the router's device roster, not from a face.
+    """
+    runtime = _runtime(request)
+    active = await runtime.store.get_active_incident()
+    event = OccupancyEvent(
+        person_present=body.person_present, people=body.people, room=body.room
+    )
+    await runtime.emit(event, active.incident_id if active else None)
+    return event
+
+
+@router.post("/shutter", status_code=202, summary="Move the physical shield")
+async def post_shutter(request: Request, body: ShutterRequest) -> ShieldEvent:
+    """Issue a grant, wait for the attestation, publish what happened.
+
+    Every outcome reaches every surface, including the refusal, which is the one
+    that matters. A dispatch demo that works is unremarkable; a shutter that
+    refuses an impostor, visibly, on stage, is the submission.
+
+    Three failures, three different answers, none of them a guess:
+
+    - **No edge connected** is a 503. There is no servo, and answering `opened`
+      would be the worst possible response.
+    - **The shutter refused** is a 202 carrying `refused: true`. The system
+      worked; it just said no.
+    - **The shutter never answered** is a 504 and a position of `unknown`. An
+      unknown shield position is a true statement and `open` would be a false
+      one, and the difference is whether a camera is covered.
+    """
+    runtime = _runtime(request)
+    active = await runtime.store.get_active_incident()
+    incident_id = active.incident_id if active else None
+    request_id = secrets.token_urlsafe(9)
+
+    # Registered before the grant goes out, so an attestation that comes back
+    # faster than this coroutine resumes still has somewhere to land.
+    waiter = runtime.await_attestation(request_id)
+
+    try:
+        grant_json = await runtime.client.issue_shutter_grant(
+            action=body.action, reason=body.reason
+        )
+    except MasterUnavailable as exc:
+        runtime.cancel_attestation(request_id)
+        raise HTTPException(status_code=503, detail=f"agent mesh unavailable: {exc}") from exc
+
+    try:
+        await runtime.send_grant(grant_json, request_id)
+    except EdgeUnavailable as exc:
+        runtime.cancel_attestation(request_id)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    try:
+        attestation = await asyncio.wait_for(waiter, timeout=runtime.settings.shutter_timeout_s)
+    except asyncio.TimeoutError:
+        runtime.cancel_attestation(request_id)
+        event = ShieldEvent(
+            position="unknown",
+            requested_action=body.action,
+            reason=body.reason,
+            refusal_reason="the shutter did not answer",
+        )
+        await runtime.emit(event, incident_id)
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f"the shutter did not answer within {runtime.settings.shutter_timeout_s}s. "
+                "The shield position is unknown."
+            ),
+        )
+
+    if attestation.refused:
+        event = ShieldEvent(
+            position="unknown",
+            requested_action=body.action,
+            reason=body.reason,
+            refused=True,
+            refusal_reason=attestation.refusal_reason,
+        )
+    else:
+        # Parsed only to read display fields out of it. The signature was
+        # verified by `shutter` over the grant, not by this process over this.
+        try:
+            attested = json.loads(attestation.attestation_json or "{}")
+        except json.JSONDecodeError:
+            attested = {}
+        event = ShieldEvent(
+            position=attested.get("position", "unknown"),
+            commanded_angle=attested.get("commanded_angle"),
+            position_basis=attested.get("position_basis", "commanded"),
+            requested_action=body.action,
+            reason=body.reason,
+        )
+
+    await runtime.emit(event, incident_id)
+    return event
