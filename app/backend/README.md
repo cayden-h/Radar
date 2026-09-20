@@ -172,6 +172,11 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_TWILIO_TO_NUMBER` | empty | The resident's phone, E.164. On a trial account it must be verified in the console first. |
 | `HAWKEYE_TWILIO_MIN_INTERVAL_S` | `60` | Floor between sends, so a rehearsal loop cannot burn trial credit. |
 | `HAWKEYE_TWILIO_MAX_PER_INSTANCE` | `5` | Hard cap for the life of the sink. |
+| `HAWKEYE_COURIER` | `off` | `off` or `resend`. Who mails a **sealed** record to the responding department. See the courier below. |
+| `HAWKEYE_RESEND_API_KEY` | empty | Resend dashboard. Held as a `SecretStr`, so it cannot reach a log or a repr. |
+| `HAWKEYE_COURIER_FROM` | `Hawk Eye <hawkeye@cayden.tech>` | The From address. **Its domain must be verified in Resend**, or sends are accepted and delivered nowhere. |
+| `HAWKEYE_COURIER_TO` | empty | Fallback destination for the automatic send on seal, recorded as `configured`. Empty means that send is skipped. |
+| `HAWKEYE_MOTION_CONSOLE_URL` | `http://localhost:8766/index.html` | Where `/motion` redirects. Empty drops the route. |
 | `HAWKEYE_SITE_TIMEZONE` | `America/New_York` | Renders the local time in an SMS. |
 
 ## The replay console
@@ -216,6 +221,95 @@ The index counts them on the card, and the log tints them rather than greying th
 What the system refused to repeat to a dispatcher is the interesting number, not the total.
 
 `HAWKEYE_REPLAY_SITE_ENABLED=false` turns the page off without touching code, because serving a human surface is a deployment decision.
+
+## The courier: the police email
+
+The last step of an incident, and the only one aimed at somebody who was never on the call.
+When a record seals, the bundle `replay/export.py` builds - the record, the readable chain, the standalone verifier, the README - goes to the responding department as one zip attachment, through Resend.
+
+`hawkeye_backend/replay/courier.py`. `Courier` is a protocol with two implementations, exactly like `ReplayArchive`: `NullCourier` sends nothing and says so, `ResendCourier` sends.
+
+**Off by default, and the default is louder here than it is for the archive.**
+A missing archive costs durability. An accidental send puts an incident record in a stranger's inbox and cannot be recalled.
+So every incomplete configuration - no key, no From address, `HAWKEYE_COURIER` unset - resolves to `NullCourier` at startup with a log line saying so, rather than to a courier that fails later.
+
+### The address is reported, never trusted
+
+`docs/fraud-13.md` makes the general argument: an agent that can change where a response is sent is a swatting tool no matter how well the claims upstream verify, which is why the dispatch address is bound at registration and sealed.
+
+The police email is the pivot's new instance of that problem and it is handled differently on purpose, because it **cannot** be bound at registration - which department responds is not known until somebody answers the phone.
+So it travels with its provenance attached and is recorded as what it is:
+
+- **`operator_supplied`** - a 911 operator said it on the call and `caller` read it back. Supplied as `to` on the endpoint below.
+- **`configured`** - `HAWKEYE_COURIER_TO`, which is what a rehearsal and the automatic send use.
+
+Nothing downstream reads either as authorization for anything. The email body states which one it was, so the person reading it can notice if they never gave that address.
+
+### A failed send is an event, not a silence
+
+`Courier.send` returns a `CourierReceipt` on every path including the failures and raises only on a programming error.
+A chain that says nothing about delivery is indistinguishable from one saying the email arrived, and the second is a lie a detective would act on.
+
+Three outcomes, and `skipped` is deliberately not a failure: a hub with no courier configured is the ordinary case, and conflating the two teaches a reader to ignore failures.
+
+| Outcome | Means |
+|---|---|
+| `sent` | The provider accepted it and returned a message id. |
+| `failed` | It did not go. The reason is on the receipt, on the chain, and on the stream. |
+| `skipped` | Nothing tried: no courier configured, or no address to send to. |
+
+### The one entry allowed after the seal
+
+Two requirements here are contradictory on their face.
+The bundle mailed out has to be the **sealed** record, so the send cannot happen before sealing.
+A send that failed has to be visible **in the chain**, so its outcome cannot live outside it.
+
+`ReplaySession.append_courier_receipt` is the resolution and the only thing in this service permitted to append past a seal.
+It **adds and never edits**: every entry up to and including the seal is unchanged, every `prev_hash` still matches, and the emailed copy is a byte-exact **prefix** of the archived one.
+Both verify INTACT under the same `verify.py`, which needed no special case. The bundle's README explains the difference to whoever holds only the email.
+
+Attempts accumulate while delivery is outstanding, because a first attempt that failed and a second that worked is exactly the history an investigator wants.
+The moment one succeeds the record closes for good.
+
+### Sending one
+
+Automatic on seal, when a courier is configured and there is an address.
+`POST /v1/incident/{id}/courier` is the manual path - the operator-supplied address is only known once somebody has answered the phone, and a failed send needs a way to be retried without replaying the incident.
+
+```sh
+curl -X POST http://127.0.0.1:8787/v1/incident/inc-0001/courier \
+  -H 'content-type: application/json' \
+  -d '{"to": "records@department.example.gov"}'
+```
+
+It answers **202 with the receipt on a failed send, not a 5xx**. The send is the subject of the request rather than a step inside it: a failure is a real answer that was recorded and published. 404 if there is no record, 409 if the record is not sealed yet.
+
+### Verify the sending domain, by hand, once
+
+**An unverified domain accepts the send, returns a message id, and delivers nothing.**
+The receipt says `sent`, the chain says `sent`, and the inbox is empty. Nothing in an API response distinguishes that case, so nothing here pretends to - it is checked once by a human against a real inbox.
+
+`cayden.tech` is verified on the project's Resend account as of 2026-09-20, which is why it is the default From domain.
+
+## The motion detector, at `/motion`
+
+**`GET /motion` is a redirect, not a page.**
+It sends the browser to the WiFi RSSI motion detector in `wifi-rssi-motion-template/`, which runs as its own process, on its own port, with its own server and its own frontend.
+
+This service does not embed it, proxy it, or read its output.
+That detector is deliberately self-contained - it depends on nothing in `sensor/`, `agents/`, `app/` or ANS, and keeping it that way is worth more than the convenience of merging it.
+So the only thing the hub owes it is a stable address, and the two consoles link to `/motion` rather than to a hardcoded `localhost:8766`.
+
+`HAWKEYE_MOTION_CONSOLE_URL` sets where it points.
+It defaults to `http://localhost:8766/index.html`, which is what `python3 server.py` prints when the detector runs on the same machine as the hub.
+Set it to the detector's LAN address when it runs on the laptop nearest the router instead, and set it empty to drop the route, which makes `/motion` a 404 rather than a redirect to nowhere.
+
+Start the detector separately; the hub does not launch it:
+
+```sh
+cd wifi-rssi-motion-template
+.venv/bin/python3 server.py
+```
 
 ## Notices
 
@@ -663,6 +757,21 @@ A zip, for handing to an investigator:
 An unsealed record exports too, clearly marked as unsealed.
 An investigator asking for the record mid-incident is a real scenario, and refusing would be worse than handing over something honestly labelled.
 
+### `POST /v1/incident/{id}/courier`
+
+Emails that same zip to the responding department. Full reasoning in the courier section above.
+
+```json
+{ "to": "records@department.example.gov" }
+```
+
+`to` is the address the 911 operator gave on the call, recorded with `operator_supplied` provenance - a human statement, never a verified binding and never authorization.
+Omit it to fall back to `HAWKEYE_COURIER_TO`, recorded as `configured`.
+
+Answers a `CourierReceipt`: `outcome` is `sent`, `failed` or `skipped`, with `to`, `provenance`, `message_id` and a one-line `detail`.
+
+**202 even when the send failed.** The send is the subject of the request rather than a step inside it, and a failure is a real answer that was recorded on the chain and published to every surface. 404 if there is no record for that incident; 409 if the record is not sealed yet.
+
 ### `POST /v1/demo/run`
 
 Drives the scripted detection and then stops. **Simulated mode only; 404s in live mode, deliberately.**
@@ -740,6 +849,8 @@ app/backend/
       session.py            one incident's record: opened on a tap, sealed at the call's end
       recorder.py           routes events into sessions; wired into HubRuntime.emit
       export.py             the zip a detective is handed
+      courier.py            mails that zip to the responding department, via Resend
+      archive.py            where a sealed record goes so it outlives this process
     master/
       base.py               MasterClient protocol, EventSink protocol
       simulated.py          the scripted detection, and the scripted call a human tap releases

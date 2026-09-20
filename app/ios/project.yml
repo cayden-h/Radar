@@ -126,7 +126,12 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: ai.hawkeye.app.tests
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Hawk Eye.app/Hawk Eye"
+        # Must match the HawkEye target's PRODUCT_NAME, which is `Radar`.
+        # It said `Hawk Eye` until 2026-09-20, left behind by the rename, and
+        # the whole test target was unrunnable the entire time: xcodebuild
+        # resolves TEST_HOST before it builds anything, so the failure reads as
+        # "could not find test host" rather than as a stale name.
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Radar.app/Radar"
         BUNDLE_LOADER: "$(TEST_HOST)"
         GENERATE_INFOPLIST_FILE: YES
 
@@ -137,56 +142,6 @@ targets:
   # The bundle IDs must nest exactly and WKCompanionAppBundleIdentifier must
   # name the phone app. Getting either wrong produces a build that succeeds and
   # a watch app that never pairs.
-  HawkEyeWatch:
-    type: application
-    platform: watchOS
-    deploymentTarget: "11.0"
-    sources:
-      - path: HawkEyeWatch
-        excludes:
-          - "**/.DS_Store"
-      - path: HawkEye/Models
-      - path: HawkEye/Shared
-      - path: HawkEye/DesignSystem
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.hawkeye.app.watchkitapp
-        PRODUCT_NAME: Hawk Eye
-        MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: "1"
-        TARGETED_DEVICE_FAMILY: "4"
-        WATCHOS_DEPLOYMENT_TARGET: "11.0"
-        SUPPORTED_PLATFORMS: "watchos watchsimulator"
-        SKIP_INSTALL: NO
-    info:
-      path: HawkEyeWatch/Info.plist
-      properties:
-        CFBundleDisplayName: Hawk Eye
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "1"
-        WKApplication: true
-        WKCompanionAppBundleIdentifier: ai.hawkeye.app
-        WKRunsIndependentlyOfCompanionApp: false
-        UIUserInterfaceStyle: Dark
-
-  # Unit tests for the platform-neutral half: the wire codec and the router.
-  # An iOS target rather than a watchOS one, deliberately, so the rules can be
-  # tested on the runtime that is always installed.
-  HawkEyeTests:
-    type: bundle.unit-test
-    platform: iOS
-    deploymentTarget: "18.0"
-    sources:
-      - path: HawkEyeTests
-    dependencies:
-      - target: HawkEye
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.hawkeye.app.tests
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Hawk Eye.app/Hawk Eye"
-        BUNDLE_LOADER: "$(TEST_HOST)"
-        GENERATE_INFOPLIST_FILE: YES
-
   HawkEyeUITests:
     type: bundle.ui-testing
     platform: iOS

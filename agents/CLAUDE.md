@@ -105,7 +105,21 @@ Three probes in `app/backend/tests/test_battery.py` cover it, alongside the thir
 
 Our cards declare `preferredTransport: JSONRPC` at `https://<host>/a2a`, and `agent.webmesh.ai verify_agent` sends a **live A2A message** and reports the credential we actually required. An agent whose card advertises an endpoint that is not there fails the judge's own verifier on the surface we called our best demo beat.
 
-**MCP is deliberately not implemented.** All the webmesh.ai agents speak both and ours should eventually; it is a second adapter over the same handlers and it buys presentation rather than capability. Roadmap, not this weekend.
+**MCP is implemented, in `agents/core/mcp.py`, and the deferral it replaces is worth keeping visible.**
+
+It was skipped as "a second adapter over the same handlers that buys presentation rather than capability". That judgement stood until `agent.webmesh.ai verify_agent` was actually pointed at us on 2026-09-20 - the first time, having been on the plan since the briefing. It returned `identity: pass`, `auth: pass`, and exactly one warning:
+
+```
+protocol  warning  speaks A2A v0.3.0; cross-talk needs the v0.3.0 compat adapter or MCP
+mcp_capable: false
+can_traveler_transact: "with-adapter"
+```
+
+MCP was named in his own remedy line, and it was the only thing between us and a clean verdict from the tool the judge wrote. Adding it moved `can_traveler_transact` to **`yes`** on all seven.
+
+**The lesson is not about MCP.** We had deferred it on a guess about what mattered, and a thirty-second call to a live endpoint we had known about for two days settled it. Run the verifier before ranking the work, not after.
+
+The cheaper fix - claiming `protocolVersion: 1.0` - was available and was refused. We implement JSON-RPC with our own methods, not the A2A 1.0 surface, and the card is the one artifact where an overclaim is signed, published and machine-checkable. `protocolVersion` stays `0.3.0`, which is true, and the warning stays with it.
 
 ### The trap the transport is built around
 
@@ -709,7 +723,7 @@ Two of the seven are cheap, though, and it is worth knowing which.
 `shutter` has one method and one refusal table. `vision` is the only one with an external API dependency.
 If the deploy runs short, six are built and card-stable - the five that existed before the pivot, plus `shutter` - and only `vision` is outstanding.
 
-All seven support A2A. **MCP is deliberately not implemented**; it is a second adapter over the same handlers and it buys presentation rather than capability. Roadmap, not this weekend.
+All seven support A2A **and MCP**, on `/a2a` and `/mcp`, over one set of handlers. `tests/test_mcp.py` asserts the sharing rather than trusting it: the same forged grant is refused by both doors with the same stated reason, and a nonce issued over one is spent over the other.
 Each publishes an agent card, and the cards must be kept current. Public agents surface on GoDaddy's Trust Index, which the judge maintains, so a stale card is a visible defect on the most-inspected surface.
 
 ## The demo

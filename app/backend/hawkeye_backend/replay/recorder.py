@@ -19,6 +19,10 @@ import logging
 from datetime import datetime
 
 from hawkeye_backend.models.events import (
+    FrameEvent,
+    NarrationEvent,
+    OccupancyEvent,
+    ShieldEvent,
     ContextEvent,
     EventPayload,
     IncidentEvent,
@@ -271,6 +275,57 @@ class ReplayRecorder:
                     summary=getattr(notice, "headline", None) or str(notice),
                     detail=notice.model_dump(mode="json"),
                 )
+            case NarrationEvent():
+                # What the camera said, sealed alongside what the operator was
+                # told. An investigator comparing the two is the whole point of
+                # this record, and it cannot be done if only one half is in it.
+                session.append(
+                    kind="narration",
+                    actor="agents/vision",
+                    summary=f"{payload.room}: {payload.text}",
+                    detail=payload.model_dump(mode="json"),
+                    at=payload.at,
+                )
+            case OccupancyEvent():
+                session.append(
+                    kind="occupancy",
+                    actor="agents/vision",
+                    summary=(
+                        f"{payload.people} person(s) visible in {payload.room}"
+                        if payload.person_present
+                        else f"nobody visible in {payload.room}"
+                    ),
+                    detail=payload.model_dump(mode="json"),
+                    at=payload.at,
+                )
+            case ShieldEvent():
+                # **The refusal is the submission, so it is in the record.**
+                # `ShutterRequest.reason` promises exactly this: recorded so an
+                # investigator can follow the chain backwards. A sealed bundle
+                # that omitted the moment the camera was uncovered, or the
+                # moment something was refused permission to uncover it, would
+                # be missing the only part a reader could not reconstruct.
+                if payload.refused:
+                    summary = f"shutter REFUSED {payload.requested_action}: {payload.refusal_reason}"
+                else:
+                    summary = (
+                        f"shield {payload.position} "
+                        f"({payload.position_basis}, not measured)"
+                    )
+                session.append(
+                    kind="shield",
+                    actor="agents/shutter",
+                    summary=summary,
+                    detail=payload.model_dump(mode="json"),
+                    at=payload.at,
+                )
+            case FrameEvent():
+                # **Deliberately not recorded.** A frame a second for the length
+                # of a call is megabytes of base64 in a document whose value is
+                # that a human can read it, and the frames are already on disk
+                # as mp4 segments hashed as they close. The record references
+                # that footage; it does not duplicate it.
+                pass
             case _:
                 pass
 

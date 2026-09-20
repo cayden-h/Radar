@@ -1,0 +1,17 @@
+{
+  "$note": "Whether the camera can see anybody. Personhood only; it never says who.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 51,
+    "at": "2026-09-20T04:12:44.200000Z",
+    "incident_id": null,
+    "payload": {
+      "kind": "occupancy",
+      "person_present": true,
+      "people": 1,
+      "room": "Living room",
+      "at": "2026-09-20T07:10:52.867663Z",
+      "source": "camera-uvc"
+    }
+  }
+}

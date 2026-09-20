@@ -1,0 +1,21 @@
+{
+  "$note": "The submission. A refusal is not an error: it is the shutter declining to uncover a camera for something that could not prove it was allowed to. The position is the real, unchanged one rather than `unknown`.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "seq": 53,
+    "at": "2026-09-20T04:12:44.500000Z",
+    "incident_id": null,
+    "payload": {
+      "kind": "shield",
+      "position": "closed",
+      "position_basis": "commanded",
+      "commanded_angle": 0,
+      "requested_action": "open",
+      "refused": true,
+      "refusal_reason": "unregistered_issuer: 'ans://v0.1.0.master.batradar.club' is not in the trust store, or its discovery is suppressed",
+      "reason": "unaccounted motion in the living room",
+      "at": "2026-09-20T07:10:52.867684Z",
+      "source": "servo-gpio"
+    }
+  }
+}

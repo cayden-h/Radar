@@ -13,7 +13,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, TypeAdapter
 
-from hawkeye_backend.models.common import utc_now
+from hawkeye_backend.models.common import Source, utc_now
 from hawkeye_backend.models.incident import (
     ContextNote,
     Incident,
@@ -33,6 +33,11 @@ class EventKind(StrEnum):
     VERIFICATION = "verification"
     CONTEXT = "context"
     NOTICE = "notice"
+    FRAME = "frame"
+    NARRATION = "narration"
+    OCCUPANCY = "occupancy"
+    SHIELD = "shield"
+    COURIER = "courier"
     HELLO = "hello"
     ERROR = "error"
 
@@ -104,6 +109,150 @@ class NoticeEvent(BaseModel):
     notice: Notice
 
 
+class FrameEvent(BaseModel):
+    """A camera thumbnail, for clients that cannot hold an MJPEG stream open.
+
+    The watch is the reason this exists. It has no MJPEG decoder and no direct
+    path to the hub, so it gets frames the way it gets everything else: as an
+    envelope, relayed through the phone. `Notice.stillFrame` already proves a
+    base64 JPEG survives that trip.
+
+    One per second, and small. This is a wrist, not a monitor.
+    """
+
+    kind: Literal[EventKind.FRAME] = EventKind.FRAME
+    jpeg_base64: str = Field(description="Base64 JPEG. A thumbnail, not a recording.")
+    captured_at: datetime = Field(
+        description="When the camera took it, not when it was published here."
+    )
+    source: Source = Field(
+        description="What produced it. A video file must not read as a camera."
+    )
+    live: bool = Field(
+        description=(
+            "Whether this was current when published. False means the client must "
+            "label it as the last thing seen rather than draw it as the room now."
+        )
+    )
+    room: str | None = Field(
+        default=None,
+        description=(
+            "The room this camera covers. One fixed camera sees one room, and every "
+            "vision claim carries its scope rather than implying it has none."
+        ),
+    )
+
+
+class NarrationEvent(BaseModel):
+    """One line the camera produced about what it is seeing.
+
+    **Not a `TranscriptLine`.** That type is documented as one line of the
+    caller-to-911 conversation, and collapsing the two would let a camera
+    observation render as something an operator was told. When `caller` quotes
+    one of these to an operator, that becomes a `TranscriptLine` whose
+    `claim_ids` point back here, which is the existing mechanism for exactly
+    this and needs nothing new.
+
+    `room` and `window_s` are both required and both load-bearing. One fixed
+    camera sees one room, and Gemini samples at roughly one frame per second, so
+    this is a sequence of observations rather than continuous tracking. The root
+    CLAUDE.md requires both limits to be carried in the data rather than only
+    stated in a comment.
+    """
+
+    kind: Literal[EventKind.NARRATION] = EventKind.NARRATION
+    text: str = Field(min_length=1)
+    room: str = Field(min_length=1, description="The room this camera covers. Never absent.")
+    window_s: float = Field(
+        default=1.0,
+        gt=0,
+        description=(
+            "Seconds of observation this line summarizes. About one frame per "
+            "second reaches the model, so this is a sequence of glances rather "
+            "than continuous tracking, and a reader is entitled to know that."
+        ),
+    )
+    at: datetime = Field(default_factory=utc_now)
+    source: Source = Source.AGENT_INFERENCE
+
+
+class OccupancyEvent(BaseModel):
+    """Whether the camera can see anybody. What closes the shutter again.
+
+    Personhood only. This never says who: we have no database and no lawful
+    basis for one, and `intruder` answers identity separately by asking the
+    router which devices are present.
+    """
+
+    kind: Literal[EventKind.OCCUPANCY] = EventKind.OCCUPANCY
+    person_present: bool
+    people: int = Field(ge=0, description="How many tracks are currently present.")
+    room: str = Field(min_length=1)
+    at: datetime = Field(default_factory=utc_now)
+    source: Source = Source.CAMERA_UVC
+
+
+class ShieldEvent(BaseModel):
+    """Where the physical shield is, and what the shutter said about getting there.
+
+    `position_basis` is `commanded` and never `measured`, and that is not a
+    technicality. The SG92R is open-loop with no position feedback, so this is
+    the angle the servo was told to reach and never the angle the shield
+    actually reached. A jammed shield attests open while covering the lens, and
+    the only thing that catches that is the frame itself being dark.
+
+    `refused` is a first-class outcome. A shutter declining a grant it cannot
+    verify is the system working, and it is the thing this project most wants to
+    be able to put on a screen.
+    """
+
+    kind: Literal[EventKind.SHIELD] = EventKind.SHIELD
+    position: str = Field(
+        description="`open`, `closed`, or `unknown`. Unknown when the shutter did not answer."
+    )
+    position_basis: str = Field(
+        default="commanded",
+        description="Always `commanded`. The servo has no position feedback.",
+    )
+    commanded_angle: int | None = None
+    requested_action: str = Field(description="What was asked for: `open` or `close`.")
+    refused: bool = False
+    refusal_reason: str = ""
+    reason: str = Field(
+        default="", description="Why the move was requested. Recorded, not trusted."
+    )
+    at: datetime = Field(default_factory=utc_now)
+    source: Source = Source.SERVO_GPIO
+
+
+class CourierEvent(BaseModel):
+    """The sealed record was handed to the responding department, or was not.
+
+    Emitted after the record seals, so the recorder deliberately does not chain
+    it - `ReplaySession.append_courier_receipt` writes the chain entry instead,
+    and it is the only thing allowed to append past a seal. This event exists
+    so the three surfaces can say what happened without reopening the record.
+
+    A failure is as loud as a success here for the same reason it is in the
+    chain: a screen that goes quiet on a failed send is indistinguishable from
+    one reporting an email that arrived.
+    """
+
+    kind: Literal[EventKind.COURIER] = EventKind.COURIER
+    incident_id: str
+    outcome: str = Field(description="`sent`, `failed`, or `skipped`.")
+    to: str = Field(default="", description="The destination, empty when there was none.")
+    provenance: str | None = Field(
+        default=None,
+        description=(
+            "`operator_supplied` or `configured`. An address a person said on a "
+            "phone call is a human statement, never a verified binding."
+        ),
+    )
+    detail: str = Field(default="", description="Why, in one line. Always set on a failure.")
+    at: datetime = Field(default_factory=utc_now)
+
+
 class HelloEvent(BaseModel):
     """First frame on every connection. Tells the client what it just joined."""
 
@@ -134,6 +283,11 @@ EventPayload = Annotated[
     | VerificationEvent
     | ContextEvent
     | NoticeEvent
+    | FrameEvent
+    | NarrationEvent
+    | OccupancyEvent
+    | ShieldEvent
+    | CourierEvent
     | HelloEvent
     | ErrorEvent,
     Field(discriminator="kind"),

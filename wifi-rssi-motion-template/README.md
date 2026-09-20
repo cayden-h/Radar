@@ -89,3 +89,12 @@ Then open the URL the server prints for the static frontend, e.g.
 `http://localhost:8766/index.html`. Opening `static/index.html` directly over
 `file://` will not work -- the page can't infer the WebSocket port without a
 server origin to derive it from.
+
+## Reaching it from the hub's consoles
+
+The hub links to this page from `/live` and `/replay` via **`GET /motion`**,
+which is a redirect and nothing more -- the hub does not start this process,
+embed it, or read its output, so this directory stays as self-contained as it
+was. Start the server here yourself, first. `HAWKEYE_MOTION_CONSOLE_URL` on the
+hub sets where `/motion` points, and defaults to the address printed above;
+change it when this runs on a different machine from the hub.
