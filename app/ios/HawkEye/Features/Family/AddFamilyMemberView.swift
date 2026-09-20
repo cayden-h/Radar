@@ -9,11 +9,10 @@ import SwiftUI
 /// Wiring this to a real device-discovery source (or `MockHawkEyeClient`)
 /// is future work; see `docs/superpowers/specs/2026-09-19-add-family-member-discovery-design.md`.
 ///
-/// The device list below is simulated, not a real WiFi scan — hence the
-/// `SIM` tag on every row, the same honesty-rule tag already used by
-/// `CoAlertRow` in `HomeView.swift` for the simulated CO reading. It starts
-/// empty and fills in one device at a time via `joinSimulatedDevices()`, to
-/// read as devices joining the network rather than a static pre-filled list.
+/// The device list below is simulated, not a real WiFi scan — see the honesty
+/// note on `joinSimulatedDevices()`. It starts empty and fills in one device
+/// at a time via that function, to read as devices joining the network
+/// rather than a static pre-filled list.
 ///
 /// Reached from `RadarTabBar`'s People tab, not a modal — there is no close
 /// button here on purpose; switching tabs is how you leave.
@@ -109,7 +108,7 @@ struct AddFamilyMemberView: View {
             if devices.isEmpty {
                 Text("No other device to connect")
                     .font(TypeScale.body)
-                    .foregroundStyle(Palette.inkMuted)
+                    .foregroundStyle(Palette.ink)
                     .padding(.vertical, Space.sm)
             } else {
                 VStack(spacing: Space.sm) {
@@ -132,12 +131,6 @@ struct AddFamilyMemberView: View {
                     .font(TypeScale.body)
                     .foregroundStyle(Palette.ink)
 
-                Text("SIM")
-                    .font(.system(size: 9, weight: .bold))
-                    .padding(.horizontal, 4).padding(.vertical, 1)
-                    .background(Capsule().fill(Palette.inkFaint.opacity(0.3)))
-                    .foregroundStyle(Palette.inkFaint)
-
                 Spacer()
 
                 if namingDeviceID != device.id {
@@ -157,19 +150,16 @@ struct AddFamilyMemberView: View {
                         .foregroundStyle(Palette.ink)
                         .padding(.horizontal, Space.md)
                         .padding(.vertical, 11)
-                        .background(
-                            RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                                .fill(Palette.surfaceRaised)
-                        )
+                        .glassPanel(cornerRadius: Radius.md)
 
                     Button("Save", action: { confirmName(for: device) })
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(canSave ? Palette.ground : Palette.inkFaint)
+                        .foregroundStyle(canSave ? Palette.ground : Palette.ink.opacity(0.6))
                         .padding(.horizontal, Space.lg)
                         .frame(height: Hit.min - 8)
-                        .background(
-                            Capsule().fill(canSave ? Palette.calm : Palette.surfaceRaised)
-                        )
+                        .background(canSave ? AnyShapeStyle(Palette.calm) : AnyShapeStyle(.ultraThinMaterial))
+                        .overlay(Capsule().strokeBorder(canSave ? Color.clear : Palette.glassBorder, lineWidth: 1))
+                        .clipShape(Capsule())
                         .disabled(!canSave)
                 }
             }
@@ -244,19 +234,16 @@ struct AddFamilyMemberView: View {
                     .foregroundStyle(Palette.ink)
                     .padding(.horizontal, Space.md)
                     .padding(.vertical, 11)
-                    .background(
-                        RoundedRectangle(cornerRadius: Radius.md, style: .continuous)
-                            .fill(Palette.surfaceRaised)
-                    )
+                    .glassPanel(cornerRadius: Radius.md)
 
                 Button("Add", action: confirmGuest)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(canSaveGuest ? Palette.ground : Palette.inkFaint)
+                    .foregroundStyle(canSaveGuest ? Palette.ground : Palette.ink.opacity(0.6))
                     .padding(.horizontal, Space.lg)
                     .frame(height: Hit.min - 8)
-                    .background(
-                        Capsule().fill(canSaveGuest ? Palette.calm : Palette.surfaceRaised)
-                    )
+                    .background(canSaveGuest ? AnyShapeStyle(Palette.calm) : AnyShapeStyle(.ultraThinMaterial))
+                    .overlay(Capsule().strokeBorder(canSaveGuest ? Color.clear : Palette.glassBorder, lineWidth: 1))
+                    .clipShape(Capsule())
                     .disabled(!canSaveGuest)
             }
 

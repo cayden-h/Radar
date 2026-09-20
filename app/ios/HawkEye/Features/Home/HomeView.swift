@@ -165,6 +165,7 @@ struct HomeView: View {
             }
 
             IncidentBar(client: client)
+                .padding(.top, Space.xl)
 
             Spacer(minLength: 0)
         }
