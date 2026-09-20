@@ -32,6 +32,7 @@ from hawkeye_backend.master.base import MasterUnavailable
 from hawkeye_backend.notices import NoticeDetector, NoticeSink, StreamSink, deliver
 from hawkeye_backend.replay import ReplayRecorder
 from hawkeye_backend.notices.detector import PERSON_STATES
+from hawkeye_backend.replay.archive import NullArchive, ReplayArchive
 from hawkeye_backend.store import InMemoryStore, Store
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ class HubRuntime:
         detector: NoticeDetector | None = None,
         notice_sinks: list[NoticeSink] | None = None,
         recorder: ReplayRecorder | None = None,
+        archive: ReplayArchive | None = None,
     ) -> None:
         self.settings = settings
         self.store = store
@@ -83,6 +85,9 @@ class HubRuntime:
             frame_interval_s=settings.replay_frame_interval_s,
             max_entries=settings.replay_max_entries,
         )
+        # Where a sealed record goes so it outlives this process. Defaults to
+        # NullArchive, which persists nothing and says so; see replay/archive.py.
+        self.archive: ReplayArchive = archive or NullArchive()
         self._sensor_task: asyncio.Task[None] | None = None
 
     @property
@@ -107,6 +112,12 @@ class HubRuntime:
         # the same reason: a bug in the recorder must not be able to stop a
         # transcript line or a discard notice getting through.
         self.recorder.observe(payload, incident_id)
+
+        # A record that just sealed leaves the process here. The recorder is
+        # synchronous and cannot await a write; this is the first async frame
+        # above it, and it runs after publish so archiving can never delay an
+        # event reaching the resident.
+        await self._archive_sealed()
 
         # After publishing, so the frame the notice describes is already on the
         # wire when the notice arrives. Only StateEvent feeds the detector, which
@@ -154,6 +165,31 @@ class HubRuntime:
     async def emit_notice(self, event: NoticeEvent) -> None:
         """The stream sink's callback. Separate so the recursion is visible."""
         await self.emit(event)
+
+    async def _archive_sealed(self) -> None:
+        """Write out every record sealed since the last event.
+
+        Fails soft in two layers, deliberately. The archive itself returns False
+        rather than raising, and this catches anything that gets past it. A
+        record is already complete in memory by the time it seals, so losing the
+        archive costs durability and nothing else - and the moment this runs is
+        the moment a 911 call ends, which is the worst possible moment to raise.
+        """
+        for incident_id in self.recorder.drain_sealed():
+            session = self.recorder.get(incident_id)
+            if session is None:
+                continue
+            incident = await self.store.get_incident(incident_id)
+            try:
+                await self.archive.save(
+                    session.to_record(),
+                    incident_type=incident.incident_type.value if incident else "unknown",
+                    opened_at=session.opened_at,
+                    frames_dropped=session.frames_dropped,
+                    seal_reason=session.seal_reason,
+                )
+            except Exception:
+                logger.exception("replay archive: unexpected failure persisting %s", incident_id)
 
     async def _persist(self, env: Envelope) -> None:
         """Write the typed record behind an event into the store."""

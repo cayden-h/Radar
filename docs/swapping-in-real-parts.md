@@ -24,12 +24,13 @@ Read the root `CLAUDE.md` first, especially the honesty rule.
 | iOS app | Mock client, in process | `app/ios/HawkEye/Config.swift` | `useMocks = false` |
 | watchOS app | Not built | `app/watch/` | n/a |
 | Hub backend | Simulated master | `HAWKEYE_MODE` env var | `HAWKEYE_MODE=live` |
-| Storage | In memory | `HAWKEYE_STORE_BACKEND` | `mongodb` (not implemented yet) |
-| Agent mesh | Five written and wired over A2A; `shutter` and `vision` not yet | `HAWKEYE_PEERS` env var | Set it to a `slug=url` list |
+| Storage | In memory | `HAWKEYE_STORE_BACKEND` | `mongodb` (not implemented, and should stay memory) |
+| **Replay archive** | **Done. MongoDB Atlas, verified against the real cluster 2026-09-19** | `HAWKEYE_REPLAY_ARCHIVE` env var | Already `mongodb` in `.env` |
+| Agent mesh | Six written and wired over A2A; `vision` not yet | `HAWKEYE_PEERS` env var | Set it to a `slug=url` list |
 | Agent certificates | Raw public keys from published cards, no chain | `discovery._agent_from_card` | Validate `keys[].x5c` once ANS registration exists |
 | mTLS between agents | Declared on the cards, not enforced | Reverse proxy | Enable, and update `x-security-note` in the same commit |
 | CSI sensing | Brought up, demoted to motion | `sensor/` output contract | n/a |
-| **Servo / shield** | **Not built. Stub GPIO backend planned** | `shutter/gpio.py` | Swap the stub for `pigpio` |
+| **Servo / shield** | Gate built and tested; stub backend by default | `HAWKEYE_SHUTTER_BACKEND` env var | `pigpio` (needs `sudo pigpiod` on the Pi) |
 | **Camera** | **Not built. Fixture video file planned** | `vision/source.py` | Swap the file reader for V4L2 |
 | **Gemini Live narration** | **Not built** | `vision/narrator.py` | Real API key, real session |
 | **Police email** | **Not built** | `replay/courier.py` | Real Resend key |
@@ -110,9 +111,55 @@ The settings worth knowing:
 | `HAWKEYE_SIM_AUTOSTART` | `false` | Start the scripted detection on boot instead of waiting. |
 | `HAWKEYE_PORT` | `8787` | Must match what the iOS client resolves to. |
 | `HAWKEYE_SITE_ADDRESS` | demo address | What `caller` reads out to the operator. Change this before any live test. |
-| `HAWKEYE_STORE_BACKEND` | `memory` | `mongodb` is the sponsor track and is not implemented. |
+| `HAWKEYE_STORE_BACKEND` | `memory` | The whole working state. `mongodb` is not implemented and should stay `memory`. |
+| `HAWKEYE_REPLAY_ARCHIVE` | `off` | Where a **sealed** record goes. `mongodb` persists it; `off` keeps it in the process. |
+| `HAWKEYE_MONGODB_URI` | empty | Used by the archive. Needs `motor`: `pip install -e ".[archive]"`. |
 
 **Storage:** `Store` is a protocol, `InMemoryStore` is real, and `MongoStore` raises `NotImplementedError` rather than silently degrading. `build_store()` is the single swap point.
+
+### The replay archive, which is real
+
+**Seam:** `app/backend/hawkeye_backend/replay/archive.py`. `HAWKEYE_REPLAY_ARCHIVE=mongodb` turns it on.
+
+This is a different question from `HAWKEYE_STORE_BACKEND` and the two are deliberately separate.
+The store holds the hub's whole working state and sits on the incident path, where motion has to reach a wrist in about three seconds; there is no room in that budget for a round trip to Atlas.
+The archive holds only a **sealed** record, is written exactly once when the 911 call ends, and exists to be read afterwards by the replay console at `/replay`.
+So `store_backend=memory` with `replay_archive=mongodb` is the intended configuration rather than a half-finished one.
+
+One collection, `replays`, one document per record, keyed by `incident_id` so re-archiving replaces rather than forks.
+The document carries a denormalized summary alongside the record, because the console index draws one line per record and a record holds a few hundred frames.
+
+**Hashes are stored, never recomputed on read.** A round trip that re-serialized a timestamp differently would produce a record that fails its own verifier, which is indistinguishable from tampering. The in-browser verifier on the record page is what proves this end to end.
+
+**It fails soft, loudly.** Every method returns rather than raising: a record is already complete in memory by the time it seals, so losing the archive costs durability and nothing else, and the moment it runs is the moment a 911 call ends. The failure is then reported on `GET /v1/replay` and drawn as a banner on the console, because a configured archive that is silently unreachable looks exactly like a quiet night.
+
+| State | Console banner |
+|---|---|
+| Not configured | Grey. Records are memory-only and will be lost on restart. |
+| Configured, reachable | Green. Names the backend and the stored record count. |
+| Configured, unreachable | **Amber.** Names the cause in plain English. |
+
+Rows read back out of storage are badged `ARCHIVED` on the index, because a record written by a process that is gone is not the same claim as one this hub is currently holding.
+
+#### Verified, end to end, against the real cluster
+
+Done on 2026-09-19 against the project's own Atlas cluster, not a local stand-in:
+
+1. Ran an incident to a sealed record, 32 entries.
+2. Confirmed the document in Atlas directly: `hawkeye.replays`, `_id: inc-0001`, `schema_version: 1`, summary and full record both present.
+3. **Killed the hub process.**
+4. Restarted. The console listed the record as `source: archive`, served the full record, and the chain verified `INTACT`.
+5. Exported the bundle and ran the shipped standalone `verify.py` against it: `INTACT: 32 entries`.
+6. Recomputed the chain in the browser on the record page: `INTACT`.
+
+That last pair is the one that matters. The record survives a restart and still verifies under a verifier that never trusted the server, which is what "the record outlives the process" has to mean to be worth claiming.
+
+#### Two failures that look like a broken cluster and are not
+
+Both were hit during bring-up and both are handled in code now, so neither should recur.
+
+- **`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate.`** A python.org Python on macOS ships no system root certificates. This is a local trust-store problem and says nothing about Atlas. `MongoReplayArchive.client_kwargs()` points the driver at `certifi` so it does not happen; nobody needs to run Apple's `Install Certificates.command`.
+- **`TLSV1_ALERT_INTERNAL_ERROR`.** Atlas refuses the TLS handshake outright when the client IP is not on the project's IP Access List, before authentication, so it reads like a certificate problem. It is not one. Add the machine's IP under Network Access in the Atlas console. **This will recur on a new network** - the venue Wi-Fi will have a different egress IP than wherever you tested. The banner names this cause in plain English rather than printing the driver's topology dump.
 
 ## The agents
 
@@ -156,15 +203,31 @@ Two failure modes from the hardware guides are worth repeating, because both rep
 - Without the traffic generator, CSI updates only on beacons at roughly 10 Hz, which never resolves a heart rate or a short motion transient.
 - With the router and the Pi on the same side of the room, the capture goes flat and looks exactly like a failed firmware patch.
 
-## The camera and the shield, which are unbuilt rather than simulated
+## The shield, which is built, and the camera, which is not
 
-Both follow the same pattern and it is the pattern this whole file is about.
+**`shutter` is built and its gate is tested.** The grant, the nonce, all seven refusals, the signed refusal
+observation and the attestation all run against a stub GPIO backend that records the angle it was told to
+move to. `cd agents && python -m pytest tests/test_shutter.py -q` proves the whole thing on a laptop with no
+hardware present, which is the point: the gate is what is being judged, and the servo is what makes it visible.
 
-**`shutter`** is developed against a stub GPIO backend that records the angle it was told to move to and returns it.
-Every refusal test, every nonce test, and the whole verification path run against that stub on a laptop with no hardware present.
-Flipping it is one class: `pigpio` instead of the stub, the two calibrated pulse widths from `docs/hardware/servo-sg92r.md`, and nothing above it changes.
+Flipping it is one environment variable: `HAWKEYE_SHUTTER_BACKEND=pigpio`, `sudo pigpiod` running, and the
+calibrated pulse widths from `docs/hardware/servo-sg92r.md`. Nothing above the backend changes.
 
-**How to tell the flip worked:** the attestation's `commanded_angle` matches what the servo actually did, and a camera frame taken with the shield closed is black. That second check is the one that matters and it is in the camera guide.
+**It does not fall back.** Asking for `pigpio` on a machine with no daemon raises rather than quietly
+returning the stub, because a shutter that silently became a number would report `open` with the lens covered,
+which is the one failure this agent exists to prevent.
+
+**How to tell the flip worked:** the position claim's `provenance.source` reads `servo-gpio` rather than
+`servo-stub`, and `provenance.simulated` goes false. That is computed from the backend rather than asserted by
+it, so a stub-backed shutter cannot present as a pin-backed one even by mistake.
+
+**The half-flipped state that looks like something else:** the servo moves and the shield does not.
+The SG92R is open-loop, so a jammed, slipped or mis-glued shield attests `open` exactly as a working one does -
+`commanded_angle` is the angle we *sent*, never the angle the shield reached, and the attestation says
+`position_basis: commanded` for precisely this reason. **The only thing that catches it is the frame itself
+being dark**, which is the black-frame check in the camera guide and is T23 on the board. Re-run it after the
+mount is touched for the last time. A shield leaving a crescent of lens visible turns the project's central
+privacy claim into a prop, and nobody would notice.
 
 **`vision`** is developed against a fixture video file played at real time.
 The claim shape, the shutter gate, the luminance guard and the segment writer are all exercised without a camera.
@@ -313,3 +376,50 @@ These are the combinations that waste an evening, because most of them look like
 **Full stack with hardware.** The above, plus the servo on `pigpio` and the camera on V4L2. This is what the house shoot films and what the judging table runs if the bring-up holds.
 
 Per the working agreements in the root `CLAUDE.md`: anything that must be demoed live needs a recorded fallback by Saturday night.
+
+## There is no night vision, and there is no path to one
+
+The camera is a Logitech Brio 101, USB `046d:094d`.
+It has no IR sensor, unlike the original Brio 4K which carried one for Windows Hello, and no IR illuminator is owned.
+Root `CLAUDE.md` states no further hardware is being purchased.
+
+So there is no infrared capability to swap in, and no seam for one, because the missing part is a physical sensor rather than a mocked implementation.
+X-ray imaging is not a capability any camera has and is not a thing to look for a seam for.
+
+What exists instead is two separate, real things, and neither is ever called night vision:
+
+- **Low-light capture mode**, in `vision/hawkeye_vision/lighting.py` and `profiles.py`.
+  Measured mean luminance selects one of three states, and the state travels in the claim as `vision.lighting`.
+  In `low` the frame is greyscaled and CLAHE contrast-stretched before detection and the confidence floor is raised.
+  Below `dark_threshold` the system stops describing the room rather than describing a dark one.
+- **Client-side viewing enhancement**, in the iOS app and the replay console, still to be built.
+  CLAHE, gamma and temporal denoise applied at display time so a resident can see the room.
+  It never touches the recorded segments, which are hashed and emailed to a police department.
+
+**How to tell the flip worked:** run `python3 -m hawkeye_vision` and turn the room lights off.
+The status line must move `day` to `low` to `too_dark`, and must not flicker between them on the way.
+Each change needs the dwell to elapse, roughly three seconds at 15fps, so it is deliberately not instant.
+A change the signal holds for less than the dwell is skipped entirely, which is why a fast fade can go `day` straight to `too_dark` without ever reporting `low`.
+
+**The half-flipped state that looks like something else:** a shield still covering the lens produces the same black frame as an unlit room.
+Both correctly report `too_dark`, and that is deliberate: `shutter` is open-loop and attests the angle it commanded rather than the angle the shield reached, so the luminance guard is the only thing that catches a jammed shield.
+Distinguishing the two cases means checking whether a shutter attestation is held, not looking at the picture.
+
+## Which camera index is the Brio, on the Mac
+
+Covered in full in `docs/hardware/logitech-camera.md`, and repeated here because it is a swap-time trap.
+Every AVFoundation index opens and reports the same 1280x720, so an index that works is not evidence it is the right camera.
+On the MacBook, index 0 is the Brio, 1 is an iPhone over Continuity Camera, and 2 is the built-in FaceTime.
+The Pi does not have this problem.
+
+## The detector, and what happens without it
+
+`vision/hawkeye_vision/yolo_tracker.py` holds the real YOLO11m plus BoT-SORT tracker; `hawkeye_vision.track.StubTracker` is the scripted stand-in every test runs against.
+`build_tracker` is the single place that chooses, and it never raises: missing weights, no torch, or no MPS all yield an `UnavailableTracker` that reports `available = False` and why.
+
+**How to tell the flip worked:** the startup log says nothing when the real tracker loads, and logs `running without measured counts` when it did not.
+Boxes and a non-zero `people` count in the preview are the positive evidence.
+
+**The half-flipped state:** `yolo11m.pt` is roughly 40MB, gitignored, and downloaded on first use.
+A machine that has never run the tracker and has no network gets an `UnavailableTracker` and carries on quietly, which looks exactly like an empty room.
+Pre-fetch the weights before the demo.

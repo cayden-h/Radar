@@ -160,8 +160,10 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_MASTER_TIMEOUT_S` | `5.0` | Live mode only. |
 | `HAWKEYE_SIM_SPEED` | `1.0` | Simulated mode only. Multiplies every scripted delay. |
 | `HAWKEYE_SIM_AUTOSTART` | `false` | Simulated mode only. Run the **detection** on boot, so a demo rig comes up already showing the lost breathing signature. It cannot start a call. |
-| `HAWKEYE_STORE_BACKEND` | `memory` | `memory` or `mongodb`. See the storage seam below. |
-| `HAWKEYE_MONGODB_URI` | empty | MongoDB Atlas connection string, when that lands. |
+| `HAWKEYE_STORE_BACKEND` | `memory` | The hub's whole working state. `mongodb` is unimplemented and should stay that way. See the storage seam below. |
+| `HAWKEYE_REPLAY_ARCHIVE` | `off` | `off` or `mongodb`. Where a **sealed** replay record is persisted. See the replay archive below. |
+| `HAWKEYE_MONGODB_URI` | empty | Atlas connection string, used by the replay archive. Needs `motor`: `pip install -e ".[archive]"`. |
+| `HAWKEYE_MONGODB_DATABASE` | `hawkeye` | Database holding the `replays` collection. |
 | `HAWKEYE_NOTICE_HOLD_S` | `5` | Seconds an unexpected presence must hold before it becomes a notice. |
 | `HAWKEYE_NOTICE_FORGET_AFTER_S` | `900` | Seconds of absence after which a fired notice mark lapses, so a real re-entry notifies again. |
 | `HAWKEYE_TWILIO_ACCOUNT_SID` | empty | Twilio console. All four Twilio values are required together or none are used. |
@@ -765,11 +767,41 @@ Do this after any model change. The files in `schema/` are the iOS side's contra
 `Store` is a protocol in `store.py` with one real implementation, `InMemoryStore`.
 No database is required for the hackathon path, and nothing persists across a restart, which is fine.
 
-`MongoStore` is the seam for the MongoDB Atlas sponsor track.
-It raises `NotImplementedError` rather than silently degrading to memory, because a service that claims to be persisting and is not is exactly the kind of quiet lie this project is built against.
+`MongoStore` is a seam and stays unimplemented. It raises `NotImplementedError` rather than silently degrading to memory, because a service that claims to be persisting and is not is exactly the kind of quiet lie this project is built against.
 
-Implementing it is one class: every `Store` method maps onto one collection keyed by `incident_id`, with `events` as a capped collection sized like the in-memory buffer.
-`build_store()` in `store.py` is the single swap point, and nothing above that file changes.
+**It should stay unimplemented even now that a cluster is reachable.** The store is on the incident path: motion has to reach a wrist in about three seconds, and there is no room in that budget for a round trip to Atlas. What actually needs to outlive the process is the sealed record, and that has its own narrower home.
+
+## The replay archive
+
+**Done, and verified against the real Atlas cluster on 2026-09-19.** This is what serves the MongoDB Atlas sponsor track.
+
+`hawkeye_backend/replay/archive.py`. Turn it on with `HAWKEYE_REPLAY_ARCHIVE=mongodb` plus `HAWKEYE_MONGODB_URI`; `.env` already has both.
+
+One collection, `replays`. One document per sealed record, `_id` is the `incident_id` so re-archiving replaces rather than forks, and each document carries a denormalized `summary` alongside the full `record` so the console index can draw a list without deserializing a few hundred frames per row.
+
+| When | What happens |
+|---|---|
+| A record seals, i.e. the 911 call ends | `ReplayRecorder` queues the id; `HubRuntime._archive_sealed` writes it |
+| `GET /v1/replay` | In-memory rows first, then archived rows the recorder no longer holds. The live row wins on conflict |
+| `GET /v1/incident/{id}/replay` | Recorder, then `agents/replay`, then the archive, then the old reconstruction |
+| `.../replay/verify` and `.../replay/export` | Both work on an archived record, which is the point: the export is the deliverable |
+
+Three properties worth knowing before changing any of it:
+
+- **The recorder never awaits a write.** It sits inside `HubRuntime.emit`, the single path every event takes to a phone, so it stays synchronous and hands off a list of sealed ids. The runtime does the writing one async frame up, after publish.
+- **Hashes are stored, never recomputed on read.** A round trip that re-serialized a timestamp differently would produce a record that fails its own verifier, which is indistinguishable from tampering.
+- **Every method fails soft and says so.** A record is complete in memory by the time it seals, so losing the archive costs durability and nothing else - and the moment it runs is the moment a 911 call ends, the worst possible time to raise. The failure surfaces on `GET /v1/replay`, in the startup log line, and as a banner on the console, because a configured archive that is silently unreachable is indistinguishable from a quiet night.
+
+Rows read back are badged `ARCHIVED` on the console. A record written by a process that is gone is not the same claim as one this hub is currently holding.
+
+### How it was verified
+
+Against the project's own Atlas cluster, not a local stand-in: ran an incident to a sealed 32-entry record, confirmed the document in Atlas directly, **killed the hub**, restarted, and got the record back as `source: archive` with the chain `INTACT` - under the server-side check, under the standalone `verify.py` in the exported bundle, and under the in-browser verifier that never trusts the server.
+
+### Two errors that look like a broken cluster
+
+- **`CERTIFICATE_VERIFY_FAILED`** is a local trust store, not Atlas. A python.org Python on macOS ships no root certificates. `MongoReplayArchive.client_kwargs()` points the driver at `certifi`, so this is handled and nobody needs to run `Install Certificates.command`.
+- **`TLSV1_ALERT_INTERNAL_ERROR`** means the machine's IP is not on the Atlas project's IP Access List. Atlas refuses the handshake before authentication, so it reads like a certificate problem and is not one. **Expect this again at the venue**, whose egress IP will differ from wherever you last tested.
 
 ## Open questions left in the code
 

@@ -25,7 +25,7 @@ from hawkeye_backend.models.incident import (
     ReplayRecord,
 )
 from hawkeye_backend.models.verification import VerificationResult
-from hawkeye_backend.replay.chain import entry_hash
+from hawkeye_backend.replay.chain import entry_hash, verify_entries
 
 
 class RecordSealed(RuntimeError):
@@ -170,32 +170,11 @@ class ReplaySession:
 
         What an investigator runs, and what the website runs again in the browser
         so the answer does not depend on the server being honest about itself.
+
+        Delegates to `chain.verify_entries` so a record read back out of the
+        archive is checked by the same code as a live one.
         """
-        prev: str | None = None
-        for entry in self._entries:
-            if entry.prev_hash != prev:
-                return (
-                    False,
-                    f"entry {entry.seq} does not follow entry {entry.seq - 1}",
-                    entry.seq,
-                )
-            body: dict[str, object] = {
-                "seq": entry.seq,
-                "kind": entry.kind,
-                "summary": entry.summary,
-                "detail": entry.detail,
-            }
-            if entry.actor is not None:
-                body["actor"] = entry.actor
-            if entry_hash(body, prev) != entry.entry_hash:
-                return (
-                    False,
-                    f"entry {entry.seq} has been altered since it was written",
-                    entry.seq,
-                )
-            prev = entry.entry_hash
-        head = (self.root_hash or "")[:12]
-        return True, f"{len(self._entries)} entries, chain intact to {head}", None
+        return verify_entries(self._entries)
 
     def to_record(self, since_seq: int = 0) -> ReplayRecord:
         """The API shape. `since_seq` trims the head for the website's 1 Hz tail."""

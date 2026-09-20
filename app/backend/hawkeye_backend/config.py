@@ -62,6 +62,20 @@ class Settings(BaseSettings):
     mongodb_uri: str = ""
     mongodb_database: str = "hawkeye"
 
+    # The replay archive. Separate from `store_backend` on purpose.
+    #
+    # `store_backend` decides where the hub's whole working state lives, which
+    # is on the incident path: a motion claim has to reach a wrist in about
+    # three seconds and there is no room in that budget for a round trip to
+    # Atlas. This decides only where a *sealed* record goes, which happens once,
+    # when a 911 call ends, and is the one piece whose entire purpose is to be
+    # read after the process that wrote it is gone.
+    #
+    # So the hackathon path is `store_backend=memory` with
+    # `replay_archive=mongodb`, and that combination is deliberate rather than
+    # half-finished.
+    replay_archive: Literal["off", "mongodb"] = "off"
+
     # Notices. A notice is information the resident acts on, never a dispatch.
     # The hold before an unexpected presence becomes one; see
     # hawkeye_backend/notices/detector.py for why it is not zero.

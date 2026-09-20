@@ -31,7 +31,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from hawkeye_backend import __version__
 from hawkeye_backend.household import DeviceAlreadyClaimed, UnknownDevice
@@ -52,7 +52,8 @@ from hawkeye_backend.models.incident import (
     ReplayRecord,
 )
 from hawkeye_backend.models.state import InteriorState
-from hawkeye_backend.replay import build_export
+from hawkeye_backend.replay import build_export, verify_entries
+from hawkeye_backend.replay.archive import ArchiveStatus
 from hawkeye_backend.runtime import HubRuntime
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,15 @@ class ReplaySummary(BaseModel):
     verifications: int
     discarded: int
     root_hash: str | None
+    source: Literal["live", "archive"] = Field(
+        default="live",
+        description=(
+            "Where this row came from. `live` means this process recorded it and "
+            "still holds it. `archive` means it was read back out of storage, "
+            "written by a process that is gone. The console labels the two "
+            "differently rather than presenting them as the same claim."
+        ),
+    )
 
 
 class ReplayIndex(BaseModel):
@@ -101,6 +111,13 @@ class ReplayIndex(BaseModel):
     site_address: str
     caller_ansname: str
     records: list[ReplaySummary]
+    archive: ArchiveStatus = Field(
+        description=(
+            "Whether sealed records are being persisted. A configured archive "
+            "that is unreachable looks exactly like 'nothing has happened yet' "
+            "unless the page is told the difference, so the page is told."
+        )
+    )
 
 
 class ChainVerdict(BaseModel):
@@ -266,25 +283,70 @@ async def get_replay_index(request: Request) -> ReplayIndex:
                     1 for v in record.verifications if v.decision.value == "DISCARDED"
                 ),
                 root_hash=session.root_hash,
+                source="live",
             )
         )
+
+    # Records this process no longer holds - a previous run's, after a restart.
+    # The in-memory row wins whenever both sources have the same incident: it
+    # was written by the process being asked, and listing an incident twice puts
+    # two rows with one id on the console, which reads as a forked record.
+    #
+    # The two archive reads run together rather than one after the other. Each
+    # blocks for the driver's server-selection timeout when the cluster is
+    # unreachable, and sequentially that is twice the wait before the page draws
+    # anything at all - which is the case a reader is most likely to meet.
+    live_ids = {r.incident_id for r in records}
+    archived_result, status = await asyncio.gather(
+        runtime.archive.summaries(), runtime.archive.status(), return_exceptions=True
+    )
+    if isinstance(archived_result, BaseException):
+        logger.error("replay index: archive read failed (%s)", archived_result)
+        archived = []
+    else:
+        archived = archived_result
+    if isinstance(status, BaseException):
+        logger.error("replay index: archive status failed (%s)", status)
+        status = ArchiveStatus(
+            configured=True,
+            connected=False,
+            backend="unknown",
+            detail="Replay archive status could not be read.",
+        )
+    for row in archived:
+        if row.incident_id in live_ids:
+            continue
+        records.append(ReplaySummary(**row.model_dump(), source="archive"))
+
+    records.sort(key=lambda r: r.opened_at, reverse=True)
+
     return ReplayIndex(
         hub_name=settings.hub_name,
         mode=settings.mode,
         site_address=settings.site_address,
         caller_ansname=settings.caller_ansname,
         records=records,
+        archive=status,
     )
 
 
-def _session_or_404(request: Request, incident_id: str):
-    """The recorded session, or a 404 naming what is missing."""
+async def _record_or_404(request: Request, incident_id: str) -> ReplayRecord:
+    """The record, from memory or from the archive, or a 404 naming what is missing.
+
+    Verify and export both need a whole record and neither needs a live session,
+    so both go through here. Before the archive existed they took the session
+    directly, which meant a record survived a restart but could not be exported
+    afterward - and the export is the deliverable, not the record.
+    """
     session = _runtime(request).recorder.get(incident_id)
-    if session is None:
-        raise HTTPException(
-            status_code=404, detail=f"no recorded session for {incident_id}"
-        )
-    return session
+    if session is not None:
+        return session.to_record()
+
+    archived = await _runtime(request).archive.get(incident_id)
+    if archived is not None:
+        return archived
+
+    raise HTTPException(status_code=404, detail=f"no recorded session for {incident_id}")
 
 
 @router.get(
@@ -330,6 +392,14 @@ async def get_replay(
     if record is not None:
         return record
 
+    # The restart case. A sealed record outlives the process that wrote it, and
+    # what comes back is the record as written rather than a reassembly of it -
+    # the hashes are stored, not recomputed. Asked before the store below
+    # because this is the real record and that is a reconstruction.
+    archived = await runtime.archive.get(incident_id)
+    if archived is not None:
+        return archived
+
     store = runtime.in_memory_store()
     if store is None:
         raise HTTPException(status_code=404, detail=f"no replay record for {incident_id}")
@@ -355,16 +425,16 @@ async def verify_replay(request: Request, incident_id: str) -> ChainVerdict:
     it was written. It does not mean the system that wrote the record wrote it
     honestly; that is the transparency log's job and the log is not wired.
     """
-    session = _session_or_404(request, incident_id)
-    intact, detail, failed_seq = session.verify()
+    record = await _record_or_404(request, incident_id)
+    intact, detail, failed_seq = verify_entries(record.entries)
     return ChainVerdict(
         incident_id=incident_id,
         intact=intact,
         detail=detail,
         failed_seq=failed_seq,
-        entries=len(session),
-        root_hash=session.root_hash,
-        sealed=session.sealed,
+        entries=len(record.entries),
+        root_hash=record.root_hash,
+        sealed=record.sealed,
     )
 
 
@@ -380,9 +450,9 @@ async def export_replay(request: Request, incident_id: str) -> Response:
     asking for the record mid-incident is a real scenario and refusing would be
     worse than handing over something honestly labelled.
     """
-    session = _session_or_404(request, incident_id)
+    record = await _record_or_404(request, incident_id)
     exported_at = utc_now()
-    payload = build_export(session.to_record(), exported_at)
+    payload = build_export(record, exported_at)
     stamp = exported_at.strftime("%Y%m%dT%H%M%SZ")
     return Response(
         content=payload,

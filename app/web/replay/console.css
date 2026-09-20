@@ -109,6 +109,58 @@ code { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
 .preamble { max-width: 68ch; margin-bottom: 24px; color: var(--ink-2); }
 .preamble .caution { color: var(--warn); }
 
+/* Where sealed records are kept, and whether they are actually getting there.
+   Three states, and the middle one is the one worth drawing loudly: configured
+   and unreachable is silent data loss, and it is indistinguishable from a quiet
+   night unless the page says which it is. */
+.archive {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 20px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+/* `display: flex` above outranks the UA stylesheet's [hidden] rule, so without
+   this the banner shows as an empty bordered box for the whole of the first
+   load. Specificity, not a layout bug, and invisible until you watch the page
+   come up against a slow backend. */
+.archive[hidden] { display: none; }
+
+.archive .tag {
+  flex: none;
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.archive.ok { border-left-color: var(--ok); }
+.archive.ok .tag { color: var(--ok); }
+.archive.off { border-left-color: var(--ink-3); }
+.archive.warn { border-left-color: var(--warn); color: var(--warn); }
+.archive.warn .tag { color: var(--warn); }
+
+/* A row read back out of storage was written by a process that is gone. That
+   is not the same claim as a row this hub is holding, so it does not get the
+   same silent treatment. */
+.card .src {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 600 9px/1.4 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  vertical-align: 1px;
+}
+
 .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); }
 
 .card {
