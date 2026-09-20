@@ -71,6 +71,16 @@ class Settings(BaseSettings):
     # rather than doing nothing silently.
     caller_transport_url: str = ""
 
+    # The shared secret master presents (as `Authorization: Bearer <token>`) on
+    # the internal caller-transport hops, and the token the caller requires on
+    # them. It MUST match on both processes. Declared here so it is sourced from
+    # `.env` and survives a bare process restart - it used to be read only from
+    # the live environment, so restarting the caller without re-exporting it
+    # dropped the token, the caller's `/internal/*` routes answered 503, and the
+    # call bridge silently stopped placing calls. Empty means the internal
+    # routes are unauthenticated-and-disabled (503), which is the safe default.
+    internal_trigger_token: SecretStr = SecretStr("")
+
     # Simulated mode only. Multiply every scripted delay; 0.25 makes the demo run
     # four times faster for a rehearsal, 1.0 is realistic timing.
     sim_speed: float = 1.0
