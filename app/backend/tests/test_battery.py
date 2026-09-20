@@ -24,7 +24,7 @@ from hawkeye_backend.verification.b64 import b64u_decode, b64u_encode
 from hawkeye_backend.verification.envelope import Severity
 from hawkeye_backend.verification.errors import RejectionCode
 
-from tests.conftest import INCIDENT, MASTER, TARGET, Agent
+from tests.conftest import INCIDENT, MASTER, NONCE, TARGET, Agent
 
 
 def submit(verifier, claim, proof, **kw):
@@ -112,7 +112,7 @@ def test_04_underpay_valid_sig(trust, sensor):
     Analogue: a validly signed READ_ONLY claim used as the sole basis for a call.
     This is the one to put on stage.
     """
-    downgraded = Agent("ans://v1.0.0.occupancy.hawkeye.example", TrustProfile.READ_ONLY)
+    downgraded = Agent("ans://v1.0.0.people.hawkeye.example", TrustProfile.READ_ONLY)
     trust.register(downgraded.known())
     verifier = ClaimVerifier(VerifierPolicy(audience=MASTER, target=TARGET), trust)
 
@@ -228,7 +228,7 @@ def test_10_superseded_format_attack(verifier, sensor):
     """#10 superseded_format_attack. A legacy claim stripped of its bindings.
 
     Analogue: an older sensing agent build emitting a claim with no verification
-    envelope. Nine agents at different build stages all weekend makes this the
+    envelope. Five agents at different build stages all weekend makes this the
     likeliest ordinary failure, not just an attack.
     """
     env = sensor.envelope()
@@ -300,6 +300,70 @@ def test_13_canonicalization_probe(verifier, sensor):
     claim = sensor.sign_claim(env)
     out = submit(verifier, claim, sensor.sign_proof(env))
     assert out.decision is VerificationDecision.ASSERTED
+
+
+# --------------------------------------------------- the challenge, added 2026-09-19
+#
+# Not in the battery, because the battery's mandates are issued by an authority
+# ahead of time and ours are answers to a question. Adding a server-supplied
+# nonce is what makes the mesh pull-only: an agent cannot produce a usable claim
+# unbidden, so a compromised sensing agent cannot prepare a batch of plausible
+# claims in advance and fire them at an incident.
+#
+# Three properties, three tests.
+
+def test_claim_answering_a_different_challenge_is_refused(verifier, sensor):
+    """The core property. A perfectly signed claim, answering a question we did
+    not ask, is refused rather than downgraded.
+
+    This is what a batch of pre-signed claims looks like on the wire: every
+    field valid, every signature genuine, and no way to have known the
+    challenge. It fails on the one thing an attacker cannot forge in advance.
+    """
+    env = sensor.envelope()
+    with pytest.raises(VerificationRejected) as e:
+        submit(
+            verifier,
+            sensor.sign_claim(env),
+            sensor.sign_proof(env, nonce="chal-somebody-elses"),
+            expected_nonce=NONCE,
+        )
+    assert e.value.check == "proof_nonce"
+    assert e.value.code is RejectionCode.PROOF_REJECTED
+
+
+def test_the_nonce_is_covered_by_the_proof_signature(verifier, sensor):
+    """Swapping the nonce after signing must not verify.
+
+    Otherwise the challenge is advisory: an attacker replays a claim prepared
+    for an earlier fan-out and rewrites the nonce to match the current one.
+    """
+    env = sensor.envelope()
+    proof = sensor.sign_proof(env, nonce="chal-original")
+    tampered = proof.model_copy(update={"nonce": NONCE})
+    with pytest.raises(VerificationRejected) as e:
+        submit(verifier, sensor.sign_claim(env), tampered, expected_nonce=NONCE)
+    assert e.value.check == "proof_signature"
+
+
+def test_an_empty_challenge_cannot_be_presented(verifier, sensor):
+    """"The verifier did not ask for one" and "the presenter omitted it" must
+    not share a wire representation, so the field is required and non-empty."""
+    from pydantic import ValidationError
+
+    env = sensor.envelope()
+    with pytest.raises(ValidationError):
+        sensor.sign_proof(env, nonce="")
+
+
+def test_a_correct_challenge_is_accepted(verifier, sensor):
+    """The happy path, so a mistake in the check above fails loudly."""
+    env = sensor.envelope()
+    out = submit(
+        verifier, sensor.sign_claim(env), sensor.sign_proof(env), expected_nonce=NONCE
+    )
+    assert out.decision is VerificationDecision.ASSERTED
+    assert any(c.name == "proof_nonce" and c.passed for c in out.checks)
 
 
 # ------------------------------------------------------- beyond the thirteen

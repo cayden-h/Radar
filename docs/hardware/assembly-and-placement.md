@@ -1,5 +1,14 @@
 # Assembly and placement
 
+**Pivot note, 2026-09-19.** This guide predates the camera pivot and much of its geometry reasoning is now historical.
+Respiration, heart rate and counting were all cut, so **the only CSI capability the geometry has to serve is motion**, which is the least demanding one on this page and needs no baseline at all.
+Read the range-test section as "confirm motion is detectable where people walk in", and treat every respiration distance, Fresnel note and subcarrier-width argument as background rather than a constraint.
+See `docs/PIVOT.md`.
+
+**What this guide does not yet cover is the camera and the servo**, which are now the primary sensor and the primary actuator.
+Their placement rules are in [logitech-camera.md](logitech-camera.md) and [servo-sg92r.md](servo-sg92r.md).
+The one interaction worth knowing here: **CSI geometry wants the Pi opposite the router with people in between, and the camera wants to face the entry point.** Those pull in different directions and are reconciled by a USB extension cable, because the camera does not have to be near the Pi.
+
 How the four devices physically connect, and where in the room they go.
 
 The wiring is easy.
@@ -92,6 +101,16 @@ home router / modem
                 AX1450 ))))))))) people ))))))))) Pi   (the measurement)
 ```
 
+**Settled 2026-09-19: the uplink is a wall jack.** The AX1450's WAN goes into an ethernet wall jack
+at the house, not into the home router's LAN ports and not through a laptop. Same chain as drawn
+above, one less box, and the uplink question is closed: **the house shoot has internet**, so the
+911 call, ElevenLabs, Twilio, ANS and Gemini all work during the take.
+
+Two things follow from that and are worth checking before filming rather than during it.
+The jack has to be live, which is not the same as the jack existing; test it with a laptop first.
+And the channel-separation rule still applies, because a wall jack usually means the household's own
+network is on the same physical uplink: check what channel it runs on and take a different non-DFS one.
+
 No MacBook in the uplink chain.
 Internet Sharing exists only to give a router a wired uplink where there is none, and at the house the uplink is already ethernet.
 Dropping it removes three failure points: macOS Internet Sharing, the USB Ethernet adapter in the uplink role, and the 192.168.2.x subnet collision.
@@ -105,8 +124,59 @@ If the demo router and the household's existing network share it, household traf
 Check what the home network is on and take a different non-DFS channel.
 See [router-archer-ax1450.md](router-archer-ax1450.md).
 
-Decide before filming whether the Pi needs internet at all.
-If the sensing agents run on a laptop on the same LAN rather than on Vultr, the uplink stops mattering during the take, which is one less thing that can break on camera.
+~~Decide before filming whether the Pi needs internet at all.~~
+**Decided 2026-09-19: it does, and it has it.** The wall jack settles this. Run the agents on Vultr
+for the take, which is also what the primary track requires, rather than LAN-local. The earlier
+suggestion to drop the uplink by moving the agents onto a laptop is superseded: it traded a track
+requirement for a robustness gain we no longer need.
+
+### What actually needs internet, and what survives without it
+
+The AX1450 is meant to have an uplink, so "Wi-Fi but no internet" is a failure state rather than the
+plan. It is worth knowing exactly what that failure costs, because the answer is not "everything"
+and the parts that survive are the parts the demo leans on.
+
+| Path | Needs internet | What happens without it |
+|---|---|---|
+| Phone to hub | **No** | Nothing. Bonjour and the websocket are both on the LAN. The Connect screen, the interior view, the roster and the banner all work. |
+| Pi to hub, CSI | **No** | Nothing. Wired LAN. |
+| Hub in `simulated` mode | **No** | Nothing. The whole scripted incident runs on loopback. |
+| Hub to Twilio, the SMS | Yes, **at the hub** | The send fails, is logged and swallowed, and the in-app banner still appears. `twilio refused` or a connection error in the log; nothing on screen says so. |
+| Hub to `agents/master` in `live` mode | Yes, if master is on Vultr | `503 agent mesh unavailable`. Correct behaviour: the hub refuses to invent state. |
+| `agents/caller`, ElevenLabs, the 911 call | Yes | **The call cannot happen.** This is the part that genuinely dies. |
+| ANS verification, Gemini | Yes | No verification events, so the refusal beat is gone. |
+
+**The resident's phone does not need internet, and this is not an accident worth losing.**
+
+The phone joins the AX1450 because device association is what makes a presence "unexpected": the
+roster rule is two registered residents with both of their phones associated, and one more presence
+than those devices account for. So the phone has to be on that network. If that network has no
+uplink, the phone has no internet.
+
+It still gets the text, **because SMS rides the cellular network rather than Wi-Fi.** A phone parked
+on an internet-less sensing router, with the Hawk Eye app closed, still receives the notice.
+
+An APNs push would not have arrived. Push needs IP connectivity on the device, and the device has
+none. The SMS sink was chosen because it reaches a phone that is locked with the app closed, and it
+turns out to also be the only option that survives the network topology this project requires the
+phone to be on. Say that out loud if a judge asks why there is no push: it is a better answer than
+"we ran out of time".
+
+The honest caveat is cellular coverage, not Wi-Fi. No bars means no SMS, and a basement shoot is
+exactly where that bites.
+
+**So the uplink matters for the hub and the agents, not for the phone.** At the house the AX1450's
+WAN goes to the home router and everything has internet through two layers of NAT, which is fine
+because all agent traffic is outbound. At a venue it comes from MacBook Internet Sharing. If neither
+is available, you still have a complete sensing demo and a complete app demo, and you do not have a
+911 call.
+
+**One tension to settle before demo day rather than during it.** The note above suggests running the
+sensing agents on a laptop on the same LAN so the uplink stops mattering. That is the robust choice
+for filming. It is also directly against the primary track's hard requirement that agents be built
+and hosted on the internet and reachable, not on localhost. Both cannot be true in the same run, so
+pick per run: LAN-local agents for the recorded fallback, Vultr-hosted agents for anything a judge
+verifies live. Root `CLAUDE.md` has the requirement; `docs/swapping-in-real-parts.md` has the seam.
 
 ### The venue fallback
 
@@ -115,6 +185,19 @@ The agents run from Vultr and the CSI is replayed from the session captured at t
 The Pi and router come for a prop and for one honest live bit: **movement response**.
 No calibration, no baseline, no through-wall claim.
 A judge waves a hand and the signal moves.
+
+**What the judging table actually shows, settled 2026-09-19.** Four things, in this order:
+
+1. **Live RF response.** A hand waved between the router and the Pi moves the signal, in real time.
+   This is the only live sensing claim made at the venue and it is the only one that survives a hall.
+2. **The map.** The interior view drawing presences into the enrolled floorplan, off replayed CSI.
+3. **Family management in the app.** Adding and approving people, on the app's own path.
+   This needs no hardware and no live capture, so it cannot be broken by the room.
+4. **Replay.** The sealed post-incident record, reviewed after the fact.
+
+Everything a judge can verify live is either app-local or replayed. Nothing on that table depends on
+the capture path behaving in an unfamiliar room, which is the whole reason the sensing claims stay in
+the video shot at the house.
 
 The reason the rest stays in the video is principled, not an excuse.
 Counting and localization need a baseline, and a hall cannot supply a usable one: the baseline decays as the room fills because bodies are reflectors, and occupancy assumes a bounded space that an open hall does not have.
@@ -175,7 +258,7 @@ Each order of magnitude smaller costs range.
 | Capability | Line of sight | Through one drywall wall |
 |---|---|---|
 | Motion / presence | 5-10 m | ~5 m |
-| Collapse (a motion transient) | 5-10 m | ~5 m |
+| A motion transient | 5-10 m | ~5 m |
 | Occupancy and zone | 4-8 m, degrades as count rises | 3-5 m |
 | **Respiration** | **2-4 m, best under 3** | 2-3 m, marginal |
 | Heart rate | under 2 m, often under 1 | do not attempt |
@@ -244,7 +327,7 @@ Respiration is periodic, so integrating over more cycles averages the noise down
 
 | | Needs | Can afford |
 |---|---|---|
-| Collapse | speed; it is a transient | short window, and the signal is large anyway |
+| A motion transient | speed; it is a transient | short window, and the signal is large anyway |
 | Respiration | range | **slow. A 30-60s answer is fine** |
 
 "Is someone breathing in the back bedroom" does not need to resolve in two seconds.
@@ -284,13 +367,13 @@ Counting is the weak capability on a 1x1 radio. Run this before any shot that im
 8. Both lie still. Can two respiration peaks be resolved in the 0.1-0.5 Hz band, or do they overlap?
 
 **Step 8 decides whether "two people" appears anywhere in the video.** If the peaks overlap, do not claim a sensed count.
-Take the headcount from device association against the roster instead and let the radio answer which room and whether that presence is breathing. See `agents/CLAUDE.md` under `agents/occupancy`.
+Take the headcount from device association against the roster instead and let the radio answer which room and whether that presence is breathing. See `agents/CLAUDE.md` under `agents/people`.
 
-**Step 3 decides where the fall is staged.** Respiration is the shortest-range capability the demo depends on, so it sets the geometry.
+**Step 3 decides where the still, breathing subject is staged.** Respiration is the shortest-range capability the demo depends on, so it sets the geometry.
 Motion will work almost anywhere and is not the constraint.
 
 Cross-check against the Fresnel note in `sensor/CLAUDE.md`: if respiration looks absent at a distance that should work, move the subject a few inches before concluding the range ran out.
-Torso height is also a reasonable compromise for a fall, where the body ends up low, because the transient is a change in the path rather than an absolute level.
+Torso height is also a reasonable compromise for someone lying down, where the body ends up low, because what the radio sees is a change in the path rather than an absolute level.
 
 A shelf, a stack of books, or a tripod all work.
 Do not put either box on the floor, and do not put either on top of a tall bookcase.
@@ -314,7 +397,7 @@ Everything in this list changes the channel in ways that have nothing to do with
 | Microwave ovens, in use | Broadband interference in the 2.4GHz band. Fatal to a 2.4GHz fallback capture, and a nuisance even at 5GHz. |
 | Cordless phone bases, baby monitors, Bluetooth-heavy clusters | Co-channel interference and uncontrolled traffic. |
 | Other people's Wi-Fi on the same channel | Contaminates the capture. This is why the channel is chosen after a scan. |
-| Fans, oscillating or ceiling | Periodic motion. A fan is exactly the kind of non-human periodic perturbation `agents/biometrics` is supposed to reject, so do not make its job harder for no reason during a take. |
+| Fans, oscillating or ceiling | Periodic motion. A fan is exactly the kind of non-human periodic perturbation `agents/people` is supposed to reject, so do not make its job harder for no reason during a take. |
 | Pets wandering through, unless they are in the script | Same reason. |
 | The Pi inside a metal case | Detunes the internal antenna. |
 

@@ -1,0 +1,30 @@
+{
+  "$note": "A HouseholdMember, as it appears in GET /v1/household and the response to POST /v1/household/remember.",
+  "$generated_by": "tools/gen_schema.py",
+  "example": {
+    "member_id": "mem-01",
+    "name": "Grandma",
+    "kind": "guest",
+    "devices": [
+      {
+        "device_id": "obs-01",
+        "identifier_hash": "9999999999999999999999999999999999999999999999999999999999999999",
+        "fingerprint": "a4:..:91",
+        "label": "iPhone",
+        "added_at": "2026-09-20T04:12:33Z",
+        "last_seen_at": "2026-09-20T04:12:33Z"
+      }
+    ],
+    "added_at": "2026-09-20T04:12:33Z",
+    "added_by": "approval",
+    "provenance": {
+      "source": "user-input",
+      "producer": "app/ios",
+      "ansname": null,
+      "detail": null,
+      "source_class": "human",
+      "simulated": false
+    },
+    "recognisable": true
+  }
+}

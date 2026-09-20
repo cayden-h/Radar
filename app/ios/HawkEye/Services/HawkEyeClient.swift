@@ -23,12 +23,21 @@ protocol HawkEyeClienting: AnyObject {
     /// The live 911 transcript, oldest first.
     var transcript: [TranscriptLine] { get }
 
-    /// Instructions from `agents/guidance`, oldest first.
+    /// Instructions from `agents/caller`, oldest first.
     var instructions: [Instruction] { get }
 
     /// ANS verification results, newest first. Discarded claims included, and
     /// especially: the refusal path is the thing worth showing.
     var verifications: [VerificationResult] { get }
+
+    /// Notices raised by the sensing agents, newest first.
+    ///
+    /// A notice is information the resident acts on. It does not raise an
+    /// incident and it does not dial; a human tap still does that.
+    var notices: [Notice] { get }
+
+    /// Dismiss one. Local to this device: the notice stays in the sealed log.
+    func dismissNotice(_ id: String)
 
     /// What the hub said about itself on the `hello` frame.
     var hello: HubHello? { get }
@@ -62,6 +71,24 @@ protocol HawkEyeClienting: AnyObject {
     /// until the backend eventually sends `resolved`, and the 911 button
     /// silently does nothing in the meantime.
     func dismissIncident()
+
+    /// The roster. Empty until loaded.
+    var household: [HouseholdMember] { get }
+
+    /// Devices seen on the network that nobody claims. Binding candidates.
+    var unclaimedDevices: [ObservedDevice] { get }
+
+    /// Vouch for a presence, this session only. Suppresses its notices.
+    func approvePresence(_ presenceID: String) async throws
+
+    /// Name a visitor and optionally bind a device. Permanent.
+    func rememberVisitor(name: String, kind: HouseholdMember.Kind, deviceID: String?) async throws
+
+    /// Remove a member. Their devices become unclaimed again.
+    func forgetMember(_ memberID: String) async throws
+
+    /// Refresh the roster and the unclaimed device list.
+    func refreshHousehold() async
 }
 
 enum LinkState: Sendable, Hashable {
@@ -139,13 +166,14 @@ enum HubEvent: Sendable, Hashable {
     case instruction(Instruction)
     case verification(VerificationResult)
     case context(ContextNote)
+    case notice(Notice)
     case error(code: String, message: String)
 }
 
 extension HubEvent: Decodable {
     private enum CodingKeys: String, CodingKey {
         case kind
-        case state, phase, incident, line, instruction, result, note, code, message
+        case state, phase, incident, line, instruction, result, note, notice, code, message
     }
 
     init(from decoder: any Decoder) throws {
@@ -170,6 +198,8 @@ extension HubEvent: Decodable {
             self = .verification(try c.decode(VerificationResult.self, forKey: .result))
         case "context":
             self = .context(try c.decode(ContextNote.self, forKey: .note))
+        case "notice":
+            self = .notice(try c.decode(Notice.self, forKey: .notice))
         case "error":
             self = .error(
                 code: try c.decode(String.self, forKey: .code),

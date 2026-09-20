@@ -57,6 +57,21 @@ enum Config {
     /// `POST /v1/incident`. The resident raises an incident.
     static let incidentPath = "/v1/incident"
 
+    /// `GET /v1/household`. The roster.
+    static let householdPath = "/v1/household"
+
+    /// `GET /v1/household/unclaimed-devices`. Binding candidates.
+    static let unclaimedDevicesPath = "/v1/household/unclaimed-devices"
+
+    /// `POST /v1/household/remember`. Name a visitor, optionally bind a device.
+    static let rememberPath = "/v1/household/remember"
+
+    /// `DELETE /v1/household/members/{id}`. Base path; the member id is appended.
+    static let householdMembersPath = "/v1/household/members"
+
+    /// `POST /v1/presences/{id}/approve`. Base path; the presence id is appended.
+    static let presencesPath = "/v1/presences"
+
     // MARK: Behaviour
 
     /// How long the Connect screen shows the verifying state before entering
@@ -83,10 +98,11 @@ enum Config {
         /// different rooms, both moving. This is the demo.
         case burglary
 
-        /// The child goes down in the second bedroom and does not get up, and
-        /// `still_down_s` starts climbing. The long lie, which is the clinical
-        /// outcome the product moves.
-        case faint
+        /// The child's breathing signature in the second bedroom stops being
+        /// resolvable while carbon monoxide climbs, and `respiration_lost_s`
+        /// starts counting. Whether a dispatcher should expect an answer from
+        /// that room is the thing the product moves.
+        case fire
     }
 
     /// The scripted incident the mock runs. Burglary is the demo.
@@ -102,16 +118,24 @@ enum Config {
     /// them to be there.
     static let mockDetectionAfter: Duration? = .seconds(14)
 
-    /// `.faint` only. How long `agents/collapse` waits after a fall transient
-    /// before calling it a collapse. A system that alarms when someone flops
-    /// onto a couch is worse than no system.
-    static let mockFaintDebounce: Duration = .seconds(6)
+    /// How long the mock waits after a presence's breathing signature goes
+    /// missing before it surfaces the loss. The real agent uses the elapsed
+    /// time since the last resolvable signature; this is the mock's stand-in.
+    static let mockRespirationLostDelay: Duration = .seconds(6)
 
     /// `.burglary` only. How long the new presence has no respiration signature,
     /// and so is `unconfirmed`, exactly like the curtain over the laundry vent.
     /// After this, respiration is acquired and it becomes a confirmed person the
     /// system did not expect.
     static let mockIntruderIdentifiedAfter: Double = 5
+
+    /// Seconds an unexpected presence must hold before it becomes a notice.
+    ///
+    /// Mirrors `HAWKEYE_NOTICE_HOLD_S` on the hub, whose default is the same 5.
+    /// The mock scripts the notice rather than re-deriving the rule in Swift:
+    /// the rule lives in `hawkeye_backend/notices/detector.py` and two copies
+    /// of a rule is how they drift.
+    static let mockNoticeHoldSeconds: Double = 5
 
     /// `.burglary` only. The intruder's route through the apartment, as
     /// `(zone, seconds dwelled there)`, walked in order from the zone they are

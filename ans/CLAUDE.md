@@ -1,5 +1,9 @@
 # ans/
 
+**Pivot note, 2026-09-19.** The roster went from five agents to seven: `people` became `presence`, and `shutter` and `vision` were added. Register and card all seven.
+The safety-dimension argument in this file got materially stronger: corroborating an agent's claim against physical reality now means comparing it against recorded footage a human can also check, rather than against a second view of one radio.
+See `docs/PIVOT.md`.
+
 ANS registration, certificates, domain setup, and our Trust Index contribution.
 Shared plumbing for everything in `agents/`.
 
@@ -46,6 +50,16 @@ Verification is tiered, and the tier names are worth using out loud because they
 
 A stapled SCITT receipt in the Trust Card is what makes Gold possible offline; a sidecar receipt fetched from `_ans-badge` needs a network call, and an absent receipt is weakest.
 On a live incident, a hop that needs a network round trip to verify is a hop that can be starved.
+
+## Where the mesh gets its keys
+
+**`master` builds its trust store from the agents' own published trust cards**, not from a configured key list. `agents/core/discovery.py`.
+
+That is a deliberate choice and it is worth saying on stage. A hardcoded list of public keys verifies signatures perfectly well and proves nothing about identity, because the keys are trusted for having been typed in. Fetching them from the published card ties acceptance to the same document `agent.webmesh.ai verify_agent` reads, the same document whose hash is sealed at registration, and the same document `card_drift_watch` monitors. One artifact, three consumers, and no private channel by which we could trust something the public surface does not say.
+
+A peer whose card cannot be fetched is left out of the store, so its claims are refused as coming from an unregistered agent. A reachable-but-unverifiable agent is exactly what an impostor looks like.
+
+**What is missing is the chain.** `keys[].x5c` is not validated, because no certificates exist until registration; the loader reads the raw key from `keys[].x`. That is Bronze, one trust channel, and adding chain validation is a check inside `_agent_from_card` rather than a restructuring. DANE gets us Silver and a stapled receipt gets us Gold, in that order.
 
 ## Agent cards
 
@@ -148,7 +162,7 @@ Correlating one request across several agent hops needs a request correlation ID
 Neither A2A nor MCP mandates one that spans hops.
 The spec says the SDK should carry an existing W3C Trace Context `traceparent` through mTLS handshakes and JWS-signed messages when present, rather than inventing a parallel scheme, and that where none is provided the forensic gap belongs to whoever hosts the agent.
 
-**That gap is ours.** Generate a `traceparent` at incident open in `master` and propagate it through all nine agents.
+**That gap is ours.** Generate a `traceparent` at incident open in `master` and propagate it through all five agents.
 It is an hour of work, it closes a hole the spec explicitly names, and it is the difference between `agents/replay` holding a pile of events and holding a traceable incident.
 
 ## Live agents to build against

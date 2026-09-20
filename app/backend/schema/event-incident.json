@@ -20,7 +20,7 @@
         "address": "1872 Ridgeview Lane, Blacksburg VA 24060",
         "classification": {
           "incident_type": "fire",
-          "reasoning": "Reclassified from Faint to Fire. A collapse on its own is a faint. A collapse with carbon monoxide climbing past 180 ppm is a fire incident with a casualty, and the responders who need to be sent are different. Two independent modalities agree: CSI saw the collapse, a separate gas reading saw the CO.",
+          "reasoning": "Carbon monoxide at 180 ppm with a breathing signature in the main bedroom that was resolvable four minutes ago and is not now. Two independent modalities.",
           "contributing_claim_ids": [
             "clm-001",
             "clm-002",

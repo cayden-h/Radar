@@ -1,5 +1,9 @@
 # The trust layer, explained
 
+**Pivot note, 2026-09-19.** The trust layer is untouched by the camera pivot; this file's mechanics are all still correct.
+Two substitutions when you read it: the roster is seven agents rather than five, and the canonical "something valuable moves" example is now a servo uncovering a camera lens rather than an armed response to an address. The second is the one to use on stage, because a judge can watch it happen.
+See `docs/PIVOT.md`.
+
 What `agents/master` actually does to a claim before `agents/caller` is allowed to say it out loud,
 and what the thirteen `fraud.webmesh.ai` attacks are trying to do to it.
 
@@ -10,7 +14,7 @@ what happens; this one shows why any of it can be believed.
 
 A sensing agent never just "reports a number". It issues a slip that reads, in effect:
 
-> I, the biometrics agent, say the person in the main bedroom has stopped breathing.
+> I, the people agent, say the person in the main bedroom has stopped breathing.
 > This slip is for the master at *this* house, about incident #1234, about the *main bedroom*,
 > it is good for five minutes, only the holder of *this* key may hand it over,
 > and it is strong enough to justify calling 911.
@@ -101,7 +105,7 @@ refused anyway, because the agent that issued it is not permitted to trigger wha
 
 ```mermaid
 flowchart LR
-    A["<b>occupancy agent</b><br/><br/>signature: VALID<br/>key: REGISTERED<br/>envelope: PARSES<br/>nothing is forged<br/><br/>asks to trigger: <b>DISPATCH 911</b>"]
+    A["<b>a sensing agent</b><br/><br/>signature: VALID<br/>key: REGISTERED<br/>envelope: PARSES<br/>nothing is forged<br/><br/>asks to trigger: <b>DISPATCH 911</b>"]
     A --> Q{"What is this agent's<br/>Trust Index profile?"}
     Q -->|FIDUCIARY| F["may dispatch"]
     Q -->|TRANSACTIONAL| T["may act, attributed"]

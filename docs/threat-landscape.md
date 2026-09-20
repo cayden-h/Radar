@@ -1,5 +1,9 @@
 # The agent attack landscape
 
+**Pivot note, 2026-09-19.** The threat model is unchanged and the mapping still holds.
+One addition worth folding in: the Infinite Impostor is now instantiated **twice** in this system - a compromised sensing agent between a house and `master`, and a compromised `master` between a real verdict and a physical camera shield. The second one is the demonstrable case.
+See `docs/PIVOT.md`.
+
 Assigned research item 3 from the GoDaddy track briefing.
 Written 2026-09-19. Every claim carries a link.
 
@@ -86,11 +90,11 @@ That is a small, real, defensible observation to raise with the track owner.
 |---|---|---|---|
 | ASI01 | Agent Goal Hijack | The 911 operator is an unauthenticated natural-language input directly into `caller`. An attacker who reaches that channel can try to redirect the call. | `caller` treats operator speech as data, never as instruction. An operator question may trigger a verified query; it may never change what `caller` trusts. |
 | ASI02 | Tool Misuse and Exploitation | `caller` holds the only tool that touches the outside world: placing a phone call. | Exactly one agent holds it, and it only fires on a `master`-classified incident with verified corroboration. |
-| ASI03 | Identity and Privilege Abuse | Nine agents with long-lived credentials is nine chances to steal one. | Version-bound Identity Certificates with mTLS per hop. A stolen credential for a sensing agent still only buys sensing-agent authority, and `master` gates on `recommendedProfile`. |
+| ASI03 | Identity and Privilege Abuse | Five agents with long-lived credentials is five chances to steal one. | Version-bound Identity Certificates with mTLS per hop. A stolen credential for a sensing agent still only buys sensing-agent authority, and `master` gates on `recommendedProfile`. |
 | ASI04 | Agentic Supply Chain | We are a modification of RuView (MIT) plus ANS SDK plus ElevenLabs. | Certificate drift detection. Our upstream boundary is stated explicitly in code and on Devpost. |
 | ASI05 | Unexpected Code Execution | The CSI parsing path takes untrusted binary from the radio. | See section 4. This is the honest weak point. |
 | ASI06 | Memory and Context Poisoning | A compromised sensing agent feeds `master` a false history, and later claims inherit its credibility. | `caller` answers operator questions from a **fresh verified query, never cached state**. This rule exists precisely for ASI06 and it is already written into `agents/CLAUDE.md`. |
-| ASI07 | Insecure Inter-Agent Communication | The nine-agent mesh is nine hops that could be impersonated or tampered. | mTLS plus JWS on every hop. This is the ANS core and the submission. |
+| ASI07 | Insecure Inter-Agent Communication | The five-agent mesh is five hops that could be impersonated or tampered. | mTLS plus JWS on every hop. This is the ANS core and the submission. |
 | ASI08 | Cascading Failures | `biometrics` supplies the personhood verdict that `occupancy` and `intruder` both consume. One bad verdict propagates to three agents and then to a dispatcher. | `master` requires corroboration across **independent modalities**. This is why `environment` is deliberately not a CSI consumer. Two views of one stream agreeing is not corroboration. |
 | ASI09 | Human-Agent Trust Exploitation | The highest-severity risk in this project. A confident synthesized voice telling a dispatcher a child is unresponsive is an armed response. | `caller` speaks only verified claims, says what it discarded, and must be able to say "I don't know." We do **not** claim the operator can verify us. |
 | ASI10 | Rogue Agents | A sensing agent that keeps its certificate but changes its code. | Version-bound certificates plus the Agent Integrity Monitor. Drift is detectable; that detection is the demo. |
@@ -112,7 +116,7 @@ Speaking his layer vocabulary back to him is free credibility, and contradicting
 |---|---|---|---|
 | 1 | Foundation Models | Not protected directly. Trust Index `safety` scores model provenance, guardrail certification, enclave attestation. | Our sensing agents are signal processing, not LLMs. `caller` and `guidance` are the LLM surface, and they are the two that talk to humans. |
 | 2 | Data Operations | JWS message integrity. `dataEgressPolicy` of `LOCAL_ONLY` / `RESTRICTED` / `OPEN`, attestable via TEE. | Strong card to play. Interior occupancy of a private home is about as sensitive as telemetry gets, and our inference genuinely runs on-device. We should declare `LOCAL_ONLY`. |
-| 3 | Agent Frameworks | Per-protocol JSON Schema in the Trust Card makes capability contracts explicit and verifiable. Trust Index `behavior` scores protocol adherence. | Nine narrow agents, each with one schema. Narrow context is a security property, not only a speed one. |
+| 3 | Agent Frameworks | Per-protocol JSON Schema in the Trust Card makes capability contracts explicit and verifiable. Trust Index `behavior` scores protocol adherence. | Five narrow agents, each with one schema. Narrow context is a security property, not only a speed one. |
 | 4 | Deployment and Infrastructure | mTLS against active impersonation, ECH to hide hostnames, DNSSEC chain validity scored as integrity. ADR 010 separates duties so a compromised RA cannot forge both certificate and DANE record. | The Pi is wired, the agents are hosted and reachable. Hosting is a blocking dependency, not a deployment detail. |
 | 5 | Evaluation and Observability | Agent Integrity Monitor continuously re-verifies DNS records, Trust Card hash, and schema hashes. SCITT receipts prove events were logged. | `agents/replay`. Note ANS's own stated gap: the Transparency Log proves **registration**, not transactions. Cross-hop correlation needs a W3C Trace Context `traceparent` propagated at the application layer, which ANS carries but does not originate. Propagating one through the incident is cheap and closes a gap the spec names. |
 | 6 | Security and Compliance (vertical) | Every registration is an auditable TL record stamped with the `raId` that processed it. Identity grades Basic / Verified / Premium. Consent model (ADR 012) signs transaction payloads with the Identity Certificate key. | A verified-agent 911 call is a consent artifact. Signing the dispatch decision is the natural application. |

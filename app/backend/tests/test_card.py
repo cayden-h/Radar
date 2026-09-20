@@ -17,12 +17,12 @@ from hawkeye_backend.verification.card import (
     verify_card,
 )
 
-TRUST_CARD = "https://biometrics.hawkeye.example/.well-known/ans/trust-card.json"
+TRUST_CARD = "https://people.hawkeye.example/.well-known/ans/trust-card.json"
 KID = "ocmJWjyVDuMUiyZMa6pOGrgx_dZhSnSDsz35hmN-k9k"
 
 CARD = {
     "name": "Hawk Eye Biometrics",
-    "url": "https://biometrics.hawkeye.example",
+    "url": "https://people.hawkeye.example",
     "version": "1.0.0",
     "protocolVersion": "1.0",
     "securitySchemes": {"ansIdentityCert": {"type": "mutualTLS"}},

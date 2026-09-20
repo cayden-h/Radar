@@ -59,7 +59,7 @@
             "type": "string"
           },
           "field": {
-            "description": "Which part of interior state it asserts, e.g. 'biometrics.respiration'.",
+            "description": "Which part of interior state it asserts, e.g. 'people.respiration'.",
             "title": "Field",
             "type": "string"
           },
@@ -409,7 +409,7 @@
         "type": "object"
       },
       "IncidentClassification": {
-        "description": "Why master called it what it called it.\n\nClassification is the interesting part and should be visible. A fall plus\nelevated CO is a fire incident with a casualty, not a faint.",
+        "description": "Why master called it what it called it.\n\nClassification is the interesting part and should be visible. Elevated CO\nplus a breathing signature that has gone missing is a fire with an occupant\nwho may not be able to respond, and that is two independent modalities\nrather than one signal crossing a threshold.",
         "properties": {
           "incident_type": {
             "$ref": "#/$defs/IncidentType"
@@ -497,17 +497,16 @@
         "type": "string"
       },
       "IncidentType": {
-        "description": "The three incident types. Nothing else classifies.",
+        "description": "The two incident types. Nothing else classifies.\n\nFaint was the third until 2026-09-19. Fall detection was the weakest link\nin the chain - a debounce problem dressed as a clinical variable - and what\na dispatcher actually needs is narrower and defensible: whether the people\ninside can respond. That is carried by respiration, per presence.",
         "enum": [
           "burglary",
-          "fire",
-          "faint"
+          "fire"
         ],
         "title": "IncidentType",
         "type": "string"
       },
       "Instruction": {
-        "description": "One thing agents/guidance is telling the resident to do.",
+        "description": "One thing agents/caller is telling the resident to do.",
         "properties": {
           "instruction_id": {
             "title": "Instruction Id",
@@ -567,7 +566,7 @@
         "type": "object"
       },
       "InstructionEvent": {
-        "description": "One instruction from agents/guidance.",
+        "description": "One instruction from agents/caller.",
         "properties": {
           "kind": {
             "const": "instruction",
@@ -622,6 +621,14 @@
             "title": "Presences",
             "type": "array"
           },
+          "associated_devices": {
+            "description": "Devices the router reports associated, hashed by the producer. An absent field means not reported, never that nobody is here.",
+            "items": {
+              "$ref": "#/$defs/ObservedDevice"
+            },
+            "title": "Associated Devices",
+            "type": "array"
+          },
           "environment": {
             "anyOf": [
               {
@@ -632,7 +639,7 @@
               }
             ],
             "default": null,
-            "description": "Null when agents/environment has not reported."
+            "description": "Null when agents/master has not reported."
           },
           "floorplan": {
             "$ref": "#/$defs/Floorplan"
@@ -658,6 +665,150 @@
           "floorplan"
         ],
         "title": "InteriorState",
+        "type": "object"
+      },
+      "Notice": {
+        "description": "One thing the resident should know about.",
+        "properties": {
+          "notice_id": {
+            "title": "Notice Id",
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/$defs/NoticeSeverity"
+          },
+          "title": {
+            "description": "Short, factual, e.g. 'Unexpected person'.",
+            "title": "Title",
+            "type": "string"
+          },
+          "body": {
+            "description": "One line, composed by the producer from the zone and the floorplan's room name. Never the street address: the dispatch address is bound at registration and does not travel in a claim or in a notice. Enforced by construction in hawkeye_backend/notices/detector.py (Task 2), and asserted in the Twilio sink's tests (Task 3), rather than by a validator here - a heuristic content scan would fail on real room names.",
+            "title": "Body",
+            "type": "string"
+          },
+          "zone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Floorplan zone key, when there is one.",
+            "title": "Zone"
+          },
+          "room": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The floorplan's display name for `zone`, e.g. 'Living room'. Resolved once by the producer so no consumer has to re-derive it or parse it back out of `body`.",
+            "title": "Room"
+          },
+          "presence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Session-scoped only. We do not do person re-identification.",
+            "title": "Presence Id"
+          },
+          "raised_at": {
+            "format": "date-time",
+            "title": "Raised At",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/$defs/Provenance",
+            "description": "Required. See the honesty rule."
+          }
+        },
+        "required": [
+          "notice_id",
+          "severity",
+          "title",
+          "body",
+          "provenance"
+        ],
+        "title": "Notice",
+        "type": "object"
+      },
+      "NoticeEvent": {
+        "description": "A notice was raised: something the resident should know about.\n\nDoes not create an incident and does not dial. `app/CLAUDE.md`: \"An alert is\ninformation a person acts on. It is not a call.\"",
+        "properties": {
+          "kind": {
+            "const": "notice",
+            "default": "notice",
+            "title": "Kind",
+            "type": "string"
+          },
+          "notice": {
+            "$ref": "#/$defs/Notice"
+          }
+        },
+        "required": [
+          "notice"
+        ],
+        "title": "NoticeEvent",
+        "type": "object"
+      },
+      "NoticeSeverity": {
+        "description": "How loudly the app should render it. Never a dispatch decision.",
+        "enum": [
+          "info",
+          "attention"
+        ],
+        "title": "NoticeSeverity",
+        "type": "string"
+      },
+      "ObservedDevice": {
+        "description": "A device seen associated to the network, hashed on arrival.\n\nCarries `Provenance` because it is a reading like any other. On the mock\npath that provenance says simulated, and nothing downstream has to guess.",
+        "properties": {
+          "device_id": {
+            "title": "Device Id",
+            "type": "string"
+          },
+          "identifier_hash": {
+            "description": "HMAC-SHA256 hex digest. Constrained here so a producer that base64s or truncates fails at the boundary rather than silently never matching.",
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Identifier Hash",
+            "type": "string"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/$defs/Provenance"
+          }
+        },
+        "required": [
+          "device_id",
+          "identifier_hash",
+          "fingerprint",
+          "provenance"
+        ],
+        "title": "ObservedDevice",
         "type": "object"
       },
       "Position": {
@@ -752,7 +903,7 @@
             "description": "agents/intruder's inference from context (entry point, time of day, count vs reported residents). Never a recognition result. null when not yet decided.",
             "title": "Expected"
           },
-          "still_down_s": {
+          "respiration_lost_s": {
             "anyOf": [
               {
                 "type": "number"
@@ -762,8 +913,8 @@
               }
             ],
             "default": null,
-            "description": "Seconds down and not moving, from agents/collapse. The clinical variable: a long lie is over an hour, and half of those die within six months absent any injury.",
-            "title": "Still Down S"
+            "description": "Seconds since a breathing signature was last resolvable on this presence, from agents/people. Only ever set on a presence that HAD a signature: the transition is the signal, and a presence that never resolved one carries no information. Never a finding that breathing has stopped.",
+            "title": "Respiration Lost S"
           },
           "provenance": {
             "$ref": "#/$defs/Provenance",
@@ -794,7 +945,7 @@
         "type": "string"
       },
       "PresenceState": {
-        "description": "The three states app/CLAUDE.md requires the 3D view to distinguish.\n\nCONFIRMED_MOVING: moving and breathing. A person, confirmed.\nCONFIRMED_STILL:  still but breathing. A person who is not responding.\n                  The loudest thing on screen. This is what the system exists for.\nUNCONFIRMED:      a perturbation with no respiration signature. Render it as\n                  such, not as a person. A curtain is not an intruder.\nUNKNOWN:          not enough data yet. Absence of respiration is NOT proof of\n                  absence of a person, so a presence that has not been\n                  resolved sits here rather than being called UNCONFIRMED.",
+        "description": "The three states app/CLAUDE.md requires the 3D view to distinguish.\n\nCONFIRMED_MOVING: moving and breathing. A person, confirmed.\nCONFIRMED_STILL:  a person who is not moving. Either still breathing, or\n                  carrying a breathing signature that was resolvable and is\n                  not now - see Presence.respiration_lost_s, which is what\n                  separates those two. A lost signature is never a finding\n                  that breathing stopped.\n                  The loudest thing on screen. This is what the system exists for.\nUNCONFIRMED:      a perturbation with no respiration signature. Render it as\n                  such, not as a person. A curtain is not an intruder.\nUNKNOWN:          not enough data yet. Absence of respiration is NOT proof of\n                  absence of a person, so a presence that has not been\n                  resolved sits here rather than being called UNCONFIRMED.",
         "enum": [
           "confirmed_moving",
           "confirmed_still",
@@ -812,7 +963,7 @@
             "description": "What physically produced this reading. Required."
           },
           "producer": {
-            "description": "Which agent or component emitted it, e.g. 'agents/environment'.",
+            "description": "Which agent or component emitted it, e.g. 'agents/master'.",
             "title": "Producer",
             "type": "string"
           },
@@ -864,7 +1015,7 @@
         "type": "object"
       },
       "RaisedBy": {
-        "description": "Who raised it.\n\nUSER is the only path to a call. Hawk Eye never dials 911 on its own;\nsettled 2026-09-19. A human tap is what releases `agents/caller` to dial,\nand `agents/collapse` and `agents/environment` surface their detections as\ninterior state the resident acts on rather than as a call.\n\nSYSTEM is kept for wire compatibility and for records raised before that\ndecision. It must never reach the dialing path: `assert_human_released` in\n`master/base.py` enforces that structurally rather than by convention.",
+        "description": "Who raised it.\n\nUSER is the only path to a call. Hawk Eye never dials 911 on its own;\nsettled 2026-09-19. A human tap is what releases `agents/caller` to dial,\nand `agents/people` and `agents/master` surface their detections as\ninterior state the resident acts on rather than as a call.\n\nSYSTEM is kept for wire compatibility and for records raised before that\ndecision. It must never reach the dialing path: `assert_human_released` in\n`master/base.py` enforces that structurally rather than by convention.",
         "enum": [
           "user",
           "system"
@@ -939,7 +1090,7 @@
         "description": "The agent that made the claim.",
         "properties": {
           "name": {
-            "description": "Agent directory name, e.g. 'agents/biometrics'.",
+            "description": "Agent directory name, e.g. 'agents/people'.",
             "title": "Name",
             "type": "string"
           },
@@ -1393,6 +1544,7 @@
             "hello": "#/$defs/HelloEvent",
             "incident": "#/$defs/IncidentEvent",
             "instruction": "#/$defs/InstructionEvent",
+            "notice": "#/$defs/NoticeEvent",
             "state": "#/$defs/StateEvent",
             "transcript": "#/$defs/TranscriptEvent",
             "verification": "#/$defs/VerificationEvent"
@@ -1417,6 +1569,9 @@
           },
           {
             "$ref": "#/$defs/ContextEvent"
+          },
+          {
+            "$ref": "#/$defs/NoticeEvent"
           },
           {
             "$ref": "#/$defs/HelloEvent"

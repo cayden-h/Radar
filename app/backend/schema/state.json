@@ -18,20 +18,20 @@
           "zone": "main_bedroom",
           "x": 1.85,
           "y": 4.35,
-          "zone_confidence": 0.89
+          "zone_confidence": 0.71
         },
         "moving": false,
-        "confidence": 0.89,
+        "confidence": 0.71,
         "vitals": {
-          "respiration": "breathing",
-          "breathing_bpm": 9.0,
-          "heart_bpm": 112.0,
+          "respiration": "no_signature",
+          "breathing_bpm": null,
+          "heart_bpm": null,
           "person_confidence": 0.92
         },
         "presence_class": "adult",
-        "class_basis": "respiration_rate",
+        "class_basis": null,
         "expected": true,
-        "still_down_s": 96.0,
+        "respiration_lost_s": 96.0,
         "provenance": {
           "source": "ruview-sim",
           "producer": "sensor/",
@@ -61,7 +61,7 @@
         "presence_class": "child",
         "class_basis": "respiration_rate",
         "expected": true,
-        "still_down_s": null,
+        "respiration_lost_s": null,
         "provenance": {
           "source": "ruview-sim",
           "producer": "sensor/",
@@ -91,7 +91,7 @@
         "presence_class": "unknown",
         "class_basis": null,
         "expected": true,
-        "still_down_s": null,
+        "respiration_lost_s": null,
         "provenance": {
           "source": "ruview-sim",
           "producer": "sensor/",
@@ -102,14 +102,15 @@
         }
       }
     ],
+    "associated_devices": [],
     "environment": {
       "co_ppm": 186.0,
       "smoke_detected": false,
       "confidence": 0.88,
       "provenance": {
         "source": "demo-trigger",
-        "producer": "agents/environment",
-        "ansname": "environment.hawkeye.invalid",
+        "producer": "agents/master",
+        "ansname": "master.hawkeye.invalid",
         "detail": "no gas sensor was purchased; an MQ-7 on GPIO through an MCP3008 drops in behind this",
         "source_class": "simulated",
         "simulated": true

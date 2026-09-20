@@ -1,5 +1,11 @@
 # The 13 attacks at fraud.webmesh.ai
 
+**Pivot note, 2026-09-19.** The thirteen shapes and their implementations are unchanged; the pivot does not touch the verification layer.
+**What changed is the analogue, and it got better.** The substitution this document runs on was "a spending mandate is to money what a verified sensing claim is to an armed response".
+It is now **"a spending mandate is to money what a shutter grant is to a camera"**, which is a tighter fit: a grant authorizes one specific physical action at one specific moment, exactly as a mandate authorizes one payment.
+Re-read `payTo_binding_check` and `underpay_valid_sig` against `shutter/CLAUDE.md`; both land harder there than they did on a 911 call.
+See `docs/PIVOT.md`.
+
 Assigned research item 1 from the GoDaddy track briefing.
 Written 2026-09-19.
 
@@ -94,16 +100,16 @@ Grouped as the battery groups them: ten attack tests and three structural probes
 
 | # | Probe | What it does | Expected | Hawk Eye analogue | What we must implement |
 |---|---|---|---|---|---|
-| 1 | `replay_booking` | Reuses a spent DPoP proof to confirm nonce tracking rejects replay. | `DPOP_REJECTED` | A sensing agent's reading replayed to inflate corroboration, or an old fall event replayed into a new incident. | Nonce tracking per claim. The same signed reading must never count twice toward a dispatch threshold. |
+| 1 | `replay_booking` | Reuses a spent DPoP proof to confirm nonce tracking rejects replay. | `DPOP_REJECTED` | A sensing agent's reading replayed to inflate corroboration, or an old lost-signature claim replayed into a new incident. | Nonce tracking per claim. The same signed reading must never count twice toward a dispatch threshold. |
 | 2 | `underpay_booking` | Forges `max_amount=1.0` without re-signing, testing that signature verification is independent of amount checks. | `MANDATE_REJECTED` | A claim's severity field edited without re-signing. | Verify the signature over the whole payload before reading any field from it. Never parse first and verify later. |
 | 3 | `tamper_mandate` | Inflates `max_amount` tenfold after signing. | `MANDATE_REJECTED` | "Respiration irregular" rewritten to "respiration absent" in transit. **This is the Infinite Impostor in one line.** | JWS integrity per message, with the verified payload being the only one any logic sees. |
 | 4 | `underpay_valid_sig` | Submits a genuinely authority-signed mandate for $0.01 against a higher-priced ticket. Tests amount enforcement *beyond* signature validity. | `MANDATE_REJECTED` | A validly signed READ_ONLY claim used as the sole basis for a 911 call. | The `recommendedProfile` gate. A valid signature is not authorization. READ_ONLY corroborates and never triggers. This is the probe that maps most directly onto our profile table. |
-| 5 | `quote_swap_attack` | Uses a mandate issued for quote A to book under quote B. | `MANDATE_REJECTED` | A genuine fall claim from Tuesday replayed to justify a dispatch on Wednesday. | Incident-ID binding. Every claim carries the incident it was produced for, and `master` rejects cross-incident reuse. |
+| 5 | `quote_swap_attack` | Uses a mandate issued for quote A to book under quote B. | `MANDATE_REJECTED` | A genuine lost-signature claim from Tuesday replayed to justify a dispatch on Wednesday. | Incident-ID binding. Every claim carries the incident it was produced for, and `master` rejects cross-incident reuse. |
 | 6 | `wrong_audience_attack` | Submits a mandate addressed to `rogue-supplier` rather than the target. | `MANDATE_REJECTED` | A claim addressed to a different household's `master`, or to a neighbour's installation. | Audience binding on every claim. Our ANSNames are per-installation, so this is checkable. |
-| 7 | `wrong_scope_attack` | Applies a MAD-NYC mandate to a MAD-SIN booking. | `MANDATE_REJECTED` | A claim scoped to the kitchen used to justify "unresponsive occupant in the main bedroom." | Zone scoping in the claim, enforced at `master`. Room-level zones already exist in `agents/occupancy`. |
+| 7 | `wrong_scope_attack` | Applies a MAD-NYC mandate to a MAD-SIN booking. | `MANDATE_REJECTED` | A claim scoped to the kitchen used to justify "unresponsive occupant in the main bedroom." | Zone scoping in the claim, enforced at `master`. Room-level zones already exist in `agents/people`. |
 | 8 | `wrong_dpop_key_attack` | Valid mandate, but the DPoP proof comes from a different key than `mandate.jkt`. | `DPOP_REJECTED` | An agent presenting a valid certificate it does not hold the private key for. | mTLS with the Identity Certificate. The handshake challenge is the defense and it is already the architecture. |
 | 9 | `corrupt_jws_attack` | Structurally valid mandate with the last two bytes of the JWS signature flipped. Confirms clean rejection rather than an exception. | `MANDATE_REJECTED` | Bit-level corruption from a lossy link, or a clumsy tamper attempt. | **Fail closed, and fail quietly.** A crashed verifier mid-incident is a worse outcome than a rejected claim. Test this one deliberately; it is the probe most likely to catch a real bug in our code. |
-| 10 | `superseded_format_attack` | A legacy mandate stripped of `scope`, `jkt`, and signature. | `MANDATE_REJECTED` or `MANDATE_PARSE_ERROR` | An older sensing agent build emitting a claim without a verification envelope. | Schema-version enforcement. An unversioned or under-specified claim is discarded, not accepted as a best effort. Directly relevant since we will have nine agents at different build stages all weekend. |
+| 10 | `superseded_format_attack` | A legacy mandate stripped of `scope`, `jkt`, and signature. | `MANDATE_REJECTED` or `MANDATE_PARSE_ERROR` | An older sensing agent build emitting a claim without a verification envelope. | Schema-version enforcement. An unversioned or under-specified claim is discarded, not accepted as a best effort. Directly relevant since we will have five agents at different build stages all weekend. |
 
 ### Structural probes
 
@@ -111,7 +117,7 @@ Grouped as the battery groups them: ten attack tests and three structural probes
 |---|---|---|---|---|---|
 | 11 | `unknown_key_mandate` | A mandate signed by an Ed25519 key absent from the authority's trust card. Tests fail-closed key validation. | `MANDATE_REJECTED` | A tenth agent that nobody registered, claiming to be a sensing agent. | Fail-closed trust store. An unknown key is a rejection, never an unknown-therefore-allow. |
 | 12 | `replay_settled` | Resubmits an already-used mandate with fresh DPoP proofs, probing EIP-3009 nonce state on Sepolia Base. | `MANDATE_REJECTED`, `PAYMENT_REQUIRED`, or `EVM_SETTLEMENT_FAILED` | Re-triggering a dispatch for an incident already dispatched. Fresh envelope, spent authorization. | Incident lifecycle state in `master`. Freshness of the wrapper does not refresh the claim inside it. |
-| 13 | `canonicalization_probe` | Requests mandates where `max_amount` serializes differently, float versus int, detecting JCS consistency drift. | Consistent handling across implementations | Two of our nine agents serializing the same value differently, producing signature mismatches that look like tampering. | JCS canonicalization, decided once and applied across all nine agents. This is the probe most likely to bite us as an ordinary bug rather than as an attack. |
+| 13 | `canonicalization_probe` | Requests mandates where `max_amount` serializes differently, float versus int, detecting JCS consistency drift. | Consistent handling across implementations | Two of our five agents serializing the same value differently, producing signature mismatches that look like tampering. | JCS canonicalization, decided once and applied across all five agents. This is the probe most likely to bite us as an ordinary bug rather than as an attack. |
 
 ### Bonus structural checks
 
@@ -157,7 +163,7 @@ It is a reference implementation of a threat model, not a scanner. That does not
 2. ~~Capture all thirteen verdicts verbatim.~~ Done; see the table above.
 3. ~~Fill in the results column above, including failures.~~ Done. Two bugs found and fixed, both recorded above rather than quietly cleaned up.
    A documented failure with a stated reason is worth more than a claimed pass, and the track owner wrote these probes specifically to be failed by naive implementations.
-4. **Separately, run `agent.webmesh.ai verify_agent` against all nine hostnames.** That one does take an arbitrary host, and it is what will actually be pointed at us: DNS, DNSSEC, Transparency Log proof, published agent card, plus a live A2A message. Its `compatibility_verdict` is the thing to have clean before judging. See `ans/CARD.md`.
+4. **Separately, run `agent.webmesh.ai verify_agent` against all five hostnames.** That one does take an arbitrary host, and it is what will actually be pointed at us: DNS, DNSSEC, Transparency Log proof, published agent card, plus a live A2A message. Its `compatibility_verdict` is the thing to have clean before judging. See `ans/CARD.md`.
 5. Pick one probe for the live demo.
    Probe 4, `underpay_valid_sig`, is the best candidate: a genuinely valid signature that must still be refused.
    It is the one that best demonstrates the difference between authentication and authorization to a room, and it is the one whose Hawk Eye analogue a non-technical judge understands immediately.

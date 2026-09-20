@@ -1,7 +1,9 @@
 # sensor/
 
-Hawk Eye's sensing layer. Raspberry Pi 4B CSI capture and the interior state it produces.
-Everything upstream of the agent mesh in `agents/`.
+Hawk Eye's sensing layer. Raspberry Pi 4B CSI capture and the small answer it produces.
+
+**Read `docs/PIVOT.md` before this file if you have prior context on this repo.**
+On 2026-09-19 this layer was demoted. It used to be the project's primary sensor and it is now its trigger.
 
 Read the root `CLAUDE.md` first for why this exists.
 
@@ -11,27 +13,37 @@ The commands are in `docs/hardware/raspberry-pi-4b.md`, `docs/hardware/router-ar
 `docs/hardware/bring-up-checklist.md` is the linear path from unboxed hardware to CSI frames flowing.
 If a value here and a value there disagree, this file wins and the guide is the bug.
 
+**The camera and the servo also hang off this Pi.** They are not this file's subject: see `vision/CLAUDE.md`, `shutter/CLAUDE.md`, and the two new guides in `docs/hardware/`.
+What this file owes them is the power and USB budget, which is in the hardware section below.
 
 ## Job
 
-Turn WiFi Channel State Information from the home router into a small, stable structured answer to four questions, one per consuming CSI agent:
+**Two questions. That is the entire contract.**
 
-- **Occupancy.** Whether presences exist and roughly where. **Not an exact headcount**: a 1x1 radio has no spatial diversity, two people within about a metre merge into one, and a still person beside a moving one is near-invisible. Report "at least N" with a confidence; take the actual headcount from device association against the roster instead. Limits and the reasoning are under `agents/occupancy`.
-- **Body type.** Is each presence an adult, a child, or a pet.
-- **Biometrics.** Is each presence breathing, and at what rate.
-- **Collapse.** Did someone go down, and are they still down.
+- **Did something move, and in which enrolled zone?**
+- **How confident are we that it moved, and for how long has it been moving?**
 
-Plus one question that is not a simple lookup: **is any of these presences unexpected.** That is `agents/intruder`, and it reasons over the occupancy output rather than reading CSI separately.
+That is it. `agents/presence` consumes those two answers and nothing else.
 
-A fifth agent, `environment`, does not read CSI at all.
-It reads a gas sensor behind a driver interface on the Pi's GPIO.
-On this build no gas sensor was purchased, so the only implementation of that driver is simulated and every reading it emits carries `source: "demo-trigger"`.
-See the modality limits below.
+### What this layer used to do and no longer does
 
-That is the whole contract.
+All of it was cut on 2026-09-19. None of it may be described as a current capability.
+
+| Cut | Why |
+|---|---|
+| Occupancy and headcount | A 1x1 radio has no spatial diversity. Two people within a metre merged. The count actually came from device association, and that survives inside `agents/presence` |
+| Body type, adult / child / pet | Depended on respiration rate bands that we could barely resolve |
+| Biometrics, breathing rate | The central pre-pivot claim, and the one with the most caveats attached. The camera answers the underlying question better and can be checked afterward |
+| Responsiveness, `respiration_lost` | Same |
+| Fall detection | Cut earlier the same day, for its own reasons |
+| The gas sensor driver | `environment` was merged into `master` and then deleted with the Fire incident type. No gas sensor was ever purchased |
+
+**Motion is what survived, and the reason is worth knowing: motion sensing is the only CSI capability that is environment-independent.**
+It needs no baseline, no calibration and no enrollment to say that something changed.
+Everything else on that list needed a reference that decays as a room fills with people, which is exactly why none of it survived contact with a judging hall.
+
 Resist the temptation to ship RuView's full capability surface.
-17-keypoint pose is impressive and changes nothing about the demo; skip it.
-Room fingerprinting, activity classification, and gesture recognition are likewise out of scope.
+17-keypoint pose is impressive and changes nothing about the demo. Room fingerprinting, activity classification, gesture recognition and heart rate are all out of scope, and now so is breathing.
 
 ## Hardware
 
@@ -69,13 +81,16 @@ Check what the home network is on and take a different non-DFS channel.
 
 ### At a venue (judging table)
 
-We are demoing live at judging, but **not the sensing pipeline.**
+We are demoing live at judging, and after the pivot **the sensing trigger is part of it.**
 
-The reason is not the calibration step, which no longer exists. It is that counting and localization need a baseline at all, and a hall cannot supply a usable one: the baseline decays as the room fills because bodies are reflectors, and occupancy assumes a bounded space that an open hall does not have. The band is also saturated and everything is moving.
+This changed with the pivot and it changed in our favour.
+Everything that could not survive a judging hall - counting, localization, respiration - needed a baseline, and a hall cannot supply a usable one: the baseline decays as the room fills because bodies are reflectors, and occupancy assumes a bounded space that an open hall does not have.
 
-Motion and breathing need no baseline. That is exactly why they survive a judging table and the rest does not.
+**Motion needs no baseline at all**, which is exactly why it is the one capability that survives a crowded room we did not calibrate in, and why it is now the only one we have.
+So the venue demo can run the real trigger: someone moves near the router, `presence` fires, `intruder` finds no device, and the shield opens on the table.
 
-At the venue the agents run live from Vultr and the CSI is replayed from the session captured at the house. See `agents/CLAUDE.md`.
+Zone labelling still needs the enrollment walk and does not survive the hall, so at the venue the zone is fixed to one and the demo says so.
+The agents run live from Vultr. See `agents/CLAUDE.md`.
 
 The Pi and router still come along, for a prop and for one honest live bit: **movement response.** No calibration, no baseline, no through-wall claim. A judge waves a hand and the signal moves.
 
@@ -122,7 +137,7 @@ Prefer WiFi 6 over WiFi 7 hardware. TP-Link's 5GHz mode dropdown offers `802.11a
 |---|---|---|
 | Channel | 5GHz ch 36/40/44/48 | UNII-1, non-DFS. A DFS channel (52-144) can radar-detect and hop mid-take. |
 | Auto channel | Off | See above. |
-| Bandwidth | 80MHz | Most subcarriers, best resolution for breathing and heart rate. |
+| Bandwidth | 80MHz | Most subcarriers, best motion resolution. Kept at 80 even though motion does not need it, because the recorded sessions are worth more at full width. |
 | Mode | 802.11ac, ax disabled | See requirement 2. |
 | Band steering | Off | Keeps the generator on the monitored band. |
 
@@ -136,11 +151,12 @@ A router with nothing connected still beacons, but only about ten times a second
 
 | | Signal | Sample rate needed |
 |---|---|---|
-| Breathing | 0.1-0.5 Hz | ~10 Hz, marginal |
-| Fall transient | 0.5-1s event | 10 Hz too coarse to characterize |
-| Heart rate | 0.7-2 Hz, buried under breathing harmonics | 20-50 Hz and up |
+| Motion transient | 0.5-1s event | 10 Hz is too coarse to characterize |
+| Motion detection, coarse | continuous | 10 Hz works, badly |
 
-10 Hz is the floor and it is not enough for collapse or heart rate. Target 100+ Hz.
+10 Hz is the floor and it is not enough to characterize a short transient, which after the pivot is the only thing we care about. Target 100+ Hz.
+
+The pivot lowers the stakes here and does not remove them: a slow capture costs latency in the motion-to-wrist budget, and that budget is the demo.
 
 ### No hardware needed: use the MacBook
 
@@ -175,27 +191,49 @@ Upstream: https://github.com/seemoo-lab/nexmon_csi
 Verified facts:
 
 - BCM43455c0 firmware `7_45_189` covers Raspberry Pi 3B+/4B/5. Our Pi is in scope.
-- Supported OS kernels are **4.19, 5.4, and 5.10**. Upstream notes recent kernels no longer require the modified `brcmfmac` driver, with separate guidance for newer setups.
+- Upstream's kernel-pinned patch supports **4.19, 5.4, and 5.10**, but **this is not the path we used.** See "Kernel reality, corrected 2026-09-19" below.
 - Extracts CSI from OFDM-modulated 802.11a/g/n/ac frames, per frame, **up to 80 MHz bandwidth**.
+
+### Kernel reality, corrected 2026-09-19
+
+**Settled during live bring-up. This supersedes the kernel-pinning plan below; do not chase a 5.10 image.**
+
+Raspberry Pi Imager's "Legacy, 32-bit" catalog entry no longer serves Bullseye/5.10. It now serves Bookworm with kernel `6.12.109+rpt-rpi-v8` (64-bit kernel, 32-bit/`armhf` userspace when you pick the 32-bit variant). Bullseye 32-bit was EOL'd May 2023 and isn't worth chasing down from an archive.
+
+`nexmon_csi` has a second, actively-maintained build path for exactly this: `Makefile.rpi`, which uses `update-alternatives` for firmware switching instead of a kernel-version-bound driver patch, and works across recent kernels including 6.12. Verified working end-to-end on our exact chip/firmware (`bcm43455c0`, `7_45_189`) on a Pi 4B. Use `make -f Makefile.rpi install-firmware` (not `make install-firmware`), and see `docs/hardware/raspberry-pi-4b.md` for the full corrected step list, including two gaps the upstream discussion doesn't mention:
+
+- The bundled ARM cross-compiler still needs `libisl.so.10`/`libmpfr.so.4`, which Bookworm no longer ships (same problem as the old path). Symlink the newer installed versions (`libisl.so.23`, `libmpfr.so.6`) to the old SONAMEs; this is a compiler ABI shim, not a runtime downgrade, and it works.
+- The `bcm43-tools`' Python 2.7 dependency needs Debian's archived Stretch repo, and that repo's Release file is unsigned (8 years EOL). `apt-get update` will hard-fail on it unless the source line is marked `[trusted=yes]` - `--allow-unauthenticated` at install time is not sufficient by itself, because apt refuses to even index an unsigned repo's package list without it.
+
+One practical consequence: because this path isn't kernel-version-bound, `apt-get full-upgrade` is safe here, unlike the old plan. No need to `apt-mark hold` the kernel packages.
 
 ### The risk, stated plainly
 
-This is the single most likely thing to consume a night and produce nothing.
-The failure mode is not a clean error.
-It is a firmware patch that builds, installs, and then yields all-zero or garbage CSI, with the cause buried in a kernel/firmware version mismatch.
+This was the single most likely thing to consume a night and produce nothing. **Resolved 2026-09-19: real, varying, non-zero CSI confirmed flowing** (see the recorded values below). The failure mode to still watch for, if this is ever redone: a firmware patch that builds, installs, and then yields all-zero or garbage CSI, with the cause buried in a kernel/firmware/MAC-filter mismatch.
 
 Mitigations, in order:
 
-1. **Flash a known-good OS image pinned to a supported kernel before doing anything else.** Do not `apt full-upgrade` afterward. A kernel bump silently breaks the firmware patch.
-2. **Image the working microSD the moment CSI flows.** `dd` it to a file on someone's laptop. If the card corrupts at 4am, that image is the difference between a demo and no demo.
+1. **Flash a known-good OS image before doing anything else**, and use the `Makefile.rpi` path above rather than assuming a specific kernel. Verify with `uname -r` regardless - knowing what's actually on the card is still the point, even though this path tolerates more kernel variance.
+2. **Image the working microSD the moment CSI flows.** `dd` it to a file on someone's laptop, and copy that file off the laptop too. If the card corrupts at 4am, that image is the difference between a demo and no demo. **Done 2026-09-19**, see recorded values below.
 3. **Timebox it.** If CSI is not flowing by the deadline the team sets, drop to the fallback ladder below and do not look back.
+
+### Recorded values, from the 2026-09-19 bring-up session
+
+- OS: Raspberry Pi OS Bookworm, 32-bit (`armhf`) userspace, kernel `6.12.109+rpt-rpi-v8`.
+- Hostname / user: `radar-pi` / `radar`. SSH key-based (`~/.ssh/id_ed25519_radar_pi` on the bring-up Mac, alias `radar-pi`).
+- Router SSIDs: `Radar` (2.4GHz), `Radar-5g` (5GHz). Channel 40, 80MHz.
+- **The router's over-the-air radio MAC is not the MAC printed on its label.** The AX1450 uses a different MAC per band/radio; the label MAC was off by one in the last octet from the actual `Radar-5g` BSSID. Get the real one from a scan (`iw dev wlan0 scan`) with monitor mode off, not from the label, or `makecsiparams -m` silently filters on a device that's never transmitting and yields zero packets with no error.
+- `makecsiparams` path: `~/nexmon/patches/bcm43455c0/7_45_189/nexmon_csi/utils/makecsiparams/makecsiparams` (built from source in that dir, not on `PATH` by default).
+- Filtering `-m` on the traffic-generator device's own MAC (rather than the router's) gave a more reliable capture rate in practice - the router didn't reliably reply to ICMP directed at its own gateway address, but the generator's outgoing request frames are transmitted regardless of whether anything replies.
+- Achieved rate: roughly 30-70 packets/sec with a laptop pinging at `-i 0.01` on the same 5GHz band, well above the 10Hz beacon-only floor. Short of the 100+/sec target; not yet root-caused, plausibly 802.11 frame aggregation reducing distinct-frame count below the raw ping rate.
+- Disk image and a CSI replay pcap exist, stored off the bring-up laptop's primary disk per the checklist's own warning about this being the step people skip.
 
 ### Fallback ladder
 
 Descend only when the level above is timeboxed out.
 
-1. `nexmon_csi` on the Pi, live CSI from the router. The real thing.
-2. **Recorded CSI replay.** Capture a real session early, while the patch is working, and replay it through the same pipeline. The downstream agents cannot tell the difference. **Do this even if level 1 is healthy.**
+1. `nexmon_csi` on the Pi, live CSI from the router. The real thing. **Achieved 2026-09-19.**
+2. **Recorded CSI replay.** Capture a real session early, while the patch is working, and replay it through the same pipeline. The downstream agents cannot tell the difference. **Do this even if level 1 is healthy.** A first session was captured 2026-09-19; capture a longer one during the house shoot, covering a person entering an empty room, which is the only shape the pivot needs.
 
    Note that the demo is a recorded video shot at the house, so level 1 only has to work once, on camera, rather than on demand in front of judges. That materially lowers the risk this path carries.
 3. **RuView's simulated data.** `docker pull ruvnet/wifi-densepose:latest` runs the pipeline on synthetic CSI. Honest fallback, but say so on stage rather than implying live hardware.
@@ -206,68 +244,40 @@ Whichever level we land on, **the agent layer must not know which one it is.** `
 ## Output contract
 
 The only thing the agent layer may consume.
-Keep it small and keep it stable, because the agents get built against it before it produces real numbers.
+Keep it small and keep it stable.
 
-One field group per consuming agent, so a failure in one sensing capability does not take the others down:
+**After the pivot it is much smaller, and that is the point.** A contract this size is hard to overclaim against.
 
 ```json
 {
   "site_id": "...",
   "captured_at": "2026-09-20T04:12:33Z",
   "sensor_identity": "<ANS name of this device>",
-  "calibration": { "baseline_age_s": 412, "healthy": true },
+  "health": { "frames_per_s": 46.2, "healthy": true },
 
-  "occupancy": [
-    { "presence_id": "p1", "zone": "kitchen", "confidence": 0.82, "moving": true }
-  ],
-
-  "classification": [
-    { "presence_id": "p1", "class": "adult", "confidence": 0.71, "expected": true,
-      "basis": "respiration_rate" }
-  ],
-
-  "biometrics": [
-    { "presence_id": "p1", "breathing_bpm": 14, "heart_bpm": 78,
-      "is_person": true, "person_confidence": 0.88, "confidence": 0.64 }
-  ],
-
-  "collapse": [
-    { "presence_id": "p1", "event": "fall", "at": "2026-09-20T04:12:29Z",
-      "still_down_s": 47, "confidence": 0.77 }
-  ],
-
-  "environment": { "co_ppm": 210, "source": "demo-trigger", "confidence": 0.9 }
+  "motion": {
+    "detected": true,
+    "zone": "living_room",
+    "confidence": 0.84,
+    "continuous_for_s": 3.1
+  }
 }
 ```
 
-`presence_id` is the join key across the CSI groups. `occupancy` and `classification` are consumed by `agents/occupancy` and `agents/intruder` together.
-`environment` has no presence, because a gas reading is a property of the building.
-Every consumer must tolerate a missing group, an empty array, and a low confidence.
+Four rules about this object:
 
-Notes on the fields:
+1. **`motion.detected` is not a claim that a person is present.** It never was. A curtain, a fan and a pet all produce it. Downstream, `agents/presence` passes it through as motion and `agents/master` must not promote it into a person claim. The camera is what decides personhood now
+2. **`zone` comes from the enrollment walk**, never from inference. See the rooms section below
+3. **`health` is a first-class field, not diagnostics.** The failure mode that costs us the demo is a capture path that is alive and producing nothing, and a frame rate in the output is what makes that visible. See the ingest section
+4. **There is no confidence-free path.** A detection without a confidence is a bug, not a default
 
-- `presence_id` is stable **within a session only**. We are not doing person re-identification; RuView flags that as experimental and data-gated, and claiming it is a lie we cannot defend under questioning.
-- `zone` is coarse and room-level. Do not promise coordinates.
-- `class` is one of `adult`, `child`, `pet`, `unknown`, and is decided from **respiration rate**, not signal amplitude. See the rate table and its stated overlap below. Anything finer than these four classes is not defensible.
-- `expected` is what `agents/intruder` reasons over. It is not a recognition result; it is an inference from context such as entry point, time of day, and whether the count exceeds what residents reported. Never present it as identifying a person.
-- `breathing_bpm` in 6-30, `heart_bpm` in 40-120, matching RuView's stated ranges. Outside those ranges, report nothing rather than a number.
-- `is_person` is the personhood verdict and comes from **respiration periodicity, never from heart rate**. It is the field that separates a human from a fan, a curtain, or a cart. Absence of respiration is not proof of absence of a person; cross-check `collapse` before concluding anything.
-- `basis` on a classification records what the class decision was made from. `respiration_rate` is the defensible one. See the rate table above for the class boundaries and their overlap.
-- `confidence` must be real and must be propagated all the way to the operator's ear. An agent escalating on a 0.3 presence is a different story than one escalating on 0.9, and the honesty is a feature.
-- `collapse.event` is one of `fall`, `slump`, `none`. `still_down_s` is what distinguishes an emergency from someone sitting down hard; a fall followed by standing up is not an event worth reporting.
-- `environment.source` must name the real hardware, or the literal string `demo-trigger` when it is faked. This field exists so nobody can accidentally present a simulated reading as a measured one.
-- `calibration.healthy` going false must propagate and must suppress escalation. A stale baseline produces confident nonsense, which is the worst possible output for this use case.
+### What health actually has to catch
 
-### The biometrics field is the money field
+**A beacon-only capture looks exactly like a working one.**
+Without a traffic generator the channel updates at roughly 10 Hz off beacons alone, every component reports healthy, and motion detection degrades quietly rather than failing.
+`frames_per_s` in the output is the cheapest possible guard against spending an hour debugging the wrong layer.
 
-It separates three states that look identical to an occupancy counter:
-
-- moving
-- still but breathing
-- neither
-
-"Unresponsive occupant in the main bedroom" is the single most valuable sentence this system can say to a dispatcher, and it comes from here.
-If occupancy works and one other capability works, make it this one.
+The 2026-09-19 bring-up recorded 30-70 frames/sec against a 100+ target. Root-causing that gap is still open, and it matters more now than it did: motion is all we have left.
 
 ## What CSI can and cannot sense
 
@@ -276,41 +286,16 @@ Get this right. The track owner is an RF-literate judge and overclaiming here co
 **CSI can sense:** motion, presence, coarse position, posture change, and periodic chest-wall displacement, which is where breathing and heart rate come from.
 It responds to anything that changes the multipath environment, including bodies, moisture, and air density.
 
+**We use exactly one of those**, and the honest framing is that the others were within reach of the physics and out of reach of the hardware, the room, and the weekend.
+That is a better sentence than claiming them, and it is true.
+
 **CSI cannot sense gas composition.**
 Not oxygen, not carbon monoxide, not smoke as a chemical.
 There is a genuine oxygen absorption band near 60 GHz, which is why 802.11ad operates there, but the BCM43455c0 is a 2.4/5 GHz radio and that physics is simply not available to us.
-Do not build an "oxygen sensing" claim on this hardware.
 
-This is why `agents/environment` reads a separate physical sensor.
-
-## Air quality: simulated, and labeled as such
-
-Carbon monoxide, not oxygen. See the modality limits above for why CSI cannot do this at all.
-
-**No gas sensor is being purchased.** `agents/environment` ships with a simulated reading.
-
-Build the interface as though a sensor were behind it:
-
-- A driver boundary with one implementation, `demo-trigger`, and room for a real one.
-- `environment.source` always names what produced the number. The literal string `demo-trigger` when simulated. This field exists so a simulated reading cannot be presented as measured by accident.
-- Plausible values and plausible dynamics. CO that jumps from 0 to 800 ppm in one sample is obviously synthetic; ramp it.
-
-If someone does end up with hardware, the real path is an MQ-7 (CO) or MH-Z19 (CO2).
-The MQ-7 is analog and the Pi has no ADC, so it needs an MCP3008 in between.
-Write that down in a comment at the driver boundary so the next person does not have to rediscover it.
-
-The claim we make on stage is about extensibility, not measurement:
-the agent, its ANS identity, and the contract are real; the sensor is not; swapping one in changes nothing above the driver.
-
-## Fire, honestly
-
-We are not building a validated fire detector in 36 hours and should not claim to.
-
-Take fire as an external input, from `agents/environment` or a demo trigger, and let CSI answer the question that actually matters: **who is still inside, where, and are they breathing.**
-
-Firefighters already know the house is on fire when they are dispatched.
-Nobody knows how many people are in the back bedroom.
-That is the gap we fill, and it is a better story than a worse smoke detector.
+**CSI cannot identify a person.**
+Gait-based identification needs per-person enrollment in the same room it was trained in and a subject who is walking. We do not claim it and never did.
+Identity, after the pivot, comes from two places: device association against the household roster, and the camera.
 
 ## Calibration, and why most of it is avoidable
 
@@ -334,7 +319,8 @@ To say "three people," the system has to know what zero looks like.
 Calibrate with someone in the room and they are absorbed into the definition of empty. From then on they do not exist.
 This is the same way adaptive background subtraction loses stationary targets in radar and vision.
 
-For a system whose entire purpose is "is someone still inside and are they breathing," silently deleting the motionless person is the worst bug available to us.
+It matters less after the pivot than it did, because a motionless person is now the camera's problem rather than the radio's, and motion is what we are looking for in the first place.
+It still matters: a baseline captured while someone is already in the room raises the threshold for everyone who walks in afterward.
 
 ### Build a rolling baseline, not a calibration step
 
@@ -353,15 +339,14 @@ Do not let it get tuned at 4am by whoever is nearest the keyboard. Write down th
 | Capability | Needs empty-room baseline |
 |---|---|
 | Motion detection | **No.** Variance over a sliding window. Furniture has zero variance; people do not. |
-| Breathing | **No.** Periodicity in a 0.1-0.5 Hz band. Needs seconds of data, not a reference. |
-| Fall / collapse | Mostly no. It is a motion transient. |
-| Counting people | **Yes.** |
-| Room-level localization | **Yes.** |
+| Zone labelling | **Yes.** From the enrollment walk |
+| Counting people | **Yes.** Cut |
+| Room-level localization | **Yes.** Cut |
 
-So `agents/collapse` and `agents/biometrics`, the two highest-value agents, are close to calibration-free.
-`agents/occupancy` is the one that genuinely needs the baseline.
+**Everything that survived the pivot is in the first row.**
+That is not a coincidence: the capabilities that needed a reference are the ones that could not be relied on, and cutting them removed the calibration problem along with them.
 
-This is also why the venue demo is movement-only: motion sensing is environment-independent, which is the whole reason it survives a crowded hall.
+Zone labelling is the one remaining thing that wants a baseline, and it degrades gracefully - a wrong zone label is a wrong word in a notification, not a wrong finding.
 
 ## Rooms: the system does not map walls
 
@@ -394,7 +379,7 @@ It is also an ordinary product experience. People already name rooms when settin
 
 ### The floor plan is authored, not sensed
 
-This falls under the honesty rule in the root `CLAUDE.md`, same category as the simulated gas sensor.
+This falls under the honesty rule in the root `CLAUDE.md`, where it is now the fourth entry.
 
 The room model in the app is **drawn by us**. We film in one house; measure it once and hardcode it.
 That is fine. What is not fine is letting the visual imply the system discovered the layout.
@@ -405,68 +390,19 @@ The answer if a judge asks whether it maps their house:
 
 **Roadmap:** Apple RoomPlan. On LiDAR iPhones it returns a parametric model with walls, doors and windows; scan once at setup and feed it into the Three.js view. A real floor plan from a sensor designed to produce one, paired with RF for the part RF is good at.
 
-## Breathing is the personhood test
+## Breathing, and why this section is a stub
 
-A perturbation showing quasi-periodic modulation in a physiological band is a living body.
-A fan, a curtain, a rolling cart, a door swinging: none of them produce that signature.
+This file used to carry sixty lines on respiration: the personhood test, Fresnel-zone positioning, the rate bands that grounded the adult / child / pet split, and how a lost signature became the headline claim.
 
-Three properties make this load-bearing rather than a nice extra:
+**All of it was cut on 2026-09-19.** The reasoning is in `docs/PIVOT.md`.
 
-1. **Calibration-free.** Periodicity does not depend on knowing what empty looks like.
-2. **Discriminates human from non-human motion**, which nothing else in the stack does.
-3. **Works on a person who is not moving**, which is the exact case motion detection fails and the exact case that matters most.
+The short version, because someone will ask and the answer is a good one:
+we could resolve a breathing signature, and we could not resolve it reliably enough for a dispatcher to act on.
+Shallow breathing, a held breath, an unlucky Fresnel position and a person just outside range all produced the same reading, which is no reading.
+A claim that needs four caveats before it can be used is the wrong central claim, and we replaced it with one a human can check: footage.
 
-**Use respiration, not heart rate, for this decision.**
-Chest wall displacement from breathing is roughly 5-12mm. From a heartbeat it is a few tenths of a millimeter: more than an order of magnitude smaller, usually buried under respiration harmonics, and generally requiring the subject to be close and still.
-RuView lists 40-120 BPM for heart rate. Treat it as a stretch goal and as a good number to say on the 911 call. Respiration at 0.1-0.5 Hz carries the personhood decision.
-
-Consequence for the agent layer: **`agents/biometrics` is the arbiter of what counts as a person**, not merely another reporting channel.
-A presence with a respiration signature is human. One without is furniture, noise, or a pet.
-
-Clinical thresholds, the long-lie definition, and the statistics behind all of this are in `docs/research/agent-briefs.md`.
-Tagging a presence with a person's name is a separate question with a separate answer: `docs/research/identity.md`. Short version - never from the body, only from device association, and the label never overrides a physical observation.
-
-**Range, per capability:** motion and collapse reach 5-10 m line of sight and about 5 m through one drywall wall; respiration is the short pole at 2-4 m, best under 3. Heart rate is under 2 m and often under 1.
-Sensitivity runs along the line between router and Pi, not in a radius around the Pi.
-Full table, wall-penetration limits and the twenty-minute range test are in `docs/hardware/assembly-and-placement.md`.
-**Respiration sets the demo geometry**, because it is the shortest-range thing the demo depends on.
-
-**To extend range, do not buy an extender.** The MacBook traffic generator is already a second transmitter at a second location; placing it at the far end of the space is the free version of what an extender would do, without the retransmit jitter. Ranked options in `docs/hardware/assembly-and-placement.md`.
-
-### Fresnel position: the failure that looks like broken firmware
-
-Respiration shows up in **amplitude**, not phase. The Pi receives the direct path from the router plus a reflection off the chest; as the chest moves the two slide between constructive and destructive interference.
-
-Phase would be the cleaner signal, but removing carrier and sampling offsets normally needs conjugate multiplication across two antennas that share an oscillator. **The BCM43455c0 is 1x1.** That trick is unavailable, so work in amplitude, which is immune to those offsets entirely.
-
-The consequence is that **sensitivity depends on where the person is lying.**
-
-- On a Fresnel boundary, millimetres of chest motion produce a large amplitude swing. Ideal.
-- At a zone centre the response is second-order and nearly flat. **A blind spot.**
-
-Boundaries fall every λ/2 of path change, which is 30mm at 5GHz. So there are real positions in a room where a perfectly healthy person reads as not breathing.
-
-**When staging the fall, test two or three positions before concluding anything is broken.** If breathing looks absent, move the subject a few inches first. Combine across subcarriers rather than trusting one, since different subcarriers peak at different positions.
-
-### Respiration rate grounds the class split
-
-This replaces the earlier hand-wave that mass and height perturb CSI differently, which was thin and would not survive a question from an RF-literate judge.
-
-| Class | Resting respiration, BPM |
-|---|---|
-| Adult | 12-20 |
-| Child | 20-30 |
-| Infant | 30-60 |
-| Dog / cat | 15-30+ |
-
-Physically grounded and defensible.
-It will **not** cleanly separate a dog from a child, and the overlap must be stated rather than hidden. "Adult versus small and fast-breathing" is the honest resolution.
-
-**Limits to state plainly:**
-
-- Overlapping respiration signals from several people close together cannot be separated. This is why counting still fails in a crowded hall.
-- Vital signs work at shorter range than motion detection.
-- A person holding their breath, or breathing very shallowly, degrades toward invisible. Cross-check against `collapse` rather than treating absence of respiration as absence of a person.
+Do not reintroduce respiration as a "bonus" capability.
+It was cut for what it could not support, not for lack of time, and a half-supported vital sign on a 911 call is worse than none.
 
 ## Privacy posture
 

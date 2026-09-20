@@ -1,0 +1,197 @@
+"""The HTTP surface every agent serves, and the process that runs it.
+
+Identical across the five, because none of what it does is an agent's job. What
+differs between agents is `tick`, and that is the only thing that should differ.
+
+**The hard requirement this file exists for:** the agents must be hosted on the
+internet and reachable. The track owner said it directly; localhost does not
+count. Host them before they are finished - five empty agents reachable tonight
+beats five complete agents on a laptop Sunday morning, because the deploy path
+is where the hours disappear.
+
+Surfaces:
+
+    /a2a                              the A2A JSON-RPC endpoint. Signed claims
+    /.well-known/agent-card.json      the A2A card, bytes from disk
+    /.well-known/agent.json           the same bytes, the alias the spec allows
+    /.well-known/ans/trust-card.json  the ANS card, bytes from disk
+    /healthz                          liveness, and honest about tick failures
+    /v1/observation                   this agent's latest observation
+
+Cards are served as **bytes read from disk**, with a strong ETag over their own
+fingerprint. Not re-serialized, not re-assembled, not templated. `ans/CARD.md`
+measure 2, and the reason is that `card_drift_watch` cannot tell a card we
+changed from a card someone else changed.
+
+`/a2a` is the inter-agent channel: `master` issues a challenge, the agent signs
+its current observation against it, and every claim is verified before anything
+downstream sees a field. `/v1/observation` is the unsigned read-only view of the
+same state, for the app's feed and for a judge poking at a running agent. **They
+are not interchangeable**, and an agent serving `/a2a` without a signer serves
+nothing there rather than serving claims nobody signed.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
+
+from agents.core.base import Agent
+from agents.core.cards import A2A_CARD_ALIAS, A2A_CARD_PATH, TRUST_CARD_PATH
+from agents.core.identity import AgentIdentity
+
+if TYPE_CHECKING:  # pragma: no cover
+    from agents.core.signing import ClaimSigner
+
+logger = logging.getLogger(__name__)
+
+#: Where `scripts/build_cards.py` writes. One directory per agent.
+CARD_ROOT = Path(__file__).resolve().parent.parent.parent / "build" / "cards"
+
+
+class _CardBytes:
+    """A card read once at startup and served verbatim thereafter.
+
+    Read once rather than per request for the same reason the card is a build
+    artifact: a file that is re-read can change under us mid-run, and an agent
+    whose card changes without a version bump is indistinguishable from a
+    compromised one to any monitor watching.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.body: bytes | None = None
+        self.etag: str | None = None
+        if path.is_file():
+            self.body = path.read_bytes()
+            # The ETag is over the served bytes, which is the thing a verifier
+            # re-fetches and hashes. Anything else would be an ETag for a
+            # document we are not serving.
+            from hashlib import sha256
+
+            self.etag = '"' + sha256(self.body).hexdigest()[:32] + '"'
+        else:
+            logger.warning(
+                "no card at %s; run scripts/build_cards.py. The agent will serve 503 for "
+                "this path rather than assembling one, because an assembled card drifts.",
+                path,
+            )
+
+    def response(self) -> Response:
+        if self.body is None:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "card_not_built",
+                    "detail": (
+                        "This agent has no published card. Cards are build artifacts; run "
+                        "scripts/build_cards.py. Serving an assembled card would create "
+                        "drift a monitor would correctly report against us."
+                    ),
+                },
+            )
+        return Response(
+            content=self.body,
+            media_type="application/json",
+            headers={"ETag": self.etag or "", "Cache-Control": "public, max-age=300"},
+        )
+
+
+def build_app(
+    agent: Agent, *, card_dir: Path | None = None, signer: "ClaimSigner | None" = None
+) -> FastAPI:
+    """Wrap an agent in the surface all five share.
+
+    `signer` is what lets this agent answer on `/a2a`. Without one the endpoint
+    is simply absent, which is the honest failure: an agent that served claims
+    it could not sign would be advertising an identity it does not hold.
+    """
+    identity: AgentIdentity = agent.identity
+    cards = card_dir or (CARD_ROOT / identity.slug)
+    a2a = _CardBytes(cards / "agent-card.json")
+    trust = _CardBytes(cards / "trust-card.json")
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):  # noqa: ANN202 - FastAPI's own signature
+        # The agent starts with the process and stops with it. There is no
+        # "start on first request": every agent runs continuously, which is what
+        # lets the system notice an unidentified person in the house at 3am.
+        await agent.start()
+        yield
+        await agent.stop()
+
+    app = FastAPI(
+        title=identity.name,
+        summary=identity.summary,
+        version="0.1.0",
+        docs_url="/docs",
+        lifespan=lifespan,
+    )
+
+    if signer is not None:
+        from agents.core.transport import a2a_router
+
+        app.include_router(a2a_router(agent, signer))
+    else:
+        logger.warning(
+            "%s has no signer, so it serves no /a2a endpoint. Its card advertises one; "
+            "fix that before publishing, because a card that overclaims is a signed, "
+            "published, machine-checkable lie.",
+            identity.name,
+        )
+
+    @app.get(A2A_CARD_PATH, include_in_schema=False)
+    @app.get(A2A_CARD_ALIAS, include_in_schema=False)
+    async def _a2a_card() -> Response:
+        return a2a.response()
+
+    @app.get(TRUST_CARD_PATH, include_in_schema=False)
+    async def _trust_card() -> Response:
+        return trust.response()
+
+    @app.get("/healthz")
+    async def _health() -> dict[str, object]:
+        """Liveness, and honest about it.
+
+        `healthy` false while `running` true is the state sensor/CLAUDE.md warns
+        about twice: a component that reports healthy while producing nothing.
+        Separating the two is what makes that visible instead of silent.
+        """
+        return agent.health()
+
+    @app.get("/v1/observation")
+    async def _observation() -> Response:
+        latest = agent.latest
+        if latest is None:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "no_observation", "detail": "Agent has not completed a tick yet."},
+            )
+        return JSONResponse(content=latest.model_dump(mode="json"))
+
+    @app.get("/v1/identity")
+    async def _identity() -> dict[str, object]:
+        """What this agent is, from the same object the card was built from.
+
+        Exists so a divergence between the running agent and its published card
+        is one diff away rather than an inference.
+        """
+        return {
+            "agent": identity.name,
+            "ansname": identity.ansname,
+            "tier": identity.tier,
+            "role": identity.role.value,
+            "question": identity.question,
+            "recommended_profile_expected": identity.profile.value,
+            "consumes": [f"agents/{s}" for s in identity.consumes],
+            "simulated_inputs": list(identity.simulated_inputs),
+            "must_not_claim": list(identity.must_not_claim),
+        }
+
+    return app

@@ -3,7 +3,8 @@ import SwiftUI
 /// Motion curves. Named, so the whole app moves at the same speed.
 ///
 /// The constraint: nothing in this app bounces. A bouncy spring on a screen
-/// that is reporting an unresponsive person reads as playful, which is wrong.
+/// that is reporting a person who has stopped answering reads as playful,
+/// which is wrong.
 enum Motion {
 
     /// Default state change. Rows appearing, screens swapping.
@@ -15,7 +16,7 @@ enum Motion {
     /// Slow, continuous, never-ending. Breathing rings and scan sweeps.
     static let ambient = Animation.easeInOut(duration: 3.2).repeatForever(autoreverses: true)
 
-    /// The urgent pulse behind an unresponsive presence. Faster than ambient
+    /// The urgent pulse behind a presence whose breathing signature is gone. Faster than ambient
     /// so it is legible as alarm rather than as ornament.
     static let urgent = Animation.easeInOut(duration: 0.9).repeatForever(autoreverses: true)
 

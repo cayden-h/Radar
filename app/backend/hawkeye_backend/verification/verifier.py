@@ -126,12 +126,20 @@ class ClaimVerifier:
         now: datetime | None = None,
         dispatched_incidents: frozenset[str] = frozenset(),
         expected_incident_id: str | None = None,
+        expected_nonce: str | None = None,
     ) -> VerificationOutcome:
         """Verify a claim. Raises VerificationRejected, or returns an outcome.
 
         `dispatched_incidents` is incident lifecycle state. A claim naming an
         incident that already dispatched is spent, however fresh its proof.
         Battery #12, `replay_settled`.
+
+        `expected_nonce` is the challenge this verifier issued for the fan-out
+        the claim is answering. **Pass it always on the live path.** Omitting it
+        verifies everything else and leaves the claim unbound to any particular
+        question, which is precisely the property the nonce exists to remove;
+        it is None only for the battery shapes that predate the challenge and
+        for tests that are probing some other property.
         """
         now = now or utc_now()
         checks: list[VerificationCheck] = []
@@ -167,7 +175,7 @@ class ClaimVerifier:
         passed("strict_parse", "envelope and proof parsed under the closed schema")
 
         # 3. Schema version. Refuse what we do not understand rather than
-        #    reading it charitably. Nine agents at different build stages is the
+        #    reading it charitably. Five agents at different build stages is the
         #    ordinary reason this fires, not an attack.
         if env.schema_version not in SUPPORTED_SCHEMA_VERSIONS:
             raise fail(
@@ -211,7 +219,7 @@ class ClaimVerifier:
 
         # 7. Proof of possession: self-consistent, bound to this submission, and
         #    presented by the key the envelope names. Battery #8.
-        self._verify_proof(proof, env, now, passed, fail)
+        self._verify_proof(proof, env, now, expected_nonce, passed, fail)
 
         # 8. Bindings. Audience, incident, zone, freshness. Battery #5, #6, #7.
         if env.audience != self._policy.audience:
@@ -325,6 +333,7 @@ class ClaimVerifier:
         proof: PossessionProof,
         env: ClaimEnvelope,
         now: datetime,
+        expected_nonce: str | None,
         passed,
         fail,
     ) -> None:
@@ -360,6 +369,30 @@ class ClaimVerifier:
                 "possession proof signature does not verify",
             )
         passed("proof_signature", "verified")
+
+        # Challenge binding. The nonce this verifier issued for the fan-out this
+        # claim is answering, and the reason the mesh is pull-only: a claim is
+        # bound to a question we asked, not to a moment the producer chose.
+        #
+        # A mismatch is refused rather than downgraded. An agent answering a
+        # challenge we did not issue is either replaying a claim prepared for a
+        # different fan-out or was never asked at all, and neither is something
+        # a dispatcher should hear.
+        if expected_nonce is not None and proof.nonce != expected_nonce:
+            raise fail(
+                RejectionCode.PROOF_REJECTED,
+                "proof_nonce",
+                (
+                    f"proof answers challenge {proof.nonce!r}; this verifier issued "
+                    f"{expected_nonce!r}. The claim was not produced for the question asked."
+                ),
+            )
+        passed(
+            "proof_nonce",
+            f"answers challenge {proof.nonce}"
+            if expected_nonce is not None
+            else f"carries challenge {proof.nonce}; verifier issued none to check it against",
+        )
 
         # Submission binding. `htm` / `htu`.
         if proof.target != self._policy.target:

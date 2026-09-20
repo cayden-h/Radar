@@ -1,6 +1,6 @@
 # Tagging people: what is possible, what ships, what is roadmap
 
-Settled 2026-09-19. Read before writing anything in `agents/occupancy` or `agents/intruder`
+Settled 2026-09-19. Read before writing anything in `agents/people` or `agents/intruder`
 that sounds like it identifies a person.
 
 ## The rule

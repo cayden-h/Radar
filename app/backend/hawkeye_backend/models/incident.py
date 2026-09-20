@@ -12,11 +12,16 @@ from hawkeye_backend.models.verification import VerificationResult
 
 
 class IncidentType(StrEnum):
-    """The three incident types. Nothing else classifies."""
+    """The two incident types. Nothing else classifies.
+
+    Faint was the third until 2026-09-19. Fall detection was the weakest link
+    in the chain - a debounce problem dressed as a clinical variable - and what
+    a dispatcher actually needs is narrower and defensible: whether the people
+    inside can respond. That is carried by respiration, per presence.
+    """
 
     BURGLARY = "burglary"
     FIRE = "fire"
-    FAINT = "faint"
 
 
 class RaisedBy(StrEnum):
@@ -24,7 +29,7 @@ class RaisedBy(StrEnum):
 
     USER is the only path to a call. Hawk Eye never dials 911 on its own;
     settled 2026-09-19. A human tap is what releases `agents/caller` to dial,
-    and `agents/collapse` and `agents/environment` surface their detections as
+    and `agents/people` and `agents/master` surface their detections as
     interior state the resident acts on rather than as a call.
 
     SYSTEM is kept for wire compatibility and for records raised before that
@@ -59,8 +64,10 @@ class CallState(StrEnum):
 class IncidentClassification(BaseModel):
     """Why master called it what it called it.
 
-    Classification is the interesting part and should be visible. A fall plus
-    elevated CO is a fire incident with a casualty, not a faint.
+    Classification is the interesting part and should be visible. Elevated CO
+    plus a breathing signature that has gone missing is a fire with an occupant
+    who may not be able to respond, and that is two independent modalities
+    rather than one signal crossing a threshold.
     """
 
     incident_type: IncidentType
@@ -140,7 +147,7 @@ class InstructionOrigin(StrEnum):
 
 
 class Instruction(BaseModel):
-    """One thing agents/guidance is telling the resident to do."""
+    """One thing agents/caller is telling the resident to do."""
 
     instruction_id: str
     incident_id: str
@@ -210,7 +217,20 @@ class ReplayEntry(BaseModel):
 
     seq: int
     at: datetime
-    kind: str = Field(description="state | incident | transcript | instruction | verification | context")
+    kind: str = Field(
+        description=(
+            "lifecycle | frame | incident | transcript | instruction | verification | "
+            "context | notice | state"
+        )
+    )
+    actor: str | None = Field(
+        default=None,
+        description=(
+            "Who is responsible for this entry: an ANSName, 'hub', '911-operator', "
+            "'resident'. Null on entries written before the recorder tracked it, which "
+            "is why it is optional rather than required."
+        ),
+    )
     summary: str
     detail: dict[str, object] = Field(default_factory=dict)
     entry_hash: str = Field(description="SHA-256 over the canonical JSON of this entry.")

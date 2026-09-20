@@ -11,25 +11,31 @@ from hawkeye_backend.models.hub import AgentReachability, Reachability
 from hawkeye_backend.models.state import Floorplan, Room
 from hawkeye_backend.models.verification import TrustProfile
 
-# The nine agents. name -> (tier, ans subdomain, trust profile the mesh expects).
+# The five agents. name -> (tier, ans subdomain, trust profile the mesh expects).
+#
+# **This is a copy.** `agents/core/identity.py` is the source of truth for the
+# roster as of 2026-09-19, and the hub should import from it once `agents/` is
+# installable alongside this service. Until then, a change to one must be made
+# to the other, and a divergence shows up as the hub reporting an agent the mesh
+# does not have.
+#
+# The roster was nine until 2026-09-19. `biometrics`, `occupancy` and `collapse`
+# merged into `people`; `environment` became an input to `master`; `guidance`
+# became the resident-facing half of `caller`. Rationale in `agents/CLAUDE.md`.
 #
 # TODO(ans): these ANSNames are placeholders on an unregistered domain
 # (`.invalid` is reserved by RFC 2606 precisely so it can never resolve, which
 # keeps them from being mistaken for real registrations). Replace with the
 # ANSNames actually registered through GoDaddy once ans/ has a domain, and
-# confirm the naming convention: is an agent `collapse.hawkeye.example` or
-# `hawkeye.example/agents/collapse`? agent.webmesh.ai's index at
+# confirm the naming convention: is an agent `people.hawkeye.example` or
+# `hawkeye.example/agents/people`? agent.webmesh.ai's index at
 # /.well-known/agents-index.json is the reference to check against.
 AGENT_ROSTER: list[tuple[str, int, str, TrustProfile]] = [
-    ("agents/occupancy", 1, "occupancy.hawkeye.invalid", TrustProfile.TRANSACTIONAL),
+    ("agents/people", 1, "people.hawkeye.invalid", TrustProfile.FIDUCIARY),
     ("agents/intruder", 1, "intruder.hawkeye.invalid", TrustProfile.TRANSACTIONAL),
-    ("agents/biometrics", 1, "biometrics.hawkeye.invalid", TrustProfile.FIDUCIARY),
-    ("agents/collapse", 1, "collapse.hawkeye.invalid", TrustProfile.FIDUCIARY),
     ("agents/master", 1, "master.hawkeye.invalid", TrustProfile.FIDUCIARY),
     ("agents/caller", 1, "caller.hawkeye.invalid", TrustProfile.FIDUCIARY),
-    ("agents/guidance", 2, "guidance.hawkeye.invalid", TrustProfile.TRANSACTIONAL),
-    ("agents/environment", 3, "environment.hawkeye.invalid", TrustProfile.READ_ONLY),
-    ("agents/replay", 3, "replay.hawkeye.invalid", TrustProfile.TRANSACTIONAL),
+    ("agents/replay", 2, "replay.hawkeye.invalid", TrustProfile.TRANSACTIONAL),
 ]
 
 ANSNAME: dict[str, str] = {name: ans for name, _, ans, _ in AGENT_ROSTER}

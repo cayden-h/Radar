@@ -20,6 +20,7 @@ from hawkeye_backend.models.incident import (
     Instruction,
     TranscriptLine,
 )
+from hawkeye_backend.models.notice import Notice
 from hawkeye_backend.models.state import InteriorState
 from hawkeye_backend.models.verification import VerificationResult
 
@@ -31,6 +32,7 @@ class EventKind(StrEnum):
     INSTRUCTION = "instruction"
     VERIFICATION = "verification"
     CONTEXT = "context"
+    NOTICE = "notice"
     HELLO = "hello"
     ERROR = "error"
 
@@ -66,7 +68,7 @@ class TranscriptEvent(BaseModel):
 
 
 class InstructionEvent(BaseModel):
-    """One instruction from agents/guidance."""
+    """One instruction from agents/caller."""
 
     kind: Literal[EventKind.INSTRUCTION] = EventKind.INSTRUCTION
     instruction: Instruction
@@ -89,6 +91,17 @@ class ContextEvent(BaseModel):
 
     kind: Literal[EventKind.CONTEXT] = EventKind.CONTEXT
     note: ContextNote
+
+
+class NoticeEvent(BaseModel):
+    """A notice was raised: something the resident should know about.
+
+    Does not create an incident and does not dial. `app/CLAUDE.md`: "An alert is
+    information a person acts on. It is not a call."
+    """
+
+    kind: Literal[EventKind.NOTICE] = EventKind.NOTICE
+    notice: Notice
 
 
 class HelloEvent(BaseModel):
@@ -120,6 +133,7 @@ EventPayload = Annotated[
     | InstructionEvent
     | VerificationEvent
     | ContextEvent
+    | NoticeEvent
     | HelloEvent
     | ErrorEvent,
     Field(discriminator="kind"),

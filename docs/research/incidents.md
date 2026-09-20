@@ -1,17 +1,37 @@
-# The three incident types
+# The incident types
+
+**Pivot note, 2026-09-19.** Burglary is the only surviving incident type and its figures below still stand.
+**The Fire sections are now history**, kept for the same reason the Faint sections were: they record what motivated the original design and the decision that cut it. Fire went with the simulated gas sensor.
+The headline also changed. It is no longer responsiveness, and it is no longer the long lie. It is that **responders arriving at a building do not know who is inside**, and a camera that was physically covered until thirty seconds ago is what closes that.
+See `docs/PIVOT.md`.
 
 Researched 2026-09-19. Every figure here was verified during that session; sources are linked inline.
 Use these numbers in the pitch, the Devpost page, and the video. Do not round them upward.
 
-Hawk Eye covers **Fire**, **Burglary**, and **Faint**.
+Hawk Eye covers **Fire** and **Burglary**.
+It covered a third, **Faint**, until 2026-09-19. That section is kept below, as history, and it is marked as history.
 Read the synthesis at the bottom of each section; the raw numbers matter less than what they imply about the product.
+
+**The headline is responsiveness.**
+Responders arriving at a building do not know who is inside or whether those people can answer.
+Hawk Eye tells them: which rooms hold a presence, and how long since a breathing signature that was there stopped being resolvable.
+That is a narrower claim than the one this file used to lead with, and unlike that one it survives contact with what the radio can actually measure.
 
 ---
 
-## Faint / fall
+## Faint / fall - cut as an incident type on 2026-09-19
 
-**This is the strongest of the three, and it is not close.**
-If the pitch only has room for one incident type, use this one.
+**Read this section as history, not as a capability.**
+
+Faint was the third incident type and fall detection was the feature behind it. Both were cut on 2026-09-19, and `agents/people/collapse.py` was deleted.
+**The system does not detect falls, does not measure time on the floor, and must never be pitched as doing either.**
+
+Why it went: debounce was the whole engineering problem and it never got better.
+Sitting down fast, lying down to sleep and a child playing all look like a fall for an instant, and a system that calls 911 when someone flops onto a couch is worse than no system.
+It was a debounce problem dressed as a clinical variable.
+
+The figures below are real, sourced, and were the motivation for the original design. They are kept for exactly that reason: a scope cut you cannot explain is a scope cut you cannot defend, and a judge who asks "why not falls, the statistics are right there" deserves the statistics and the answer together.
+Two of them still do work in the current pitch and are cited elsewhere: how many older adults live alone, and the fire timeline in the next section.
 
 ### Scale
 
@@ -42,23 +62,20 @@ Sources: [BMJ prospective cohort, people over 90](https://www.ncbi.nlm.nih.gov/p
 
 Sources: [Merck Manual](https://www.merckmanuals.com/professional/geriatrics/social-issues-in-older-adults/older-adults-living-alone), [Pew Research](https://www.pewresearch.org/short-reads/2025/12/04/a-smaller-share-of-older-us-adults-live-alone-today-than-in-1990/)
 
-### Synthesis: the long lie is the thing we actually fix
+### Synthesis, as of the cut: what survived and what did not
 
-**The fall is rarely what kills. The time on the floor is.**
+**What did not survive: every claim in this section that depends on knowing a fall happened.**
+The long lie is defined by time on the floor after a fall. Nothing in the shipped system detects a fall, so nothing in it can measure a long lie, and no pitch, deck or Devpost line may imply otherwise.
 
-Half of long-lie patients dead within six months, with no injury from the fall itself, is a mortality figure driven entirely by *how long it took someone to find them.*
-53% still on the floor at ambulance arrival says the current system's discovery time is already too slow, and that is for people whose calls were made.
+**What survived is the shape of the insight rather than its subject.**
+The figures above are a mortality curve driven by *how long it took someone to find them*, and 53% still on the floor at ambulance arrival says discovery time is already too slow even for people whose calls were made.
+The general form of that - the information that decides the outcome is missing at the moment of the call - is still true, and it is still what this project is about.
 
-**What Hawk Eye does and does not claim here.** Settled 2026-09-19: it does not call 911 by itself. A human does.
+What the system measures instead is responsiveness: **when a human does call, the dispatcher learns which rooms hold a presence, and how long since a breathing signature that was resolvable there stopped being resolvable.**
+That is `people.respiration_lost`. It is a measurement and a clock, it is stamped from the last resolvable signature rather than from when the agent became confident, and it is never a finding that someone has stopped breathing.
 
-So the claim is not that it summons help for an unconscious person. It is narrower and still worth having:
-
-**When a human does call, the dispatcher learns how long the person has been down, which room they are in, and whether they are breathing.**
-
-Today that information does not exist. A caller who finds someone on the floor cannot say whether it happened four minutes or four hours ago, and the literature says that interval is the variable that predicts the outcome.
-`still_down_s` is a timestamp nobody has ever been able to give a dispatcher, and it is the clinical variable.
-
-Lead with that. It is defensible, it is specific, and it does not require claiming an autonomy we deliberately did not build.
+Today that information does not exist either. Responders arrive at a building knowing nothing about who is inside.
+That claim is defensible, it is specific, and it does not require claiming either an autonomy or a detector we deliberately did not build.
 
 ---
 
@@ -92,10 +109,10 @@ Sources: [USFA Civilian Fire Fatalities in Residential Buildings](https://www.us
 
 ### Synthesis: the occupant is unconscious before they know
 
-The whole design of `agents/environment` and the decision to take fire as an external input rather than detect it falls straight out of this data.
+The whole design of the air-quality reading in `agents/master` and the decision to take fire as an external input rather than detect it falls straight out of this data.
 
 **Nobody needs us to tell them the house is on fire.** The smoke alarm does that, the occupant does that, the neighbor does that.
-What nobody knows, including the arriving crew, is **how many people are still inside and where.**
+What nobody knows, including the arriving crew, is **how many people are still inside, where they are, and which of them will answer.**
 
 And the reason they cannot simply be asked is in the numbers: unconscious in under a minute, often before awareness, in a room that becomes unsurvivable in three.
 The person who would have answered the door, pressed the button, or shouted from a window is already down.
@@ -127,7 +144,7 @@ Burglars prefer empty houses, which means the dangerous cases are the minority w
 That is precisely the scenario Hawk Eye addresses and existing systems do not:
 a motion sensor tells you something is moving; it cannot tell responding officers **where the intruder is and where the resident is, as separately tracked presences.**
 
-That distinction is the demo, and it is why burglary stays in the roster despite being the weakest of the three on raw numbers.
+That distinction is the demo, and it is why burglary stays in the roster despite being the weaker of the two on raw numbers.
 
 ---
 

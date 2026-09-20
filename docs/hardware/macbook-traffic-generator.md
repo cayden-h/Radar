@@ -1,5 +1,10 @@
 # The MacBook
 
+**Pivot note, 2026-09-19.** The sample-rate table below is written for respiration and heart rate, both of which were cut in the camera pivot.
+**The packet rate still matters**, for a different and simpler reason: a short motion transient cannot be characterized at 10 Hz, and motion is now the only thing CSI does.
+So the ping is still required and the 100+ per second target still stands. Ignore the respiration and heart-rate rows; read the motion-transient row.
+See `docs/PIVOT.md`.
+
 The MacBook has three jobs in this project.
 Only the first one is easy to forget and catastrophic to forget.
 
@@ -27,13 +32,13 @@ Here is what that rate is worth, from `sensor/CLAUDE.md`:
 | | Signal | Sample rate needed |
 |---|---|---|
 | Breathing | 0.1-0.5 Hz | ~10 Hz, marginal |
-| Fall transient | 0.5-1s event | 10 Hz too coarse to characterize |
+| Motion transient | 0.5-1s event | 10 Hz too coarse to characterize |
 | Heart rate | 0.7-2 Hz, buried under breathing harmonics | 20-50 Hz and up |
 
 So at beacon rate:
 
 - Breathing is marginal and noisy.
-- A fall transient cannot be characterized, and `still_down_s` is the clinical variable the whole pitch rests on.
+- A short motion transient cannot be characterized, and a breathing signature that is marginal is a responsiveness clock that starts at the wrong moment.
 - Heart rate is simply not available.
 
 10 Hz is the floor and it is not enough.
@@ -49,7 +54,7 @@ The monitor interface is up.
 The Pi is reachable.
 Every health check in the pipeline is green.
 
-The data is just too sparse to resolve the things the demo depends on, and the symptom shows up three layers away as "collapse detection is unreliable" or "heart rate never populates."
+The data is just too sparse to resolve the things the demo depends on, and the symptom shows up three layers away as "respiration keeps dropping out" or "heart rate never populates."
 Somebody then spends hours tuning a detector that has nothing to work with.
 
 Check the packet rate first, every time, before debugging anything downstream.

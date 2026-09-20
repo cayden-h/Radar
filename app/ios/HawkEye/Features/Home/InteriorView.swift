@@ -16,8 +16,11 @@ import SwiftUI
 /// Three visual states, and the distinction between them is the whole system:
 ///
 /// 1. `.personMoving` - a confirmed person. Calm blue, drifting, breathing.
-/// 2. `.personUnresponsive` - a person who is not responding. Red, pulsing
-///    hard, with an alarm ring around it. **The loudest thing on screen.**
+/// 2. `.personUnresponsive` - a person whose breathing signature we had and no
+///    longer have. Red, pulsing hard, with an alarm ring around it. **The
+///    loudest thing on screen.** The name is the app's internal state; the
+///    label shown to a human reads "no breathing signature", because a lost
+///    signature is a reason to look and never a finding about a body.
 /// 3. `.unconfirmed` - a perturbation with no respiration signature. Drawn as a
 ///    dashed grey lozenge with jittering ticks: deliberately not a blob, so it
 ///    cannot be mistaken for a person at a glance.
@@ -289,20 +292,20 @@ struct InteriorView: View {
 
             switch presence.state {
             case .personMoving, .personUnresponsive:
-                let unresponsive = presence.state == .personUnresponsive
+                let signatureLost = presence.state == .personUnresponsive
                 // `expected` is an orthogonal axis, so it swaps the tint rather
-                // than adding a case. An unexpected person who is also
-                // unresponsive keeps the alarm ring and turns violet.
+                // than adding a case. An unexpected person whose signature has
+                // gone keeps the alarm ring and turns violet.
                 let tint: Color = presence.isUnexpected
                     ? Palette.personUnexpected
-                    : (unresponsive ? Palette.collapse : Palette.personMoving)
+                    : (signatureLost ? Palette.personUnresponsive : Palette.personMoving)
                 drawPerson(&context, at: center, presence: presence, t: t,
-                           tint: tint, alarm: unresponsive)
+                           tint: tint, alarm: signatureLost)
                 if presence.isUnexpected {
                     drawTrackingBrackets(&context, at: center, presence: presence, t: t)
                 }
                 if selected {
-                    drawSelectionRing(&context, at: center, radius: unresponsive ? 28 : 24, tint: tint)
+                    drawSelectionRing(&context, at: center, radius: signatureLost ? 28 : 24, tint: tint)
                 }
             case .unconfirmed, .unresolved:
                 drawUnconfirmed(&context, at: center, presence: presence, t: t)
@@ -375,9 +378,9 @@ struct InteriorView: View {
         )
 
         if alarm {
-            // The alarm ring. Expands and fades on a fast cycle, so an
-            // unresponsive person is the only thing on this canvas that moves
-            // with urgency. Two rings out of phase, so there is always one
+            // The alarm ring. Expands and fades on a fast cycle, so the
+            // presence whose signature went missing is the only thing on this
+            // canvas that moves with urgency. Two rings out of phase, so there is always one
             // visible.
             for offset in [0.0, 0.5] {
                 let cycle = ((t * 1.1 + offset).truncatingRemainder(dividingBy: 1))
@@ -458,7 +461,7 @@ struct InteriorView: View {
         ctx.stroke(brackets, with: .color(Palette.personUnexpected),
                    style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
 
-        // One slow sweep, an order of magnitude calmer than the unresponsive
+        // One slow sweep, an order of magnitude calmer than the lost-signature
         // alarm ring. An intruder is not a medical emergency and must not
         // out-shout one.
         let cycle = (t * 0.45).truncatingRemainder(dividingBy: 1)
@@ -545,7 +548,7 @@ private struct PresenceDetailCard: View {
         if presence.isUnexpected { return Palette.personUnexpected }
         switch presence.state {
         case .personMoving: return Palette.personMoving
-        case .personUnresponsive: return Palette.collapse
+        case .personUnresponsive: return Palette.personUnresponsive
         case .unconfirmed, .unresolved: return Palette.unconfirmed
         }
     }
@@ -610,15 +613,15 @@ private struct PresenceDetailCard: View {
                 .foregroundStyle(Palette.inkFaint)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let down = presence.stillDownS, down > 0 {
-                // `still_down_s` is the clinical variable, not a diagnostic
-                // detail, so it gets its own line rather than folding into the
-                // detail sentence above.
+            if let lost = presence.respirationLostS, lost > 0 {
+                // How long since the last resolvable signature is the number a
+                // dispatcher acts on, not a diagnostic detail, so it gets its
+                // own line rather than folding into the detail sentence above.
                 HStack(spacing: 5) {
-                    Text(Self.duration(down))
+                    Text(Self.duration(lost))
                         .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Palette.collapse)
-                    Text("down")
+                        .foregroundStyle(Palette.personUnresponsive)
+                    Text("no signature")
                         .eyebrowStyle(Palette.inkFaint)
                 }
             }

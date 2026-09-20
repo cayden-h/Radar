@@ -3,11 +3,13 @@
 Set HAWKEYE_MODE=simulated and this drives the demo in two halves, because the
 product works in two halves.
 
-First the detection: `agents/collapse` sees an adult go down in the main
-bedroom, the presence goes to `confirmed_still`, `still_down_s` starts climbing
-and does not reset, and the CO reading rises. That is expressed purely in
-interior state. **No incident is created and nothing is dialled.** Hawk Eye
-never calls 911 on its own; settled 2026-09-19.
+First the detection: `agents/people` resolves a breathing signature on the
+adult in the main bedroom, that signature stops being resolvable, and
+`respiration_lost_s` starts climbing and does not reset while the CO reading
+rises. The transition is the signal; a presence that never resolved a signature
+carries no information. That is expressed purely in interior state. **No
+incident is created and nothing is dialled.** Hawk Eye never calls 911 on its
+own; settled 2026-09-19.
 
 Then, and only if a human taps a button, the call: corroboration from a second
 modality, verification of every source, a DISCARDED claim from an impostor, an
@@ -16,8 +18,10 @@ out as fresh verified queries, and an "I don't know" where the honest answer is
 that nothing could be verified.
 
 What the detection buys is an informed tap, not an autonomous one: by the time
-the resident presses Faint, the hub already knows who is down, in which room,
-whether they are breathing, and for how long.
+the resident presses Fire, the hub already knows who is inside, in which room,
+which of them still return a breathing signature, and how long since one of
+them stopped returning theirs. A lost signature is a reason to search that room
+first. It is never a finding that somebody has stopped breathing.
 
 Everything it emits is labelled. Interior state carries `ruview-sim`, the CO
 reading carries `demo-trigger`, both come out with `source_class: "simulated"`
@@ -32,6 +36,8 @@ import contextlib
 import itertools
 import logging
 import random
+import time
+from dataclasses import dataclass
 from datetime import timedelta
 
 from hawkeye_backend.master.base import EventSink, assert_human_released
@@ -52,6 +58,7 @@ from hawkeye_backend.models.events import (
     TranscriptEvent,
     VerificationEvent,
 )
+from hawkeye_backend.models.household import ObservedDevice
 from hawkeye_backend.models.hub import AgentReachability, Reachability, SensorLiveness
 from hawkeye_backend.models.incident import (
     CallState,
@@ -102,6 +109,46 @@ logger = logging.getLogger(__name__)
 # Source.REPLAY_CSI and the label changes to measured-replay everywhere at once.
 # That is the only edit required, and it is deliberately a single line so nobody
 # has to remember to update a second place.
+@dataclass
+class _Walk:
+    """A presence crossing the floorplan, one zone at a time.
+
+    The interpolated `x`/`y` exist so the map has something to animate. **The
+    zone is the claim**, and it flips at the midpoint of a leg rather than
+    sliding, because a coarse room-level answer is what the radio can actually
+    support and the position is not a localization result. `Position` says the
+    same thing in its own docstring; this is the producer honouring it.
+    """
+
+    presence_id: str
+    route: list[str]
+    seconds_per_leg: float
+    started_at: float
+
+    def at(self, now: float) -> tuple[str, float, float, bool]:
+        """(zone, x, y, still_moving) for this instant."""
+        elapsed = max(0.0, now - self.started_at)
+        leg = int(elapsed // self.seconds_per_leg)
+        if leg >= len(self.route) - 1:
+            zone = self.route[-1]
+            cx, cy = ZONE_CENTROID[zone]
+            return zone, cx, cy, False
+        t = (elapsed % self.seconds_per_leg) / self.seconds_per_leg
+        ax, ay = ZONE_CENTROID[self.route[leg]]
+        bx, by = ZONE_CENTROID[self.route[leg + 1]]
+        zone = self.route[leg] if t < 0.5 else self.route[leg + 1]
+        return zone, ax + (bx - ax) * t, ay + (by - ay) * t, True
+
+
+#: The route an unexpected presence takes: in at the living room, across the
+#: unit, stopping in the hallway outside the second bedroom where a resident is.
+#:
+#: **It stops at the doorway and does not enter.** A 1x1 radio has no spatial
+#: diversity and resolves two people within about a metre as one presence, so
+#: walking it in would draw a separation this link cannot measure. The call
+#: states that limit rather than showing past it.
+INTRUDER_ROUTE: tuple[str, ...] = ("living_room", "dining_room", "hallway")
+
 SIM_SENSOR_SOURCE = Source.RUVIEW_SIM
 
 CSI = Provenance(
@@ -112,16 +159,24 @@ CSI = Provenance(
 )
 GAS = Provenance(
     source=Source.DEMO_TRIGGER,
-    producer="agents/environment",
-    ansname=ANSNAME["agents/environment"],
+    producer="agents/master",
+    ansname=ANSNAME["agents/master"],
     detail="no gas sensor was purchased; an MQ-7 on GPIO through an MCP3008 drops in behind this",
+)
+# The router's association table, simulated. No router integration exists yet,
+# so this is labelled rather than presented as measured. Swapping in the real
+# table is a producer change behind a field that already exists.
+ROUTER = Provenance(
+    source=Source.RUVIEW_SIM,
+    producer="master/simulated",
+    detail="association table, simulated; no router integration exists yet",
 )
 CALLER_VOICE = Provenance(
     source=Source.AGENT_INFERENCE, producer="agents/caller", ansname=ANSNAME["agents/caller"]
 )
 OPERATOR = Provenance(source=Source.OPERATOR_AUDIO, producer="911 PSAP operator")
 GUIDANCE = Provenance(
-    source=Source.AGENT_INFERENCE, producer="agents/guidance", ansname=ANSNAME["agents/guidance"]
+    source=Source.AGENT_INFERENCE, producer="agents/caller", ansname=ANSNAME["agents/caller"]
 )
 RESIDENT = Provenance(source=Source.USER_INPUT, producer="app/ios")
 
@@ -143,7 +198,9 @@ class SimulatedMasterClient:
         self._incident: Incident | None = None
         self._script_running = False
         self._detection_running = False
-        self._fall_detected = False
+        self._signature_lost = False
+        self._intrusion_detected = False
+        self._walk: _Walk | None = None
         self._counters: dict[str, itertools.count[int]] = {
             "incident": itertools.count(1),
             "line": itertools.count(1),
@@ -152,6 +209,7 @@ class SimulatedMasterClient:
             "claim": itertools.count(1),
             "note": itertools.count(1),
         }
+        self._counters["presence"] = itertools.count(4)
 
         self._presences: dict[str, Presence] = {
             "p1": self._presence(
@@ -222,7 +280,8 @@ class SimulatedMasterClient:
     async def _delayed_autostart(self) -> None:
         """HAWKEYE_SIM_AUTOSTART runs the detection on boot, never the call.
 
-        Autostart exists so a demo rig comes up already showing the fall. It
+        Autostart exists so a demo rig comes up already showing the lost
+        signature. It
         cannot start a call, because nothing in this process is allowed to.
         """
         await self._sleep(3.0)
@@ -324,7 +383,7 @@ class SimulatedMasterClient:
         person_confidence: float,
         respiration: RespirationStatus = RespirationStatus.BREATHING,
         expected: bool | None = True,
-        still_down_s: float | None = None,
+        respiration_lost_s: float | None = None,
     ) -> Presence:
         cx, cy = ZONE_CENTROID[zone]
         return Presence(
@@ -342,7 +401,7 @@ class SimulatedMasterClient:
             presence_class=presence_class,
             class_basis="respiration_rate" if breathing_bpm is not None else None,
             expected=expected,
-            still_down_s=still_down_s,
+            respiration_lost_s=respiration_lost_s,
             provenance=CSI,
         )
 
@@ -354,10 +413,37 @@ class SimulatedMasterClient:
         """
         if not presence.moving:
             return presence
+        if self._walk is not None and self._walk.presence_id == presence.presence_id:
+            # A walking presence already has a position for this instant, and
+            # jittering it around a zone centroid would drag it back into the
+            # room it is leaving.
+            return presence
         cx, cy = ZONE_CENTROID[presence.position.zone]
         presence.position.x = round(cx + self._rng.uniform(-0.7, 0.7), 2)
         presence.position.y = round(cy + self._rng.uniform(-0.5, 0.5), 2)
         return presence
+
+    def _resident_devices(self) -> list[ObservedDevice]:
+        """Two resident phones, always associated.
+
+        The intruder deliberately has no device: that surplus is what makes the
+        presence unexpected, and it is what the resident later resolves by
+        remembering a visitor.
+        """
+        return [
+            ObservedDevice(
+                device_id="obs-resident-1",
+                identifier_hash="1" * 64,
+                fingerprint="a4:..:1c",
+                provenance=ROUTER,
+            ),
+            ObservedDevice(
+                device_id="obs-resident-2",
+                identifier_hash="2" * 64,
+                fingerprint="b8:..:7e",
+                provenance=ROUTER,
+            ),
+        ]
 
     def _build_state(self) -> InteriorState:
         presences = [self._jitter(p) for p in self._presences.values()]
@@ -370,6 +456,7 @@ class SimulatedMasterClient:
                 note="Rolling percentile baseline, slow adaptation. No calibration ritual.",
             ),
             presences=presences,
+            associated_devices=self._resident_devices(),
             environment=EnvironmentReading(
                 co_ppm=round(self._co_ppm, 1),
                 smoke_detected=self._smoke,
@@ -380,13 +467,43 @@ class SimulatedMasterClient:
             active_incident_id=self._incident.incident_id if self._incident else None,
         )
 
+    def _advance_walk(self) -> None:
+        """Move a walking presence along its route. Called once per tick."""
+        if self._walk is None:
+            return
+        presence = self._presences.get(self._walk.presence_id)
+        if presence is None:
+            self._walk = None
+            return
+        zone, x, y, moving = self._walk.at(time.monotonic())
+        presence.position.zone = zone
+        presence.position.x = round(x, 2)
+        presence.position.y = round(y, 2)
+        if not moving:
+            # Arrived. The presence stays tracked and stays unexpected; it has
+            # stopped crossing rooms, not stopped being there. `agents/intruder`
+            # holds a declared track through clear ticks rather than dropping
+            # it, because a track that flickers off tells a responding officer
+            # the intruder left.
+            #
+            # **It stays CONFIRMED_MOVING.** `CONFIRMED_STILL` is not a synonym
+            # for stationary in this system: it means still but breathing, a
+            # person who is not responding, and it is the loudest thing on
+            # screen because it is the case the whole project exists for.
+            # Spending it on somebody standing in a hallway would render an
+            # intruder identically to a collapsed resident. From here `_jitter`
+            # nudges them around the hallway, which is what somebody who has
+            # just walked in actually does.
+            self._walk = None
+
     async def _state_loop(self) -> None:
         """Interior state ticks continuously. Nothing spawns on incident."""
         while not self._stopping.is_set():
             self._baseline_age_s += 0.5
+            self._advance_walk()
             for presence in self._presences.values():
-                if presence.still_down_s is not None:
-                    presence.still_down_s += 0.5
+                if presence.respiration_lost_s is not None:
+                    presence.respiration_lost_s += 0.5
             await self._emit(StateEvent(state=self._build_state()))
             await asyncio.sleep(0.5)
 
@@ -554,24 +671,36 @@ class SimulatedMasterClient:
 
     # ------------------------------------------------------------------ script
 
-    async def run_detection(self) -> None:
+    async def run_detection(self, scenario: str = "burglary") -> None:
         """The detection, and nothing else. No incident. No call.
 
-        `agents/collapse` sees an adult go down in the main bedroom and
-        `agents/environment` sees carbon monoxide climb. Both surface here as
-        interior state on the 2 Hz tick: the presence moves to
-        `confirmed_still`, `still_down_s` starts climbing and does not reset,
-        and `environment.co_ppm` rises.
+        Two scenarios, because they exercise different halves of the system.
 
-        The system notices and then waits. Hawk Eye never calls 911 on its own;
-        settled 2026-09-19. What the detection buys is an informed tap.
+        `burglary` is the frame this project is built around: an unexpected
+        presence enters and crosses the unit toward a resident, tracked
+        separately from the people who live there.
+
+        `fire` is the case the system exists for: `agents/people` loses the
+        breathing signature it had on the adult in the main bedroom and
+        `agents/master` sees carbon monoxide climb. Both surface here as
+        interior state on the 2 Hz tick: the presence is still and breathing,
+        then its signature stops resolving, `respiration_lost_s` starts
+        climbing and does not reset, and `environment.co_ppm` rises.
+
+        Either way the system notices and then waits. Hawk Eye never calls 911
+        on its own; settled 2026-09-19. What a detection buys is an informed
+        tap, not a dispatch.
         """
-        if self._detection_running or self._fall_detected:
+        already = self._signature_lost if scenario == "fire" else self._intrusion_detected
+        if self._detection_running or already:
             logger.info("detection already run, ignoring request")
             return
         self._detection_running = True
         try:
-            await self._run_detection()
+            if scenario == "fire":
+                await self._run_detection()
+            else:
+                await self._run_burglary_detection()
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -579,27 +708,103 @@ class SimulatedMasterClient:
         finally:
             self._detection_running = False
 
+    async def _run_burglary_detection(self) -> None:
+        """Someone who is not supposed to be here comes in and crosses the unit.
+
+        The order matters and it is the argument the burglary view makes.
+
+        A perturbation appears at the living room first, with **no respiration
+        signature**, so it is `unconfirmed` - indistinguishable at that instant
+        from the curtain already sitting in the same room. It is not called a
+        person, because it is not yet known to be one.
+
+        Then respiration resolves. The perturbation becomes a confirmed person,
+        and only now can `agents/intruder` ask its own question: does any
+        registered device account for this body? Two residents on the roster,
+        two phones associated, and one body left over.
+
+        Then it walks. Living room to dining room to the hallway outside the
+        second bedroom, which is where it stops.
+        """
+        await self._sleep(1.0)
+        self._apply_intrusion()
+        logger.info("unexplained perturbation in living_room; no respiration signature yet")
+
+        # Respiration resolves it into a person. Until this moment calling it an
+        # intruder would have been calling a curtain an intruder, which is the
+        # failure mode the whole personhood test exists to avoid.
+        await self._sleep(2.5)
+        intruder = self._presences["p4"]
+        intruder.state = PresenceState.CONFIRMED_MOVING
+        intruder.vitals.respiration = RespirationStatus.BREATHING
+        intruder.vitals.breathing_bpm = 19.0
+        intruder.vitals.heart_bpm = 104.0
+        intruder.vitals.person_confidence = 0.83
+        intruder.presence_class = PresenceClass.ADULT
+        intruder.class_basis = "respiration_rate"
+        intruder.confidence = 0.74
+        # Set only now. `expected` is a question about a *person*, and there was
+        # no person to ask it about until this tick.
+        intruder.expected = False
+        logger.info("respiration resolved: confirmed person, no device accounts for it")
+
+        await self._sleep(1.5)
+        self._walk = _Walk(
+            presence_id="p4",
+            route=list(INTRUDER_ROUTE),
+            seconds_per_leg=6.0 * self._speed,
+            started_at=time.monotonic(),
+        )
+        logger.info("unexpected presence moving: %s", " -> ".join(INTRUDER_ROUTE))
+
+    async def _settle_track(self, timeout_s: float) -> None:
+        """Wait for a walking presence to arrive, up to a cap.
+
+        Capped rather than unbounded: an operator waiting on a synthesized voice
+        that has gone quiet is a worse failure than a room name one hop stale,
+        and a walk that never ends must not be able to stall the call.
+        """
+        deadline = time.monotonic() + timeout_s * self._speed
+        while self._walk is not None and time.monotonic() < deadline:
+            await asyncio.sleep(0.25)
+
+    def _apply_intrusion(self) -> None:
+        """Put an unexplained perturbation in the living room.
+
+        Idempotent, so a Burglary tap that arrives with no prior detection still
+        describes a coherent house.
+
+        It enters as `UNCONFIRMED` with no respiration on purpose. `p3`, the
+        curtain over the dryer vent, is already in that same state in that same
+        room, and at this instant the two are genuinely indistinguishable. That
+        contrast is the burglary view's whole argument: what separates them is
+        not amplitude or size, it is whether a respiration signature turns up.
+        """
+        if self._intrusion_detected:
+            return
+        self._presences["p4"] = self._presence(
+            "p4",
+            zone="living_room",
+            state=PresenceState.UNCONFIRMED,
+            moving=True,
+            breathing_bpm=None,
+            heart_bpm=None,
+            presence_class=PresenceClass.UNKNOWN,
+            confidence=0.52,
+            person_confidence=0.19,
+            respiration=RespirationStatus.UNKNOWN,
+            # Not `False` yet, and not `True` either. Nothing has decided,
+            # because an unconfirmed perturbation is not a person and
+            # `expected` is a question you can only ask about a person.
+            expected=None,
+        )
+        self._intrusion_detected = True
+
     async def _run_detection(self) -> None:
         await self._sleep(1.0)
-        # agents/collapse debounces before it calls anything a collapse: a
-        # system that alarms when somebody flops onto a couch is worse than no
-        # system. The fall is only an event once normal movement stays absent.
-        self._apply_fall()
-        logger.info("collapse detected in main_bedroom; no incident raised, waiting on a human tap")
-
-        await self._sleep(2.0)
-        self._co_ppm = 94.0
-        await self._sleep(2.0)
-        self._co_ppm = 186.0
-
-    def _apply_fall(self) -> None:
-        """Put the interior state into the still-but-breathing case.
-
-        Idempotent, so a Faint tap that arrives without a prior detection still
-        describes a coherent house.
-        """
-        if self._fall_detected:
-            return
+        # Both halves of the transition have to be on screen, because the
+        # transition is the whole signal: a breathing signature on this
+        # presence first, and then that signature gone.
         self._presences["p1"] = self._presence(
             "p1",
             zone="main_bedroom",
@@ -610,9 +815,48 @@ class SimulatedMasterClient:
             presence_class=PresenceClass.ADULT,
             confidence=0.89,
             person_confidence=0.92,
-            still_down_s=4.0,
         )
-        self._fall_detected = True
+        logger.info("presence p1 still and breathing in main_bedroom")
+
+        await self._sleep(2.0)
+        self._apply_respiration_loss()
+        logger.info(
+            "breathing signature on p1 no longer resolvable; no incident raised, "
+            "waiting on a human tap"
+        )
+
+        await self._sleep(2.0)
+        self._co_ppm = 94.0
+        await self._sleep(2.0)
+        self._co_ppm = 186.0
+
+    def _apply_respiration_loss(self) -> None:
+        """Put the interior state into the lost-signature case.
+
+        Idempotent, so a Fire tap that arrives without a prior detection still
+        describes a coherent house.
+
+        The presence stays a person: it resolved a breathing signature and no
+        longer does, which is a reason to search that room first. It is never a
+        finding that anybody has stopped breathing. Shallow breathing, range
+        limits and somebody walking out of the zone all read the same way here.
+        """
+        if self._signature_lost:
+            return
+        self._presences["p1"] = self._presence(
+            "p1",
+            zone="main_bedroom",
+            state=PresenceState.CONFIRMED_STILL,
+            moving=False,
+            breathing_bpm=None,
+            heart_bpm=None,
+            presence_class=PresenceClass.ADULT,
+            confidence=0.71,
+            person_confidence=0.92,
+            respiration=RespirationStatus.NO_SIGNATURE,
+            respiration_lost_s=4.0,
+        )
+        self._signature_lost = True
 
     async def run_call_script(self, incident: Incident) -> None:
         """The scripted conversation. Runs only on a human-raised incident.
@@ -637,115 +881,138 @@ class SimulatedMasterClient:
     async def _run_call_script(self, incident: Incident) -> None:
         """Two scripts, because the two cases read differently to the operator.
 
-        A Faint tap is the case the whole system exists for, and it gets the
-        full collapse narrative: corroboration, reclassification, the operator's
-        follow-up questions, and the refusal.
+        A Fire tap is the case the whole system exists for, and it gets the
+        full narrative: an occupant whose breathing signature stopped resolving,
+        corroboration from a second modality, the operator's follow-up
+        questions, and the refusal.
 
-        A Burglary or Fire tap gets a script that speaks about the type the
-        resident actually chose rather than replaying the collapse at them.
+        A Burglary tap gets a script about an unexpected presence, which is a
+        different conversation with a dispatcher.
 
         Either way a person pressed a button first.
         """
         assert_human_released(incident)
-        if incident.incident_type is IncidentType.FAINT:
-            await self._run_collapse_call(incident)
+        if incident.incident_type is IncidentType.FIRE:
+            await self._run_unresponsive_occupant(incident)
             return
-        await self._run_typed_call(incident)
+        await self._run_burglary_call(incident)
 
-    async def _run_typed_call(self, incident: Incident) -> None:
-        """One tap: Burglary or Fire."""
+    async def _run_burglary_call(self, incident: Incident) -> None:
+        """One tap: Burglary."""
         incident_id = incident.incident_id
         await self._sleep(1.2)
 
         claims: list[str] = []
-        if incident.incident_type is IncidentType.BURGLARY:
-            self._presences["p3"] = self._presence(
-                "p3",
-                zone="living_room",
-                state=PresenceState.CONFIRMED_MOVING,
-                moving=True,
-                breathing_bpm=19.0,
-                heart_bpm=104.0,
-                presence_class=PresenceClass.ADULT,
-                confidence=0.74,
-                person_confidence=0.83,
-                expected=False,
+        # The detection usually ran first and the resident tapped knowing
+        # where the intruder was. `_apply_intrusion` covers the other order.
+        self._apply_intrusion()
+        intruder = self._presences["p4"]
+        if intruder.expected is not False:
+            # Tapped before respiration resolved it. Resolve it now rather
+            # than speaking to an operator about an unconfirmed
+            # perturbation, which is a curtain until proven otherwise.
+            intruder.state = PresenceState.CONFIRMED_MOVING
+            intruder.vitals.respiration = RespirationStatus.BREATHING
+            intruder.vitals.breathing_bpm = 19.0
+            intruder.vitals.heart_bpm = 104.0
+            intruder.vitals.person_confidence = 0.83
+            intruder.presence_class = PresenceClass.ADULT
+            intruder.class_basis = "respiration_rate"
+            intruder.confidence = 0.74
+            intruder.expected = False
+        if self._walk is None and intruder.position.zone == INTRUDER_ROUTE[0]:
+            # A cold tap: Burglary pressed with no detection having run, so
+            # nothing has started the presence moving. Start it here, or the
+            # record would show a stranger standing motionless at the front
+            # of the unit for the length of a 911 call.
+            self._walk = _Walk(
+                presence_id="p4",
+                route=list(INTRUDER_ROUTE),
+                seconds_per_leg=6.0 * self._speed,
+                started_at=time.monotonic(),
             )
-            claims.append(
-                await self._verify(
-                    incident_id,
-                    "agents/intruder",
-                    "One body in the apartment has no corresponding device. Three presences are "
-                    "tracked, the roster holds two registered residents, and both resident phones "
-                    "are associated with the network. The presence with no device is in the living "
-                    "room and is moving.",
-                    "intruder.unexpected_presence",
-                    "presences=3, roster=2, associated=2, zone=living_room",
-                    presence_id="p3",
-                )
+        # A resident who sees a stranger in their living room taps
+        # immediately; they do not wait to see where he goes. So the track
+        # is usually still moving at this point, and what the operator needs
+        # is where that person is *now*, not where they were when the button
+        # was pressed. Wait for the track to settle, briefly and with a cap,
+        # then report the current room.
+        await self._settle_track(timeout_s=14.0)
+        here = intruder.position.zone
+        zone_name = here.replace("_", " ")
+        # Derived, never hardcoded. An earlier version asserted "next to the
+        # second bedroom" unconditionally and told an operator the intruder
+        # was "in the living room, next to the second bedroom", which is
+        # both false and the kind of false a dispatcher would act on.
+        where = (
+            f"is now in the {zone_name}, directly outside the second bedroom"
+            if here == "hallway"
+            else f"is now in the {zone_name}"
+        )
+
+        claims.append(
+            await self._verify(
+                incident_id,
+                "agents/intruder",
+                "One body in the apartment has no corresponding device. The roster holds two "
+                "registered residents and both of their phones are associated with the "
+                f"network. The presence with no device is in the {zone_name} and is moving.",
+                "intruder.unexpected_presence",
+                f"roster=2, associated=2, unaccounted=1, zone={here}",
+                presence_id="p4",
             )
-            await self._sleep(0.9)
-            claims.append(
-                await self._verify(
-                    incident_id,
-                    "agents/occupancy",
-                    "The resident who raised this is in the second bedroom. The unexpected presence "
-                    "is in the living room. They are in different rooms.",
-                    "occupancy.zones",
-                    "resident second_bedroom, unexpected living_room",
-                )
+        )
+        await self._sleep(0.9)
+        claims.append(
+            await self._verify(
+                incident_id,
+                "agents/people",
+                "The unexpected presence entered at the living room and has crossed the unit. "
+                "The two residents are in the kitchen and the second bedroom. It is in a "
+                "different room from both of them.",
+                "people.zones",
+                f"unexpected {here}, residents kitchen + second_bedroom",
             )
-            opening = (
-                f"This is an automated call from a monitoring system at {self._address}. "
-                "The resident has reported an intruder. Two adults are tracked inside: the "
-                "resident in the second bedroom, and an unexpected presence in the living room. "
-                "They are in different rooms."
-            )
-        else:  # Fire. Faint is routed to the collapse script above.
-            self._co_ppm = 142.0
-            self._smoke = True
-            claims.append(
-                await self._verify(
-                    incident_id,
-                    "agents/environment",
-                    "Carbon monoxide is elevated at 142 parts per million.",
-                    "environment.co_ppm",
-                    "142 ppm (source: demo-trigger, simulated)",
-                )
-            )
-            await self._sleep(0.9)
-            claims.append(
-                await self._verify(
-                    incident_id,
-                    "agents/occupancy",
-                    "Two confirmed occupants: one adult in the kitchen, one child in the second bedroom.",
-                    "occupancy.count",
-                    "2 confirmed",
-                )
-            )
-            opening = (
-                f"This is an automated call from a monitoring system at {self._address}. "
-                "The resident has reported a fire. Two people are still inside: an adult in the "
-                "kitchen and a child in the second bedroom. Both are breathing."
-            )
+        )
+        # The limit, said out loud and on the record rather than left for a
+        # judge to find. A 1x1 radio resolves two people who are a metre
+        # apart as one presence, so "they are in different rooms" is a claim
+        # this hardware can make and "he is standing over her" is not.
+        await self._verify(
+            incident_id,
+            "agents/people",
+            "Separation between the unexpected presence and the nearest resident can be "
+            "reported while they are in different rooms. If they converge, this link resolves "
+            "them as one presence and the separate tracks cannot be maintained.",
+            "people.separation_limit",
+            "1x1 radio, no spatial diversity, merge distance approx 1m",
+            profile=TrustProfile.READ_ONLY,
+        )
+        opening = (
+            f"This is an automated call from a monitoring system at {self._address}. "
+            "The resident has reported an intruder. Three adults are tracked inside: two "
+            "residents, one in the kitchen and one in the second bedroom, and one more "
+            "person that no registered device accounts for. That person came in at the "
+            f"living room and {where}."
+        )
         await self._sleep(1.0)
 
         # The refusal beat runs on every path, because it is the submission.
         await self._verify(
             incident_id,
-            "agents/occupancy",
+            "agents/people",
             "A further occupant is unresponsive in the corridor outside the front door and is not breathing.",
-            "biometrics.respiration",
+            "people.respiration",
             "no respiration, building corridor",
-            ansname="occupancy.hawkeye-secure.invalid",
+            ansname="people.hawkeye-secure.invalid",
             profile=TrustProfile.UNTRUSTED,
             checks=[
                 VerificationCheck(
                     name="ans.resolve",
                     passed=False,
                     detail=(
-                        "occupancy.hawkeye-secure.invalid is not the ANSName registered for "
-                        "agents/occupancy. The registered name is occupancy.hawkeye.invalid."
+                        "people.hawkeye-secure.invalid is not the ANSName registered for "
+                        "agents/people. The registered name is people.hawkeye.invalid."
                     ),
                 ),
                 VerificationCheck(
@@ -814,55 +1081,59 @@ class SimulatedMasterClient:
         )
         logger.info("user-raised incident %s complete", incident_id)
 
-    async def _run_collapse_call(self, incident: Incident) -> None:
-        """The case the whole system exists for. A human tapped Faint.
+    async def _run_unresponsive_occupant(self, incident: Incident) -> None:
+        """The case the whole system exists for. A human tapped Fire.
 
-        By this point `agents/collapse` has usually already surfaced the fall as
-        interior state and the resident tapped knowing who was down and for how
-        long. `_apply_fall` covers the other order, where the tap comes first.
+        By this point `agents/people` has usually already surfaced the lost
+        breathing signature as interior state and the resident tapped knowing
+        which room it was in and how long ago. `_apply_respiration_loss` covers
+        the other order, where the tap comes first.
         """
         assert_human_released(incident)
-        # 1. The fall is already in the interior state. Nothing was dialled for
-        #    it; the tap that released this call is what dialled.
-        self._apply_fall()
+        # 1. The lost signature is already in the interior state. Nothing was
+        #    dialled for it; the tap that released this call is what dialled.
+        self._apply_respiration_loss()
         incident_id = incident.incident_id
 
         await self._sleep(1.2)
 
         # 2. The other sensing agents corroborate, from a second modality.
         self._co_ppm = max(self._co_ppm, 94.0)
-        collapse_claim = await self._verify(
+        lost_claim = await self._verify(
             incident_id,
-            "agents/collapse",
-            "An adult occupant went down in the main bedroom and has not gotten up.",
-            "collapse.event",
-            "fall, still_down_s=6",
+            "agents/people",
+            "A breathing signature on the adult in the main bedroom was resolvable and is not "
+            "resolvable now. That is not a finding that they have stopped breathing, and not a "
+            "finding that they are still in that room.",
+            "people.respiration_lost",
+            "252 (seconds since last resolvable, zone=main_bedroom)",
             presence_id="p1",
         )
         await self._sleep(0.9)
         breathing_claim = await self._verify(
             incident_id,
-            "agents/biometrics",
-            "That occupant is breathing, shallowly, at 9 breaths per minute.",
-            "biometrics.respiration",
-            "breathing, 9 bpm",
+            "agents/people",
+            "While it was resolvable, that signature was shallow: 9 breaths per minute.",
+            "people.breathing_bpm",
+            "9 bpm, last resolved 252 s ago",
             presence_id="p1",
         )
         await self._sleep(0.9)
         occupancy_claim = await self._verify(
             incident_id,
-            "agents/occupancy",
-            "Two confirmed occupants in the building: one adult in the main bedroom, one child in the second bedroom.",
-            "occupancy.count",
-            "2 confirmed, 1 unconfirmed perturbation",
+            "agents/people",
+            "Two occupants in the building: the adult in the main bedroom, and one child in the "
+            "second bedroom who is moving and breathing.",
+            "people.count",
+            "2 occupants, 1 unconfirmed perturbation",
         )
         await self._sleep(0.9)
         self._co_ppm = max(self._co_ppm, 186.0)
         co_claim = await self._verify(
             incident_id,
-            "agents/environment",
+            "agents/master",
             "Carbon monoxide is elevated and climbing: 186 parts per million.",
-            "environment.co_ppm",
+            "master.co_ppm",
             "186 ppm (source: demo-trigger, simulated)",
         )
 
@@ -872,19 +1143,19 @@ class SimulatedMasterClient:
         #    that would escalate the response. This is the submission.
         impostor_claim = await self._verify(
             incident_id,
-            "agents/occupancy",
+            "agents/people",
             "A third adult is unresponsive in the corridor outside the front door and is not breathing.",
-            "biometrics.respiration",
+            "people.respiration",
             "no respiration, building corridor",
-            ansname="occupancy.hawkeye-secure.invalid",
+            ansname="people.hawkeye-secure.invalid",
             profile=TrustProfile.UNTRUSTED,
             checks=[
                 VerificationCheck(
                     name="ans.resolve",
                     passed=False,
                     detail=(
-                        "occupancy.hawkeye-secure.invalid is not the ANSName registered for "
-                        "agents/occupancy. The registered name is occupancy.hawkeye.invalid."
+                        "people.hawkeye-secure.invalid is not the ANSName registered for "
+                        "agents/people. The registered name is people.hawkeye.invalid."
                     ),
                 ),
                 VerificationCheck(
@@ -924,25 +1195,28 @@ class SimulatedMasterClient:
 
         await self._sleep(1.4)
 
-        # 4. master classifies. A fall plus elevated CO is a fire incident with a
-        #    casualty, not a faint.
+        # 4. master classifies. Carbon monoxide climbing past 180 ppm plus a
+        #    breathing signature that has gone missing is a fire with an
+        #    occupant who may not be able to respond, and that is what decides
+        #    which room responders search first.
         await self._update_incident(
             IncidentPhase.CLASSIFIED,
             status=IncidentStatus.CLASSIFIED,
             classification=IncidentClassification(
                 incident_type=IncidentType.FIRE,
                 reasoning=(
-                    "Reclassified from Faint to Fire. A collapse on its own is a faint. A collapse "
-                    "with carbon monoxide climbing past 180 ppm is a fire incident with a casualty, "
-                    "and the responders who need to be sent are different. Two independent "
-                    "modalities agree: CSI saw the collapse, a separate gas reading saw the CO."
+                    "Carbon monoxide at 186 parts per million, and a breathing signature in the "
+                    "main bedroom that was resolvable four minutes ago and is not now. Two "
+                    "independent modalities: CSI resolved the breathing, a separate gas reading "
+                    "saw the CO. Search that room first; if somebody is still in there, do not "
+                    "expect them to answer. This is not a finding that they have stopped "
+                    "breathing, and not a finding that they are still in the room."
                 ),
-                contributing_claim_ids=[collapse_claim, breathing_claim, occupancy_claim, co_claim],
+                contributing_claim_ids=[lost_claim, breathing_claim, occupancy_claim, co_claim],
                 discarded_claim_ids=[impostor_claim],
                 confidence=0.86,
             ),
         )
-        self._incident.incident_type = IncidentType.FIRE  # type: ignore[union-attr]
 
         await self._sleep(1.2)
 
@@ -962,15 +1236,17 @@ class SimulatedMasterClient:
             TranscriptSpeaker.CALLER,
             (
                 f"This is an automated call from a monitoring system at {self._address}. "
-                "An adult occupant collapsed in the main bedroom about ninety seconds ago and "
-                "has not gotten up. They are breathing, shallowly, at nine breaths a minute. "
-                "Carbon monoxide in the building is elevated at 186 parts per million and rising."
+                "Carbon monoxide in the building is elevated at 186 parts per million and rising. "
+                "There is an adult in the main bedroom. I had a breathing signature on them four "
+                "minutes ago, shallow, nine breaths a minute, and I do not have one now. That is "
+                "not the same as them having stopped breathing, and it does not tell me they are "
+                "still in that room. If they are in there, do not expect them to answer."
             ),
-            claim_ids=[collapse_claim, breathing_claim, co_claim],
+            claim_ids=[lost_claim, breathing_claim, co_claim],
         )
         await self._instruct(
             incident_id,
-            "We are on the line with 911 now. Do not move the person who fell.",
+            "We are on the line with 911 now. Stay where you are unless it is unsafe.",
             InstructionOrigin.SYSTEM_STATUS,
             urgent=True,
         )
@@ -998,9 +1274,9 @@ class SimulatedMasterClient:
         await self._sleep(0.8)
         live_claim = await self._verify(
             incident_id,
-            "agents/biometrics",
+            "agents/people",
             "Live query: the child in the second bedroom is breathing at 26 breaths per minute, elevated.",
-            "biometrics.respiration",
+            "people.respiration",
             "breathing, 26 bpm",
             presence_id="p2",
             reason=(
@@ -1026,15 +1302,15 @@ class SimulatedMasterClient:
         await self._sleep(0.9)
         await self._verify(
             incident_id,
-            "agents/occupancy",
+            "agents/people",
             "Live query: is there an occupant in the corridor outside the front door?",
-            "occupancy.zone.building_corridor",
+            "people.zone.building_corridor",
             "no answer",
             checks=[
                 VerificationCheck(
                     name="ans.resolve",
                     passed=True,
-                    detail="occupancy.hawkeye.invalid resolved to the registered certificate.",
+                    detail="people.hawkeye.invalid resolved to the registered certificate.",
                 ),
                 VerificationCheck(
                     name="cert.version_binding",
@@ -1079,7 +1355,7 @@ class SimulatedMasterClient:
         await self._sleep(1.0)
         await self._instruct(
             incident_id,
-            "Get the child out of the apartment and wait outside. Do not move the person in the main bedroom; responders will handle that.",
+            "Get the child out of the apartment and wait outside. Responders will go to the main bedroom themselves; do not go back in for them.",
             InstructionOrigin.RELAYED_OPERATOR,
             urgent=True,
         )
@@ -1119,9 +1395,25 @@ class SimulatedMasterClient:
         return self._detection_running
 
     @property
-    def fall_detected(self) -> bool:
-        """True once the collapse is in the interior state. Still not a call."""
-        return self._fall_detected
+    def signature_lost(self) -> bool:
+        """True once the lost signature is in the interior state. Still not a call."""
+        return self._signature_lost
+
+    @property
+    def intrusion_detected(self) -> bool:
+        """True once the unexpected presence is in the interior state.
+
+        Also still not a call. Detecting an intruder is the one case where the
+        temptation to dial automatically is strongest, and it is refused for the
+        same reason as every other: a false positive here sends armed responders
+        to a real address.
+        """
+        return self._intrusion_detected
+
+    @property
+    def speed(self) -> float:
+        """The configured time multiplier, so callers can scale their own waits."""
+        return self._speed
 
     @property
     def elapsed_hint(self) -> timedelta:

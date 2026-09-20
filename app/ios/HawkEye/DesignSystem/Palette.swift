@@ -36,11 +36,8 @@ enum Palette {
     static let calm = Color(hex: 0xC97BFF)
     /// A confirmed person, moving and breathing. Nothing is wrong.
     static let personMoving = Color(hex: 0x5BA8FF)
-    /// A person who is still but breathing. The loudest state in the product.
-    /// Also the generic danger/refusal color used across the verification and
-    /// connect-error UI. Do not repoint this at the collapse-state map color
-    /// below — they are deliberately separate constants even though they used
-    /// to share a value.
+    /// A person whose breathing signature we had and no longer have. The
+    /// loudest state in the product, and the only name for this colour.
     static let personUnresponsive = Color(hex: 0xFF3B4E)
     /// A perturbation with no respiration signature. Not a person.
     static let unconfirmed = Color(hex: 0x6E7889)
@@ -56,17 +53,14 @@ enum Palette {
     static let personUnexpected = Color(hex: 0x9A1B1B)
 
     /// A confirmed person who is still and breathing, on the map/roster only.
-    /// Paired with `Palette.faint`: the Faint button and the "person down"
-    /// map state are the same fact. Kept separate from
-    /// `Palette.personUnresponsive`, which is the unrelated danger/refusal
-    /// red used elsewhere in the app.
+    /// Kept separate from `Palette.personUnresponsive`, which is the
+    /// unrelated danger/refusal red used elsewhere in the app.
     static let collapse = Color(hex: 0x8B7CFF)
 
     // MARK: Incidents
 
     static let burglary = Color(hex: 0x9A1B1B)
     static let fire = Color(hex: 0xFF7A3D)
-    static let faint = Color(hex: 0x8B7CFF)
 
     /// Active call state.
     static let live = Color(hex: 0xFF3B4E)

@@ -17,23 +17,38 @@ Read the root `CLAUDE.md` first, especially the honesty rule.
 3. **A half-flipped system must fail loudly.**
    Live mode never falls back to simulated. If the agent mesh is not there, the hub returns `503`, it does not invent an answer.
 
-## Status, as of 2026-09-19
+## Status, after the 2026-09-19 camera pivot
 
 | Layer | State today | Seam | Flip |
 |---|---|---|---|
 | iOS app | Mock client, in process | `app/ios/HawkEye/Config.swift` | `useMocks = false` |
+| watchOS app | Not built | `app/watch/` | n/a |
 | Hub backend | Simulated master | `HAWKEYE_MODE` env var | `HAWKEYE_MODE=live` |
 | Storage | In memory | `HAWKEYE_STORE_BACKEND` | `mongodb` (not implemented yet) |
-| Nine agents | Not written | n/a | n/a |
-| CSI sensing | Not brought up | n/a | n/a |
-| Gas sensor | Simulated, permanently | `provenance.source` | Stays `demo-trigger` |
+| Agent mesh | Five written and wired over A2A; `shutter` and `vision` not yet | `HAWKEYE_PEERS` env var | Set it to a `slug=url` list |
+| Agent certificates | Raw public keys from published cards, no chain | `discovery._agent_from_card` | Validate `keys[].x5c` once ANS registration exists |
+| mTLS between agents | Declared on the cards, not enforced | Reverse proxy | Enable, and update `x-security-note` in the same commit |
+| CSI sensing | Brought up, demoted to motion | `sensor/` output contract | n/a |
+| **Servo / shield** | **Not built. Stub GPIO backend planned** | `shutter/gpio.py` | Swap the stub for `pigpio` |
+| **Camera** | **Not built. Fixture video file planned** | `vision/source.py` | Swap the file reader for V4L2 |
+| **Gemini Live narration** | **Not built** | `vision/narrator.py` | Real API key, real session |
+| **Police email** | **Not built** | `replay/courier.py` | Real Resend key |
 | ANS identities | `.invalid` placeholders | `HAWKEYE_HUB_ANSNAME`, `HAWKEYE_MASTER_ANSNAME` | Real registered names |
 | Voice to 911 | Text only, no audio | Not built | n/a |
+| ~~Gas sensor~~ | **Deleted 2026-09-19** | n/a | Gone with the Fire incident type |
 
-Two of these are not "not done yet", they are settled design:
+One of these is not "not done yet", it is settled design:
 
-- **The gas sensor stays simulated.** No gas sensor was purchased and none will be. The interface is real and a driver drops in behind it. See the honesty rule.
 - **The operator link never gets ANS.** The far end is a person. This is the architecture, not a gap.
+
+### What the pivot did to this page
+
+It got shorter in the place that mattered.
+
+The gas sensor was the project's only genuinely fabricated input, and it is gone.
+**Everything still on the simulated side of this table is unbuilt rather than unbuildable**, and every one of them has a real seam with a real driver on the other side.
+
+That is a materially better thing to say on stage than what came before it.
 
 ## iOS app
 
@@ -45,14 +60,15 @@ Every other mention of `useMocks` in the codebase is a comment.
 
 **With `useMocks = true`** the app fabricates hubs on the Connect screen, moves presences through the house, lands a scripted detection, and runs a scripted two-way 911 call once a human taps.
 
-**Second switch, same file:** `Config.mockScenario` picks which incident the script runs, `.burglary` or `.faint`.
+**Second switch, same file:** `Config.mockScenario` picks which incident the script runs, `.burglary` or `.fire`.
+There was a third scenario until 2026-09-19, when that incident type and fall detection were cut. Its choreography is kept and rekeyed onto Fire: the presence it drives now loses its breathing signature rather than going down.
 Both are complete, both run off the same sensor loop and the same detection timer, and burglary is the default because it is the demo.
 Burglary adds a fourth presence that walks into the living room unconfirmed.
 Once respiration is acquired it is a person, and roster plus device association makes it an unexpected one: two registered residents on the roster, both resident phones associated with the network, and **at least one more presence than those devices account for**.
 
 **Phrase it as a surplus, not as arithmetic.** The claim that survives a 1x1 radio is "**at least one presence more than the roster accounts for**", not "three bodies minus two residents". An exact sensed count is not available; a *surplus* is, because it only requires noticing that an additional presence appeared.
 
-The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/occupancy`.
+The burglary case is also the favourable one for separation: an intruder is moving, and is usually in a different room from the resident. Two people close together merge, and that is the case this rule does not have to survive. Counting limits under `agents/people`.
 It then routes room to room across the apartment toward the resident.
 Per-scenario timings sit next to the selector; nothing about the scenario leaks into any view.
 This switch is mock-only and has no effect when `useMocks = false`, where the hub decides what happens.
@@ -71,7 +87,10 @@ This switch is mock-only and has no effect when `useMocks = false`, where the hu
 The backend does not register a `_hawkeye._tcp` service, so with `useMocks = false` the Connect screen will wait forever and show no error, because that is what "no hub found" correctly looks like.
 Until Bonjour advertisement exists, point `Config.fallbackBaseURL` at the hub directly.
 
-**Also not real yet on this side:** push notifications. `remote-notification` is declared in the Info.plist but no `UNUserNotificationCenter` registration is wired up, so a backgrounded app will not alert the resident.
+**Push notifications on this side: not implemented, and not the plan.**
+`remote-notification` is declared in the Info.plist but nothing registers with `UNUserNotificationCenter`, and nothing will.
+A backgrounded or closed app is still reached, by SMS rather than by push. See "The unexpected-presence notice" below for the seam and its half-flipped states.
+The Info.plist declaration is now misleading on its own and should be removed when someone is next in that file; it costs nothing but it reads as a capability that exists.
 
 ## Hub backend
 
@@ -95,13 +114,31 @@ The settings worth knowing:
 
 **Storage:** `Store` is a protocol, `InMemoryStore` is real, and `MongoStore` raises `NotImplementedError` rather than silently degrading. `build_store()` is the single swap point.
 
-## The nine agents
+## The agents
 
-**Not written.** `agents/CLAUDE.md` has the contracts; there is no code.
+**Written and wired as of 2026-09-19**, with their domain logic, their identities, their cards, the A2A transport between them, and 74 tests. The roster was nine until that date; the merge rationale is in `agents/CLAUDE.md`.
 
-Until they exist, `SimulatedMasterClient` stands in for all nine, including the verification decisions and the discarded claim.
+**The seam is `HAWKEYE_PEERS`**, a comma-separated `slug=url` list.
 
-When they land, the flip is `HAWKEYE_MODE=live` plus `HAWKEYE_MASTER_BASE_URL`.
+Unset, `LocalMesh` hands observations over in memory and **verifies nothing**. Set, master fetches each peer's published trust card, builds its trust store from the keys in it, issues a fresh challenge per fetch, and verifies every claim before anything reaches its gate.
+
+```sh
+python -m agents people --port 8101
+HAWKEYE_PEERS=people=http://127.0.0.1:8101 python -m agents master --port 8100
+```
+
+**The half-flipped state is the dangerous one**, because an in-process mesh looks exactly like a working system from the app's point of view. It does not quietly pass as one, and that is by construction rather than by discipline: `TrustGate` records `envelope_verified: false` as a *failed check* on every claim, and `caller` refuses to speak anything whose source was not verified, saying so out loud on the call. **If the verification feed ever shows claims as speakable while `LocalMesh` is in place, something has been loosened that should not have been.**
+
+How to tell the flip worked: `caller.opening_report` stops saying "I have no independently verified information about the interior to give you" and starts speaking attributed claims.
+
+Two things that look flipped and are not:
+
+- **Certificates.** The trust store loads the raw public key from `keys[].x`. There is no chain validation, because no certificates exist until `ans/` has a registration. That is Bronze at best, and `discovery._agent_from_card` carries the TODO.
+- **mTLS.** Declared on every card as `ansIdentityCert` and explicitly not enforced, which the card says in `x-security-note`. Turning it on is a proxy change; updating that field belongs in the same commit, because a card that overclaims is a signed, published, machine-checkable lie on the surface the judge inspects first.
+
+Keys live in `agents/build/keys/<slug>.pem`, created on first use and gitignored. **The card builder signs each agent's card with that same key**, which is not a detail: the card exists so master can learn the public half, so a card published under a different key makes every claim that agent sends fail verification. That was a real bug on 2026-09-19, caught by running two processes rather than by a test.
+
+Separately, the hub's own flip to the mesh is `HAWKEYE_MODE=live` plus `HAWKEYE_MASTER_BASE_URL`.
 Three questions in `master/live.py` are marked `TODO(master)` and need answering first: whether the hub reads a merged state document or fans out, whether push is websocket or SSE or webhook, and whether the hub must present an ANS identity over mTLS to raise an incident.
 
 ## CSI sensing
@@ -112,34 +149,126 @@ Three questions in `master/live.py` are marked `TODO(master)` and need answering
 `sensor/CLAUDE.md` holds the output contract, the fallback ladder, and the point at which to stop trying.
 
 There is no software seam to flip here, because there is no capture code yet.
-When there is, it feeds `agents/occupancy`, `intruder`, `biometrics` and `collapse`, and the hub sees it only through `master`.
+When there is, it feeds `agents/people`, which is the only CSI consumer, and `intruder` reads `people` in turn. The hub sees all of it only through `master`.
 
 Two failure modes from the hardware guides are worth repeating, because both report healthy while producing useless data:
 
-- Without the traffic generator, CSI updates only on beacons at roughly 10 Hz, which never resolves a heart rate or a fall transient.
+- Without the traffic generator, CSI updates only on beacons at roughly 10 Hz, which never resolves a heart rate or a short motion transient.
 - With the router and the Pi on the same side of the room, the capture goes flat and looks exactly like a failed firmware patch.
 
-## The gas sensor, which stays simulated
+## The camera and the shield, which are unbuilt rather than simulated
 
-`agents/environment` is the clear case of the honesty rule, and it is not a gap to close.
+Both follow the same pattern and it is the pattern this whole file is about.
 
-No gas sensor was purchased and none will be. The reading is simulated and says so in the data: `provenance.source` is the literal string `demo-trigger`, and `source_class` and `simulated` are computed from it rather than set by the producer.
-The iOS app reads that field and renders a `SIM` chip next to the CO number, so a simulated reading cannot reach the screen dressed as a measured one.
+**`shutter`** is developed against a stub GPIO backend that records the angle it was told to move to and returns it.
+Every refusal test, every nonce test, and the whole verification path run against that stub on a laptop with no hardware present.
+Flipping it is one class: `pigpio` instead of the stub, the two calibrated pulse widths from `docs/hardware/servo-sg92r.md`, and nothing above it changes.
 
-Adding a real sensor is a driver behind an interface that already exists, and nothing above it changes.
+**How to tell the flip worked:** the attestation's `commanded_angle` matches what the servo actually did, and a camera frame taken with the shield closed is black. That second check is the one that matters and it is in the camera guide.
+
+**`vision`** is developed against a fixture video file played at real time.
+The claim shape, the shutter gate, the luminance guard and the segment writer are all exercised without a camera.
+Flipping it is one class: V4L2 instead of the file reader.
+
+**How to tell the flip worked:** the segment files have a growing timestamp and a non-trivial file size, and the narration changes when someone walks in front of the lens. A fixture that loops produces narration that repeats on a cycle, which is the half-flipped state to watch for.
+
+**The Gemini Live session** is the one part with an external dependency, and it is deliberately the least load-bearing.
+With no key, `vision` still records, and claims go to `Unknown(reason="narrator_unreachable")`.
+The half-flipped state to watch for is a key that authenticates but has no quota, which returns errors that look like network failures.
+
+## The gas sensor, which was deleted
+
+Kept here as history, because it was this file's headline entry for a day and someone will look for it.
+
+`agents/master` read a simulated carbon monoxide sensor. No gas sensor was ever purchased. The reading carried `provenance.source = "demo-trigger"`, and the iOS app rendered a `SIM` chip next to the number so a simulated reading could not reach the screen dressed as a measured one.
+
+**It was deleted in the 2026-09-19 pivot**, along with `agents/master/environment.py` and the Fire incident type it existed to serve.
+
+The reason it is worth a paragraph rather than a deletion: it was the only input in the system that **skipped the verification gate**, because `master` was both its producer and its consumer.
+Removing it means every input `master` now acts on arrived through the gate from an independently registered agent. That is a strictly better trust story and it costs one sentence to tell.
 
 **Never claim a sensing capability the physics does not support.** CSI cannot measure gas composition. Oxygen absorption is a roughly 60 GHz phenomenon and the BCM43455c0 is a 2.4/5 GHz radio.
+
+## The unexpected-presence notice
+
+**Nothing about the notice itself is simulated.** The detector in
+`hawkeye_backend/notices/detector.py` runs on whatever `InteriorState` it is given, with no branch
+for mode: on the mock path it fires off `ruview-sim` frames, on the live path it fires off
+`nexmon-csi` frames, and it cannot tell which one it is looking at.
+
+**What is not implemented: APNs.** "The phone buzzes with the app closed" is true today because of
+Twilio, not because of push. Say which, on stage, before anyone asks. `NoticeSink` is an interface
+with one method, so adding APNs later is a driver behind it and changes nothing above the seam.
+
+**To flip Twilio on:** set `HAWKEYE_TWILIO_ACCOUNT_SID`, `HAWKEYE_TWILIO_AUTH_TOKEN`,
+`HAWKEYE_TWILIO_FROM_NUMBER`, and `HAWKEYE_TWILIO_TO_NUMBER`.
+
+**Verify it flipped:** the startup log line reads `notices: twilio sms sink enabled`, and a fired
+notice logs `twilio sent ntc-p4` rather than staying silent.
+
+**The half-flipped state that looks like something else:** three of the four Twilio variables set
+reads as unconfigured. The startup line is `notices: twilio not configured, in-app banner only`, and
+the in-app banner still appears, so the failure looks like Twilio being slow rather than Twilio being
+off. Check the startup line, not the banner.
+
+**A second half-flipped state worth naming:** a Twilio trial account only sends to numbers verified
+in its console, and US A2P 10DLC enforcement can begin refusing trial sends without warning. A
+refused send is logged and swallowed by design, the same as any other sink failure, so the in-app
+banner appears and no text arrives. The log line is `twilio refused ntc-p4: status=... code=...`.
+
+**The one that will surprise you on the hub path, and is owned elsewhere:** in simulated mode the
+notice arrives *after* the resident taps Burglary, not before it.
+
+That inverts the product story, where the notice is what informs a person so they can decide
+whether to call. The cause is not in the notice path: `SimulatedMasterClient` only creates the
+`expected: false` presence inside `_run_typed_call`, which runs after `assert_human_released`, so
+until a human taps there is no unaccounted-for person for the detector to see. It detects the
+presence that exists, when it exists, which is correct behaviour on an incorrect script.
+
+The iOS mock sequences it the right way round: `Config.mockIntruderIdentifiedAfter` is 5s and
+`mockDetectionAfter` is 14s, both well before any tap. So **the app demo tells the true story and
+the hub demo does not**, and the two disagree today.
+
+Fixing the hub scenario belongs to whoever owns `master/scenario.py` and `master/simulated.py` and
+is deliberately not done here. Until it lands, demo the notice off the app's mock path, and do not
+narrate the hub path as "the system told the resident, and then they decided".
+
+## The household roster
+
+**What is simulated: the association table.** No router integration exists, so `associated_devices`
+on a state frame comes from `master/simulated.py` with `Provenance` saying `ruview-sim` and a detail
+of "association table, simulated". Swapping in the real table is a producer change behind a field
+that already exists, and nothing above it moves.
+
+**What is real:** the roster itself, the hashing, the matching, the approval, and the record that a
+human made the decision. A roster entry carries `USER_INPUT` provenance, which computes to
+`SourceClass.HUMAN`, so `caller` can say "the resident says this person is expected" and cannot say
+"the system verified this person".
+
+**How to tell which you are looking at:** the Household list shows a device fingerprint per member.
+The simulated ones come from the fixed pair in `master/simulated.py`. Real ones will not.
+
+**The half-flipped state that looks like something else:** a member remembered with no device is
+legal and is not a bug. They were named by a resident and carry no phone the system can see, so they
+will never be auto-recognised, and the Household list says "no device, will not be recognised
+automatically" for exactly that reason. If every member reads that way, the association table is not
+arriving at all, which is a different problem: check `associated_devices` on a state frame.
+
+**The one that will look like the feature is broken:** remembering a visitor changes nothing until
+the devices present actually account for the people present. Two residents remembered, both phones
+associated, and a third presence in the house still raises a notice, because the surplus is one.
+That is the feature working, not failing.
 
 ## ANS identity
 
 Every ANSName in the codebase today ends in `.invalid`, which is reserved by RFC 2606 and can therefore never be mistaken for a real registration.
 
-`HAWKEYE_HUB_ANSNAME` and `HAWKEYE_MASTER_ANSNAME` carry the hub side. The nine agent names live in `master/scenario.py`.
+`HAWKEYE_HUB_ANSNAME` and `HAWKEYE_MASTER_ANSNAME` carry the hub side. The five agent names live in `agents/core/identity.py`, with a copy still in `master/scenario.py` that should be deleted once the hub imports from it.
 
 **Before these become real, two questions need answering**, both marked `TODO(ans)` in the code:
 
 1. Is the hub itself ANS-registered, or does it quote `master`'s identity? The app to hub hop is a human-facing hop, so the working assumption is that it quotes rather than holds its own anchor.
-2. Is the name shape `collapse.hawkeye.example` or `hawkeye.example/agents/collapse`? Check `agent.webmesh.ai/.well-known/agents-index.json`.
+2. Is the name shape `people.hawkeye.example` or `hawkeye.example/agents/people`? Check `agent.webmesh.ai/.well-known/agents-index.json`.
 
 **A thing the app must never start claiming:** connecting to a hub checks that `/v1/hub` reports the same ANSName it advertised over Bonjour. That is a consistency check, not ANS verification. ANS verification lives in the agent mesh, behind `master`. The UI says so today and must keep saying so.
 
@@ -164,6 +293,14 @@ These are the combinations that waste an evening, because most of them look like
 | Backend to live | Expecting `/v1/demo/run` | `404`. There is no way to fake an emergency against a live mesh, deliberately. |
 | Store to mongodb | It is not implemented | `NotImplementedError` at boot, on purpose, rather than silent data loss. |
 | Nothing | Pi and router on one table | Flat capture that looks exactly like a failed firmware patch. |
+| Shutter to real GPIO | Servo on the Pi's 5V rail | The Pi browns out when the shield moves. Presents as the camera dying, or the CSI capture dying, or an unreachable Pi. Never mentions the servo. |
+| Shutter to real GPIO | Pulse width not stopped after the move | The shield buzzes and twitches at rest, on camera, in the footage. |
+| Shutter to real GPIO | Closed position not recalibrated after the mount was touched | **The worst one.** The shield partly covers, frames are not black, and the privacy claim is quietly false while everything reports healthy. Check with a live frame, not by eye. |
+| Vision to real camera | Fixture file still configured | Narration repeats on a fixed cycle. Looks like a model quirk, is a config bug. |
+| Vision to real camera | Auto-exposure left on | Narration contradicts itself one second apart on a live call. |
+| Vision to real camera | Two processes opening `/dev/video0` | "Device busy", usually the first time the recorder and narrator are run separately. |
+| Gemini key set | No quota on the key | Errors that look exactly like network failures. `narrator_unreachable` either way, so recording continues, which is the design working. |
+| Resend key set | Domain not verified | Sends accepted, nothing delivered. The chain records a successful send. **Verify the domain and send one real test email before the demo.** |
 
 ## Which mode for which demo
 
@@ -171,6 +308,8 @@ These are the combinations that waste an evening, because most of them look like
 
 **Hub running, no agents.** iOS `useMocks = false`, backend `HAWKEYE_MODE=simulated`, phone and hub on the same network. This exercises the real transport, the real Codable types and the real websocket against a scripted incident.
 
-**Full stack.** Everything above plus `HAWKEYE_MODE=live` and the agent mesh up.
+**Full stack, no hardware.** Everything above plus `HAWKEYE_MODE=live` and the agent mesh up, with `shutter` on its stub GPIO backend and `vision` on a fixture video file. **This is the mode the live judging demo should run in if the hardware is not cooperating**, and it exercises every ANS path including the refusal.
+
+**Full stack with hardware.** The above, plus the servo on `pigpio` and the camera on V4L2. This is what the house shoot films and what the judging table runs if the bring-up holds.
 
 Per the working agreements in the root `CLAUDE.md`: anything that must be demoed live needs a recorded fallback by Saturday night.

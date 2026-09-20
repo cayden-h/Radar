@@ -17,6 +17,11 @@ import SwiftUI
 /// `LiveCallBanner` is how the resident gets back to it: a thin bar, the
 /// same idea as iOS's own "tap to return to call," shown on every tab
 /// whenever a call is live but not on screen.
+///
+/// Notices and the household are a separate axis from all of that: a notice
+/// is the sensing layer flagging an unexpected presence, and it never raises
+/// an incident on its own — a human tap still does that, on the Camera page,
+/// same as ever.
 struct HomeView: View {
     @Environment(AppModel.self) private var model
     var hubName: String
@@ -24,6 +29,11 @@ struct HomeView: View {
     @State private var selectedTab: RadarTab = .camera
     @State private var showingCall = false
     @State private var locallyEndedIncidentID: String?
+    /// The notice whose "Remember this visitor" was tapped. Presenting the
+    /// sheet off the notice itself, rather than a bare `Bool`, is what lets
+    /// the save action know which presence to approve alongside naming it.
+    @State private var rememberingNotice: Notice?
+    @State private var showingHousehold = false
 
     private var client: any HawkEyeClienting { model.client }
 
@@ -62,6 +72,30 @@ struct HomeView: View {
             // bar reads as anchored to the bottom edge, like a native tab bar.
             .background(Palette.surface.ignoresSafeArea(edges: .bottom))
         }
+        .task { await client.refreshHousehold() }
+        .sheet(item: $rememberingNotice) { notice in
+            RememberVisitorSheet(unclaimedDevices: client.unclaimedDevices) { name, kind, deviceID in
+                Task {
+                    try? await client.rememberVisitor(name: name, kind: kind, deviceID: deviceID)
+                    // The resident has just said who this is, which answers the
+                    // question the banner exists to raise. Approving and
+                    // dismissing here, rather than making them also tap
+                    // "This is expected", is the point: remembering someone is
+                    // a stronger fact than merely vouching for them.
+                    if let presenceID = notice.presenceID {
+                        try? await client.approvePresence(presenceID)
+                    }
+                    withAnimation(Motion.standard) {
+                        client.dismissNotice(notice.id)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingHousehold) {
+            HouseholdList(members: client.household) { memberID in
+                Task { try? await client.forgetMember(memberID) }
+            }
+        }
         .onChange(of: client.incident?.id) { _, newID in
             guard let newID, newID != locallyEndedIncidentID else { return }
             showingCall = true
@@ -91,6 +125,29 @@ struct HomeView: View {
     private var cameraPage: some View {
         VStack(spacing: Space.lg) {
             header
+
+            ForEach(client.notices) { notice in
+                NoticeBanner(
+                    notice: notice,
+                    onDismiss: {
+                        withAnimation(Motion.standard) {
+                            client.dismissNotice(notice.id)
+                        }
+                    },
+                    onApprove: {
+                        guard let presenceID = notice.presenceID else { return }
+                        Task { try? await client.approvePresence(presenceID) }
+                        withAnimation(Motion.standard) {
+                            client.dismissNotice(notice.id)
+                        }
+                    },
+                    onRemember: {
+                        guard notice.presenceID != nil else { return }
+                        rememberingNotice = notice
+                    }
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
             VStack(spacing: Space.xs) {
                 CameraFeedView()
@@ -125,6 +182,16 @@ struct HomeView: View {
                     .font(TypeScale.caption)
                     .foregroundStyle(Palette.inkMuted)
             }
+
+            Button { showingHousehold = true } label: {
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(Palette.inkMuted)
+                    .frame(width: Hit.min * 0.5, height: Hit.min * 0.5)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Household")
         }
         .padding(.top, Space.sm)
         .overlay(alignment: .bottom) {
@@ -203,8 +270,10 @@ private struct CoAlertRow: View {
 
 // MARK: - Incident bar
 
-/// Two buttons. One hold raises an incident, which presents the full-screen
-/// call automatically — see `HomeView.body`'s `onChange` and
+/// One button, held rather than tapped, because a misfired 911 call is a
+/// real-world harm and a hold is release-to-cancel on the target the resident
+/// already found — see `HoldToConfirmButton`. Raising it presents the
+/// full-screen call automatically — see `HomeView.body`'s `onChange` and
 /// `.fullScreenCover`.
 private struct IncidentBar: View {
     var client: any HawkEyeClienting

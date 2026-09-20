@@ -1,11 +1,20 @@
 # agents/
 
-The ANS-registered agents behind Hawk Eye. All of them live on the user side, inside the home.
+The seven ANS-registered agents behind Hawk Eye. All of them live on the user side, inside the home.
 This is the GoDaddy track submission. Everything else supports it.
 
-Read the root `CLAUDE.md` first.
+Read the root `CLAUDE.md` first, then `docs/PIVOT.md` if you have prior context on this repo. `agents/README.md` is how to run them; this file is the contract.
 
-## Why many agents instead of one
+**Status, after the 2026-09-19 camera pivot.**
+The trust layer is done and is untouched by the pivot: `master` issues a challenge, producing agents sign their current observation against it, and every claim is verified against the key the producer publishes in its own trust card before anything downstream sees a field.
+Verified end to end over real HTTP in `tests/test_wire.py`, including the refusals: wrong key, unregistered agent, lookalike ANSName, replayed proof.
+
+What the pivot changes is the cast, not the wire.
+`people` becomes `presence` and loses everything but motion and device association. `master` loses the gas reading. Two new agents arrive, `shutter` and `vision`, and one of them can move a physical object.
+
+What is still missing is deployment: real certificates, a registered domain, mTLS at the edge, and the agents reachable at public ANSNames.
+
+## Why seven agents instead of one
 
 A judge will ask this. The answer is **context separation and speed, not redundancy.**
 
@@ -14,202 +23,324 @@ Narrow context is faster, cheaper, and less likely to hallucinate across concern
 They run in parallel, so an operator's question fans out and returns at the speed of the slowest single answer rather than the sum of them.
 
 It is also what makes the ANS story real rather than decorative.
-One agent verifying itself is theater. Nine independently registered agents that must verify each other before anything reaches a dispatcher is the track's actual model.
+One agent verifying itself is theater. Seven independently registered agents that must verify each other before anything reaches a dispatcher, or before a lens is uncovered, is the track's actual model.
+
+## Nine, then five, then seven
+
+The roster was nine until 2026-09-19, when it was merged to five. It went to seven the same day, when the project pivoted to a camera.
+Both moves follow one principle and it is worth being able to say it in a sentence.
+
+**An agent is a context boundary, not a task.**
+Two components that read the same input, hold the same state, and always run in the same order are one agent with two steps. Splitting them buys extra deployments, extra certificates to keep current, and extra chances to disagree about what the radio said.
+
+### The merge, nine to five
+
+| Was | Went to | Why |
+|---|---|---|
+| `biometrics` | `people` | Personhood is what makes a presence a person |
+| `occupancy` | `people` | Same CSI window, same rolling baseline, same tick |
+| `collapse` | `people` | A fall is a state a *person* is in |
+| `environment` | `master` | A sensor attached to the host has no counterparty to authenticate |
+| `guidance` | `caller` | `caller` is the agent that talks to humans, and there are two of them on a live incident |
+
+Fall detection was then cut outright, and the `collapse` reader deleted with it.
+
+### The pivot, five to seven
+
+| Added | Why it is not a merge candidate |
+|---|---|
+| `shutter` | Shares no input with anything. One grant in, one position out, and no knowledge of what a camera is for. Folding it into `vision` makes the authorization gate internal to the agent that benefits from it, which is the structure this whole project argues against |
+| `vision` | Different hardware, different failure modes, different cadence, and it is gated on a claim from another agent. Nothing it does resembles what `presence` does |
+
+### And what the pivot deleted
+
+`environment` went with the gas reading it absorbed, so `master`'s only unverified-by-construction input is gone.
+That is a strict improvement to the trust story: **every input `master` now acts on came through the gate.**
+
+The respiration, personhood and counting logic inside `people` went with the pivot, and what remains was renamed `presence` to stop the name implying a capability the agent no longer has.
+
+**What none of this touched is the line the ANS story runs along.**
+Every hop that carries a claim from something that senses, to something that decides, to something that acts, is a hop between independently registered agents.
+The pivot added a hop of exactly that kind, and it is the best one in the project, because at the end of it something physical moves.
 
 ## Always running
 
 **Every agent runs continuously.** Nothing spawns on incident.
 
 This is a requirement, not an optimization. It is what allows the system to notice things nobody asked it to look for:
-an unidentified person in the house at 3am, a resident who went down and has not gotten up, CO climbing while everyone sleeps.
+motion in the house at 3am that no registered device accounts for, and a shield that should be shut and is not.
 
 An architecture that only wakes on a button press cannot do the thing that makes this project worth building.
+
+It is structural in the code rather than conventional: `agents.core.base.Agent` has no "handle a request" entry point, only a `tick` that runs whether or not anyone is asking.
+
+## How they talk to each other
+
+Settled 2026-09-19. **Pull-only, A2A JSON-RPC, with a server-issued challenge.**
+
+```
+master ──POST /a2a {nonce}──►  presence   "what do you have right now?"
+       ──POST /a2a {nonce}──►  intruder
+       ──POST /a2a {nonce}──►  vision
+           ◄── SignedClaim[] + PossessionProof, bound to that nonce
+```
+
+### Pull, not push, and the reason is binding strength
+
+`master` asks; sensing agents answer. Nothing is pushed.
+
+**With pull, master controls the nonce**, so a claim is bound to a specific question asked at a specific moment. With push the producer picks its own nonce and master can only check it has not seen it before, which is strictly weaker: a compromised sensing agent could prepare a batch of plausible claims in advance and fire them at an incident. Under pull it cannot, because it cannot guess the challenge.
+
+It also collapses two code paths into one. The steady-state tick and the operator fan-out are the same mechanism, so the beat that matters in the demo is exercised continuously rather than only during a call.
+
+The cost is up to one second of detection latency. Against the three-second motion-to-wrist budget in the root `CLAUDE.md`, one second is the largest single item and is why `presence` ticks fastest of the seven.
+
+### The challenge
+
+`PossessionProof.nonce`, added 2026-09-19. The DPoP `nonce` analogue: **the verifier issues it, not the presenter.** It is covered by the proof signature, so it cannot be rewritten onto a claim prepared earlier, and it is required and non-empty, because "the verifier did not ask for one" and "the presenter omitted it" must not share a wire representation.
+
+Three probes in `app/backend/tests/test_battery.py` cover it, alongside the thirteen.
+
+### A2A, because that is what we published
+
+Our cards declare `preferredTransport: JSONRPC` at `https://<host>/a2a`, and `agent.webmesh.ai verify_agent` sends a **live A2A message** and reports the credential we actually required. An agent whose card advertises an endpoint that is not there fails the judge's own verifier on the surface we called our best demo beat.
+
+**MCP is deliberately not implemented.** All the webmesh.ai agents speak both and ours should eventually; it is a second adapter over the same handlers and it buys presentation rather than capability. Roadmap, not this weekend.
+
+### The trap the transport is built around
+
+`ClaimVerifier` verifies **bytes**. If the transport parses a claim into a dict and re-serializes it anywhere in between, every signature breaks and the failure looks exactly like tampering.
+
+So claims cross the wire as **opaque JSON strings inside the JSON-RPC result**, never as nested objects. `tests/test_wire.py::test_the_signed_bytes_survive_the_json_layer` is the guard.
+
+### Where trust comes from
+
+`master` builds its trust store by **fetching each agent's published trust card**, not from a configured key list. A hardcoded list would verify signatures perfectly and prove nothing about identity, because the keys would be trusted for having been typed in.
+
+Fetching them ties acceptance to the same document `verify_agent` reads, the same document whose hash is sealed at registration, and the same document `card_drift_watch` monitors. One artifact, three consumers, and no private channel by which we could trust something the public surface does not say.
+
+A peer whose card cannot be fetched is **left out of the store**, so its claims are refused as coming from an unregistered agent. A reachable-but-unverifiable agent is exactly what an impostor looks like.
+
+### mTLS is the second layer, not the first
+
+ANS-2 wants mTLS and the cards declare `ansIdentityCert`. It is not enforced yet and the card says so.
+
+That ordering is deliberate rather than an excuse: **mTLS proves the connection, JWS proves the claim.** Our threat model is a compromised sensing agent that is exactly who it says it is at the TLS layer, with a perfectly valid connection. The layer that catches it is the signed envelope, verified by the application, and that layer also survives a reverse proxy where mTLS terminates at the edge.
+
+Add mTLS at the proxy once the agents are reachable, and update `x-security-note` in the same commit that turns it on.
+
+### Verification is per fetch, never a process-wide flag
+
+`FetchedObservation.envelope_verified` is set by the transport that just verified this agent's claims, and `TrustGate.admit` takes it per call. Trust is a property of an agent at an instant: one that answered a verified challenge a minute ago may fail the next because its certificate drifted, and a flag set once at startup cannot express that.
+
+`agents/intruder` applies the same rule one hop earlier. If the personhood verdict did not arrive verified, it still reports what it computed and caps that report at CORROBORATING, because an unverified verdict is not a verdict to send officers on.
 
 ## Topology
 
 ```
-              router ──► sensor/ ──► CSI              gas sensor (simulated)
-                                      │                        │
-        ┌──────────┬──────────┬───────┴────┬───────────────────┤
-        ▼          ▼          ▼            ▼                   ▼
-   occupancy   intruder  biometrics    collapse           environment
-   count +     unexpected heart rate,  faint, fall,       CO, smoke
-   location    presence   breathing    no-movement        (not CSI)
-        └──────────┴──────────┴───────┬────┴───────────────────┘
-                                      │ ANS
+              router ──► sensor/ ──► CSI
+                                      │
                                       ▼
-                              master (coordinator)
-                      classifies incident, aggregates, routes
-                          │              │              │
-                     ANS  │         ANS  │         ANS  │
-                          ▼              ▼              ▼
-                      caller         guidance        replay
-                          │              │              │
-           ElevenLabs     │              │ iOS app      │ sealed log
-              voice       ▼              ▼              ▼
-                911 operator          the user     post-incident review
+                                  presence
+                      something moved, which zone, which
+                      registered devices are attached to it
+                                      │
+                                  ANS │
+                                      ▼
+                                  intruder  ◄───── roster + device association
+                          motion no registered device accounts for
+                                      │
+                                 ANS  │
+                                      ▼
+                             master (coordinator)
+                      verifies, classifies, aggregates, routes,
+                      and issues the shutter grant
+                          │                          │
+                     ANS  │                     ANS  │
+                          ▼                          │
+                       shutter                       │
+              SG92R, 90°, shield clears the lens,    │
+              position attested and signed           │
+                          │                          │
+                     ANS  │ open                     │
+                          ▼                          ▼
+                       vision  ────────────────► master
+              Gemini Live narration + mp4 to disk     │
+                                          ┌──────────┴──────────┐
+                                     ANS  │                     │ ANS
+                                          ▼                     ▼
+                                       caller                replay
+                                          │      │              │
+                           ElevenLabs     │      │ watch + iOS  │ sealed log + video
+                              voice       ▼      ▼              ▼
+                                911 operator   the user   Resend ──► police
 ```
 
 **The boundary is the point.**
 Human to agent is plain English, in both directions, on both ends. There is no ANS there and there cannot be, because the far ends are people.
 Agent to agent is ANS, every hop.
 
-`caller` and `guidance` are the translators.
-Nothing crosses a human boundary that was not verified first.
+`caller` is the translator, in both directions and to both audiences.
+Nothing crosses a human boundary that was not verified first, and nothing physical moves that was not authorized first.
+
+### The one place the pull rule inverts
+
+Everywhere else `master` asks and producing agents answer, so `master` controls the nonce.
+
+`shutter` is the exception, because here `master` is the one asking for something to happen.
+So **`shutter` issues the challenge.** The invariant is not "master holds the nonce", it is **"the verifier holds the nonce"**, and this is the direction that makes that explicit.
+
+Two round trips, DPoP-shaped: `shutter.challenge` returns a single-use nonce with a ten-second TTL, then `shutter.open` carries a grant covering it.
+On localhost the extra trip costs under a millisecond against an 800ms budget.
+
+Full contract, refusal table and limits: `shutter/CLAUDE.md`.
 
 ## The cast
 
-Nine agents. Priority tiers are marked; build in tier order when time is short.
+Seven agents. Priority tiers are marked; build in tier order when time is short.
 
 **Domain research for every agent is in `docs/research/agent-briefs.md`**: the thresholds each one acts on, the statistics behind it, and what it must not claim.
 Read your agent's brief before writing it. The "must not claim" lines are the ones that lose the judging conversation.
 
+They are also **published on each agent's card** under `x-hawkeye.mustNotClaim`, and each one has a test in `agents/tests/`. A limit that only exists in prose is a limit nobody checks.
+
 ### Sensing tier
 
-#### agents/occupancy **[tier 1]**
+#### agents/presence **[tier 1]**
 
-How many people are in the building, where each one is, and coarsely what each one is.
+**Was `agents/people` until the pivot, and it lost most of itself.**
 
-This merges people-count, location, and body type. They are one question asked three ways, they share a baseline, and splitting them buys nothing but three deployments.
+Two questions, and no others:
 
-Coarse, room-level zones. Not coordinates.
-Presence IDs are stable within a session only; we do not do person re-identification and must not claim to.
+1. **Did something move, and in which zone?**
+2. **Which registered devices are attached to the network right now?**
 
-**The class split is grounded in respiration rate, supplied by `agents/biometrics`**, not in signal amplitude. Resting rates: adult 12-20, child 20-30, infant 30-60, dog and cat 15-30+.
-That is physically defensible where "mass perturbs the signal differently" was not, and an RF-literate judge will press on the difference.
-It does **not** cleanly separate a dog from a child. State the overlap rather than hiding it; the honest resolution is "adult versus small and fast-breathing."
+That is the entire contract. It is a small agent on purpose.
 
-#### What counting can actually deliver on this hardware
-
-Settled 2026-09-19. **Presence: reliable. An exact count: not reliable.**
-
-The BCM43455c0 is **1x1**. One antenna means frequency diversity across subcarriers and no spatial diversity at all. Most CSI counting in the literature uses Intel 5300 or Atheros NICs with two or three antennas, because antenna diversity is where spatial resolution comes from.
-RuView says the same in its own terms: single-node deployments have limited spatial resolution and 2+ nodes are recommended. Its "3-5 people per AP" figure assumes the multi-node mesh, not one link.
-
-| Scenario | Realistic outcome |
+| Field | Meaning |
 |---|---|
-| Two people apart, at least one moving | Detectable as "more than one", moderate confidence |
-| **Two people within ~1m** | **Reads as one.** Occlusion plus overlapping Fresnel geometry |
-| One moving, one still | The mover dominates; the still one is near-invisible to motion |
+| `presence.motion` | Boolean. A CSI perturbation crossed the threshold in this tick |
+| `presence.zone` | Which enrolled zone. From the enrollment walk, never inferred |
+| `presence.devices_associated` | Which roster devices are currently on the network |
+| `presence.since_s` | How long motion has been continuously present |
 
-That last row is our actual scenario, which is why `biometrics` rather than motion is what finds the person on the floor.
+**What it no longer does, and must never be described as doing:**
+respiration, breathing signatures, personhood, headcount, localization beyond a zone, gait, identity, or anything about whether a person can respond.
+All of that went with the pivot. See `docs/PIVOT.md`.
 
-**Respiration is a better route to a count than motion is.** Two people breathing at different rates give two spectral peaks in the 0.1-0.5 Hz band, and two resolvable peaks is real evidence of two bodies. Two people breathing at similar rates, say both near 15 BPM, produce overlapping peaks a single link cannot separate, and it only works while they are still.
+The reason motion survived when everything else was cut is that **motion sensing is environment-independent.**
+It needs no baseline, which is exactly why it works in a crowded hall we did not calibrate in, and why it is the one live CSI beat that survives the judging table.
 
-A small room cuts both ways: a 3m router-to-Pi span is in the sweet spot and SNR is strong, but two people in 100 square feet are necessarily close together, which is the case that merges, and nearby walls produce dense multipath that makes the channel harder to read rather than easier.
-
-**Therefore: take the count from the roster, not the radio.** Device association tells us two residents are home with certainty, because it comes from the network. See `docs/research/identity.md`. The radio then only has to answer *which room* and *is this one breathing*, which it can.
-Where a sensed count is reported at all, it carries a confidence and is phrased as "at least", never as an exact figure.
-
-**This is the agent that genuinely needs a baseline**, and the only tier 1 one that does. Counting and localization are the capabilities that require knowing what empty looks like.
-See the calibration section in `sensor/CLAUDE.md`: build a rolling percentile baseline with slow adaptation, not a calibration step. The adaptation constant decides whether a motionless person stays visible.
-
-The load-bearing agent. If only one sensing agent works, make it this one.
+**It cannot tell a person from a curtain.** It never could. Before the pivot, respiration was the personhood test; now the camera is, and the camera is better at it and can be checked afterward.
+So `presence.motion` is explicitly **not** a claim that a person is present, and `master` must not treat it as one. It is a reason to look.
 
 #### agents/intruder **[tier 1]**
 
-Detects and tracks a presence that should not be there.
+Decides whether motion is accounted for.
 
-Distinct from `occupancy` in the question it asks. Occupancy says how many and where; intruder says **which of them is not supposed to be here**, and keeps a continuous track once it decides.
+Distinct from `presence` in the question it asks, which is why it stayed separate through both the merge and the pivot. `presence` says something moved and which devices are on the network; `intruder` says **whether those two facts are consistent with each other.**
 
-It consumes the personhood verdict from `agents/biometrics`. A perturbation without a respiration signature is not an intruder, it is a curtain, and calling police on a curtain is the failure mode to design against.
+It does not share an input. `presence` reads the radio; `intruder` reads `presence` plus the network roster.
+Different evidence, different failure modes, and a claim from each corroborating the other is worth something.
 
-**The decision rule, settled 2026-09-19: roster plus device association.** Full reasoning in `docs/research/identity.md`.
+**The decision rule, unchanged by the pivot: roster plus device association.** Full reasoning in `docs/research/identity.md`.
 
 ```
-CSI:        3 distinct presences
+presence:   motion in the living room
 Roster:     2 registered residents      (configuration, not discovery)
-Associated: 2 resident phones on the network
+Associated: 0 resident phones on the network
             -------------------------------------
-            1 body with no corresponding device
+            motion no registered device accounts for
 ```
 
-The household is known, not discovered. An unexpected presence is a body that no registered device accounts for.
+The household is known, not discovered. Unaccounted motion is motion with no corresponding device.
 
 This survives the question a judge will certainly ask - how do you tell a burglar from a roommate - because the roommate's phone is on the network.
-**Name the holes rather than pretending there are none:** a resident who left their phone in the car, a guest, a burglar carrying a phone that never associates. Every real security product has these gaps.
+**Name the holes rather than pretending there are none:** a resident who left their phone in the car, a guest, a burglar carrying a phone that never associates.
+Every real security product has these gaps, and every assertion this agent makes carries them in its basis so they get said out loud.
 
-We do **not** recognise individuals. Gait-based WiFi identification needs per-person enrollment, the same room it was trained in, and a subject who is walking - which our headline victim, motionless on a floor, is not.
+**The pivot makes the holes much cheaper.**
+Before, an unaccounted presence was the end of the chain and had to be right.
+Now it is the trigger for a camera, and the camera resolves the ambiguity within seconds. A resident who left their phone in the car gets a shutter opening and a notification saying it is them, not a police call.
+That is the single biggest practical improvement the pivot buys, and it is worth saying on stage.
 
-For the burglary incident type this is the agent that matters: **where the intruder is and where the resident is, tracked separately.**
+We do **not** recognise individuals from the radio. Gait-based WiFi identification needs per-person enrollment and the same room it was trained in.
 
-#### agents/biometrics **[tier 1]**
+The verdict is **sticky**: once declared it is held through clear ticks rather than dropped on the first one, so a shutter does not flap.
 
-Respiration and heart rate from CSI, and **the arbiter of what counts as a person.**
+### Actuation tier
 
-Promoted from tier 2 on 2026-09-19. It is not a reporting channel; it is the component that decides a presence is human.
+#### agents/shutter **[tier 1]**
 
-A perturbation showing quasi-periodic modulation in a physiological band is a living body. A fan, a curtain, a rolling cart, a swinging door: none of them produce that signature.
-Three properties make this load-bearing:
+**New with the pivot, and the best ANS beat in the project.**
 
-1. **Calibration-free.** Periodicity does not depend on knowing what an empty room looks like.
-2. **It discriminates human from non-human motion**, which nothing else in the stack can do.
-3. **It works on someone who is not moving**, which is exactly where motion detection fails and exactly the case that matters.
+One GPIO pin, one TowerPro SG92R, one opaque shield in front of a camera lens.
+It moves that shield for exactly one reason: a grant from `master`, signed, bound to a nonce `shutter` itself issued, verified against the key `master` publishes in its own trust card.
 
-**Use respiration for the personhood decision, never heart rate.**
-Breathing moves the chest wall roughly 5-12mm; a heartbeat moves it a few tenths of a millimeter, usually buried under respiration harmonics.
-RuView lists heart rate at 40-120 BPM. Treat it as a stretch goal and as a good number to say on the 911 call. Respiration at 0.1-0.5 Hz carries the verdict.
+Everything else is a refusal, and a refusal is an observation rather than an error: **the lens stays covered and the agent says why**, signed, into the sealed record.
 
-It also separates three states an occupancy counter cannot tell apart: moving, still but breathing, and neither.
-"Unresponsive occupant in the main bedroom" is the most valuable sentence this system can say to a dispatcher, and it comes from here.
+Refusals it owes tests for: `unregistered_issuer`, `lookalike_ansname`, `stale_nonce`, `replayed_grant`, `expired_grant`, `unknown_action`, `untrusted_profile`.
 
-**Do not treat absence of respiration as absence of a person.** Shallow breathing, breath-holding, and range limits all degrade toward invisible.
-Cross-check `collapse` before concluding anything, and escalate uncertainty rather than resolving it silently.
+There must be **no code path from a failed verification to a GPIO write.** Enforce it structurally: the write lives behind a function taking a `VerifiedGrant` type that only the verifier can construct.
 
-See `sensor/CLAUDE.md` for the signal-level detail and the stated limits.
+Full contract, grant fields, wiring and limits: `shutter/CLAUDE.md`.
 
-#### agents/collapse **[tier 1]**
+#### agents/vision **[tier 1]**
 
-Someone was upright, is now down, and has not gotten up.
+**New with the pivot. The primary sensor.**
 
-Upstream supports this directly. RuView ships fall detection at sub-200ms and exposes `fall-risk`, `no-movement`, and `bed-exit`.
+A Logitech USB camera on the Pi, doing two independent things:
 
-It backs the Faint incident type as an **information source, not a trigger.**
+- **Narrating**, through a Gemini Live session held open for the incident, producing the running description `caller` reads to the operator
+- **Recording**, as continuous ten-second mp4 segments to local disk, which `replay` hashes into the chain and emails to the police
 
-It also owns the project's strongest statistics. A **long lie** is clinically defined as being unable to get up for over an hour; **53% of older fall patients are still on the floor when the ambulance arrives**, and **half of those down over an hour die within six months even absent injury from the fall.**
-That makes `still_down_s` the clinical variable, not a diagnostic detail. Surface it, escalate on it, say it on the call. See `docs/research/agent-briefs.md`.
-`collapse` does not raise a 911 call. It surfaces the detection in the app and stamps `still_down_s` onto the incident record, so that when a human does call, the dispatcher learns the fall happened four minutes ago rather than being told "I found her like this."
+Those two paths share a camera and nothing else. **The recording never depends on the network**, because footage is the thing worth having when the WiFi drops mid-incident.
 
-That timestamp is the clinical variable. See `docs/research/agent-briefs.md`.
+**The rule that governs it: `vision` produces no claim unless it holds a current, verified attestation from `shutter` saying the shield is clear.**
+Not a config flag it sets itself. A signed attestation from a separate agent.
+Without one it returns `Unknown(field="vision.description", reason="shield_closed")`, which the existing `Agent.blind()` helper already models.
 
-The critical detail is debounce. Sitting down fast, lying down to sleep, and a child playing all look like a fall for an instant.
-The signature is collapse **followed by** absence of normal movement, cross-checked against `biometrics`.
-A system that calls 911 when someone flops onto a couch is worse than no system.
-
-Notify `master` on detection. Do not wait to be polled. `master` records it and surfaces it; it does not escalate to a call on its own.
-
-#### agents/environment **[tier 3]**
-
-Air quality. Carbon monoxide, not oxygen, and **not from CSI**.
-
-**No gas sensor is being purchased.** The reading is simulated, and that is disclosed rather than hidden.
-
-Real here: the agent, its ANS registration, its certificate, its card, its place in the mesh, and the driver interface.
-Simulated: the number. `environment.source` carries the literal string `demo-trigger` so a simulated reading cannot be presented as measured by accident.
-
-The claim is about extensibility, and it is checkable by reading the code: swapping in a real MQ-7 on the Pi's GPIO is a driver behind an interface that already exists, and nothing above it changes.
-
-**Say it precisely: this is possible with the right hardware.** Never "CSI can detect gas." CSI cannot, at any price, on a 2.4/5 GHz radio. The claim is about the architecture, not the radio, and that distinction is what makes it survive a question.
-
-Why CO and not oxygen: **CSI cannot sense gas composition.** Oxygen absorption is a ~60 GHz phenomenon, which is why 802.11ad lives there; the BCM43455c0 is a 2.4/5 GHz radio. See `sensor/CLAUDE.md`.
-
-CO is the better signal anyway. It is what incapacitates people in structure fires before flame reaches them, and it is the likeliest reason someone faints in a house that is not visibly burning.
-`collapse` says someone went down. `environment` proposes why. Different modalities agreeing is real corroboration; two views of one CSI stream agreeing is not.
+Its limits are the most important thing about it and they live in `vision/CLAUDE.md`. The short version:
+no face recognition against any database, one fixed camera seeing one room, roughly one observation per second, and every narration labelled `source: generated`.
 
 ### Coordination tier
 
 #### agents/master **[tier 1]**
 
-The incident coordinator. Classifies what is happening, aggregates what the sensing agents report, and routes to `caller`, `guidance`, and `replay`.
+The incident coordinator. Classifies what is happening, aggregates what the producing agents report, routes to `caller` and `replay`, and **issues the shutter grant.**
 
-Incident types: **Burglary, Fire, Faint.** **All three are user-triggered from the iOS app.**
+**One incident type: Intrusion.** Burglary and Fire were the two until the pivot; Fire went with the simulated gas sensor. Faint went with fall detection earlier the same day.
 
-`master` never initiates a 911 call. Sensing agents inform it continuously; it classifies and holds state; a human tap is what releases `caller` to dial.
-`collapse` and `environment` detections surface as alerts in the app so a person can act on them, which is the whole point of detecting them. They do not dial.
-Classification table and the reasoning behind each combination: `docs/research/agent-briefs.md`.
+The classification table, which `agents/master/classify.py` quotes in its own docstring and `docs/research/agent-briefs.md` holds in full:
+
+| Observation | Verdict | Confidence |
+|---|---|---|
+| Unaccounted motion + camera shows a person who matches no enrolled resident | Intrusion, a person is in the building | 0.85 |
+| Unaccounted motion + camera shows a person who matches an enrolled resident | Not an intrusion. A resident without their phone. Notify, do not escalate | 0.8 |
+| Unaccounted motion + camera shows no person | Unresolved. Says explicitly that this is also what a curtain, a pet, and a stale shutter attestation look like | 0.3 |
+| Unaccounted motion + shutter refused to open | **Nothing is claimed about the room.** The refusal itself is the finding, and it is reported as a system event, not an incident | n/a |
+| Unaccounted motion + camera unreachable | Falls back to the pre-pivot claim: motion no device accounts for, and nothing more | 0.5 |
+
+**The second row is the one to lead with in the pitch**, because it is the row where the system declines to escalate.
+A design that only has a path to "call the police" is a design nobody should install.
+
+**The fourth row is the submission.** A shutter that refused leaves `master` with no visual claim at all, and `master` must say so rather than reaching for the radio and dressing a motion event up as a person.
+
+`master` never initiates a 911 call. Producing agents inform it continuously; it classifies and holds state; **a human tap on the watch is what releases `caller` to dial.**
+It does open a shutter without a human, which is the only automatic physical action in the system, and the whole of `shutter/CLAUDE.md` exists to make that safe.
 
 This agent holds the only full picture, which makes it the place where verification must be strictest.
 Every claim it accepts carries the identity of the agent that made it, that agent's Trust Index score at that instant, and a verification result. Anything unverifiable is discarded and logged as discarded.
+
+##### What the pivot gave master back
+
+Before the pivot, `master` read a simulated carbon monoxide sensor directly, which meant **one input skipped the gate**, because master was both its producer and its consumer.
+It was labelled unverified-by-construction and capped at CORROBORATING, and that was the honest handling of a genuine weakness.
+
+The gas sensor is gone. `agents/master/environment.py` is deleted.
+
+**Every input `master` now acts on arrived through the verification gate**, from an independently registered agent, over the signed transport.
+That is a cleaner story than the one it replaces, and it costs a sentence to say: we removed the only thing in the system that could not be verified.
 
 ### Verification order
 
@@ -222,7 +353,7 @@ Do not write a second verifier. Import that one.
 
 1. **Verify the envelope.** mTLS handshake, then JWS signature over the canonical payload. **Nothing downstream ever sees an unverified field.** Verify first, parse second, never the reverse.
 2. **Check bindings.** Audience (this `master`, not any coordinator that will listen), zone scope, incident ID, nonce.
-3. **Check schema version.** Reject an under-specified claim rather than interpreting it charitably. This will bite us for ordinary reasons: nine agents at different build stages all weekend.
+3. **Check schema version.** Reject an under-specified claim rather than interpreting it charitably. This will bite us for ordinary reasons: seven agents at different build stages all weekend.
 4. **Then, and only then, apply the profile gate.** What this agent's `recommendedProfile` permits this claim to trigger.
 5. **Log what was discarded, with the reason.** Sealed via `agents/replay`.
 
@@ -246,21 +377,41 @@ The reasoning is short: an agent that can change the dispatch address is a swatt
 
 Also generate a `traceparent` at incident open and propagate it to every agent. See the transparency-log section of `ans/CLAUDE.md` for why.
 
+### The police email, which is the other address problem
+
+The dispatch address is bound at registration and never travels in a claim, for the reasons above.
+
+**The police email address is the opposite case and is handled deliberately differently.**
+It is supplied by a human operator, on a live call, and there is no way to bind it in advance without knowing which department will answer.
+
+So it is not trusted, it is **recorded**:
+
+1. Near the end of the call, `caller` asks the operator for a destination address for the incident package
+2. `caller` reads it back, character by character where ambiguous, and waits for confirmation
+3. The address is sealed into the record as `operator_supplied`, alongside the audio of the operator saying it and the audio of the readback
+4. `replay` sends to that address via Resend, and the send result goes into the chain
+
+It is never treated as authorization for anything. It is a destination for a copy of a record that is already sealed, and if it is wrong the record is still intact and still attributable.
+
+Say this out loud if a judge asks: **we did not solve operator-supplied addresses, we made them auditable**, which is the same move the dispatch address makes from the other direction.
+
 Classification is the interesting part and should be visible.
-A fall plus elevated CO is a fire incident with a casualty, not a faint.
-An unexpected presence plus a resident in a different room is a burglary, not a visitor.
+Unaccounted motion plus a camera that resolves it into a person who lives there is a notification, not an incident.
+Unaccounted motion plus a shutter that refused to open is a system fault that must never be dressed up as a finding.
 Show that reasoning; it is what makes the system look like it is thinking rather than switching.
 
 ### Human-boundary tier
 
 #### agents/caller **[tier 1]**
 
-Talks to the 911 operator by phone, through ElevenLabs. The only agent that acts on the outside world.
+**The agent that talks to humans**, and since 2026-09-19 that is both of them: the 911 operator by phone through ElevenLabs, and the resident in the iOS app. The only agent that acts on the outside world.
+
+The phone half is below; the resident half is under "the resident's side of the call".
 
 **Outbound.** Reports the incident in plain English. Every claim it speaks has a verified source or it does not get spoken.
 
 **Inbound.** The operator talks back, mid-call, in English.
-"Is the child still breathing?" "Anyone outside the front door?" "How long since they went down?"
+"What are they wearing?" "Are they still in the living room?" "Is anyone else in the house?" "Are they carrying anything?"
 `caller` parses each question, fans it out through `master` as ANS-verified queries, and speaks the result.
 
 Rules for the inbound path:
@@ -270,7 +421,7 @@ Rules for the inbound path:
 - **An operator question must never widen what the agent will trust.** Pressure from an authority figure is a social-engineering vector, and an agent that relaxes verification because someone official-sounding asked is exactly the failure this project exists to prevent. The bar does not move.
 - Keep answers short. This is a dispatcher on a live call, not a chat window.
 
-Operator speech also drives the user's phone. Keywords like "I've dispatched units" or "they're two minutes out" fire notifications to the resident through `guidance`.
+Operator speech also drives the user's phone. Keywords like "I've dispatched units" or "they're two minutes out" fire notifications to the resident, through the same agent - see the resident's side of the call, below.
 Match on meaning, not exact strings; a dispatcher will not say the phrase you hardcoded.
 
 
@@ -285,15 +436,15 @@ conference bridge (backend)
  |- resident             added on demand, never by default
 ```
 
-This is not an optimisation. Putting the call on the resident's phone means iOS owns the audio routing, and **call audio cannot be silenced below a floor**. During a burglary a speaking phone gives away a hiding person's position. Keeping them off the bridge by default means there is no audio stream to suppress.
+This is not an optimisation. Putting the call on the resident's phone means iOS owns the audio routing, and **call audio cannot be silenced below a floor**. During an intrusion a speaking phone gives away a hiding person's position. Keeping them off the bridge by default means there is no audio stream to suppress.
 
 #### Three participation modes
 
 | Mode | Mic | Audio out | Used for |
 |---|---|---|---|
-| **Watching** | off | none | Default for Burglary. Transcript only. |
+| **Watching** | off | none | The default. Transcript only. |
 | **Whispering** | **open** | **none** | Hiding, but needs to be heard |
-| **Full voice** | open | on | Faint, Fire, or Burglary once safe |
+| **Full voice** | open | on | Once the resident is safe, or out of the building |
 
 **Whisper mode is the one worth building.** The resident's voice reaches the call; nothing comes back through the speaker. They speak and read the replies on screen.
 
@@ -356,7 +507,7 @@ Add **voice barge-in** alongside the button: if a human starts speaking, the age
 
 **Rule: the agent never talks over a human.** Not the operator, not the resident. Either speaks, it yields. That one rule covers most of the failure modes here.
 
-After takeover the agent stops speaking **on the call** but keeps feeding the app: CO reading, room, respiration, `still_down_s`. **The resident becomes the voice and the agent becomes the teleprompter.** That is better than the agent guessing what a frightened person wants said.
+After takeover the agent stops speaking **on the call** but keeps feeding the app: the current narration, the room, how many people the camera can see, and how long since the last frame resolved. **The resident becomes the voice and the agent becomes the teleprompter.** That is better than the agent guessing what a frightened person wants said.
 
 Three controls, kept visually distinct because someone panicking will hit the biggest one:
 
@@ -402,36 +553,70 @@ That last line is real information. It tells a dispatcher there is an active thr
 
 
 This is the fiduciary agent. It speaks to emergency services on a human's behalf. Treat it accordingly.
+#### The resident's side of the call
 
-#### agents/guidance **[tier 2]**
+Merged into `caller` on 2026-09-19, and the merge is principled rather than a headcount cut: **`caller` is the agent that talks to humans**, and there are two of them on a live incident.
+The operator hears it by phone; the resident reads it in the app. Both are the same boundary - plain English, no ANS, a person on the far end - and both are fed by the same verified state.
 
-Talks to the **user**, while the incident is happening, in the iOS app.
+Keeping them in one agent removes a failure this system cannot afford: two independent agents translating the same incident could tell the operator and the resident different things. One agent holds one picture and says it twice.
 
-Two jobs, merged because they are the same job: telling a frightened person what to do next.
+Two jobs, and they are the same job: telling a frightened person what to do next.
 
 1. **Relay.** What the operator and responders have said, translated into what it means for the user. "Units are two minutes out. Stay where you are, unlock the front door if you can do it safely."
-2. **First aid.** Instructions for the situation at hand. CPR, recovery position, cover your nose and stay low, do not move someone who fell.
+2. **Safety instructions.** What to do in the situation at hand. Get out and stay out, stay low, do not confront anyone, wait for responders.
 
-Handle this carefully. First-aid instructions delivered badly are a real-world harm, not a demo bug.
+**There is no patient-care protocol in the table, and the absence is deliberate.**
+CPR and the recovery position went with the Faint incident type on 2026-09-19.
+The surviving incident type is not one where staying to help is correct guidance: during an intrusion the protocol is to stay hidden, get out if it is safe to, and not confront anyone.
+Telling a resident to go and check would be a worse instruction, not a missing one.
 
-- Stay inside well-established public guidance. Hands-only CPR, recovery position, stop-the-bleed. Do not improvise medical advice.
-- Always defer to the operator. If the dispatcher is giving instructions, relay theirs rather than generating competing ones. Dispatchers are trained for exactly this and the agent is not.
-- Never tell a user to do something that could hurt them or the patient. Moving a fall victim is the classic example.
+Handle this carefully. Safety instructions delivered badly are a real-world harm, not a demo bug.
+
+- Stay inside well-established public guidance, and the dispatcher's own words. Do not improvise medical advice.
+- **Always defer to the operator.** If the dispatcher is giving instructions, relay theirs rather than generating competing ones. Dispatchers are trained for exactly this and the agent is not. This is enforced: relaying anything sets a deferral flag, and from that point the agent relays rather than generates.
+- Never tell a user to do something that could hurt them or the person they are worried about. The protocol table carries the do-nots explicitly rather than leaving them absent: do not go looking, do not confront anyone, do not open the door.
 - Say "wait for responders" when that is the right answer, which is often.
 
-Marked tier 2 because the relay half is straightforward and high-value; the first-aid half is the one to cut if time runs out.
+**`agents/caller/guidance.py` is the only place medical text exists in the entire system.** The iOS client contains none and must not acquire any: hardcoding first-aid copy in a view puts it outside the one component that gets reviewed against these rules.
 
-#### agents/replay **[tier 3]**
+The relay half is the high-value one. The safety-instruction half is the one to cut if time runs out.
 
-The incident recorder. Logs what happened, in order, with who said it and whether it verified.
+#### agents/replay **[tier 2]**
 
-Movement through the house, sensing claims, verification results, what the caller told the operator, what the operator said back, what guidance the user received.
-Sealed into the SCITT transparency log, where entries cannot be altered after the fact.
+The incident recorder, and after the pivot also the courier.
 
-Two audiences:
+Logs what happened, in order, with who said it and whether it verified.
+Movement through the house, sensing claims, the shutter grant and the position it produced, **every discard and every refusal with its reason**, the narration as it was generated, what the caller told the operator, what the operator said back, what guidance the user received, and the hash of every video segment as it closes.
 
-- **Detectives.** After a burglary, a tamper-evident record of where the intruder moved through the house and when is genuinely useful evidence.
-- **Accountability for the system itself.** If the agents got something wrong, the record shows which agent said what and on whose authority.
+Hash-chained locally, then sealed into the SCITT transparency log, where entries cannot be altered after the fact.
+
+**The chain and the seal are different properties and the difference is load-bearing.** The local hash chain makes tampering detectable by whoever holds the record. The transparency log is what makes the record verifiable by someone who does not already have it. `seal()` returns `transparency_receipt: None` until that hop is wired, rather than implying a receipt it does not have.
+
+Discards are recorded with exactly the same weight as acceptances. "It tells you what it discarded" is the sentence that carries the submission, and a record that only keeps what was accepted cannot support it.
+
+##### The video is covered by the chain, not attached to it
+
+Each ten-second segment from `vision` is hashed as it closes, and the hash goes into the chain.
+The mp4 itself lives on disk next to the record.
+
+That ordering matters: it means the chain stays small and verifiable in a browser, the video can be delivered separately without weakening anything, and **a recipient can check that the footage they received is the footage the system recorded.**
+The standalone verifier in the zip export checks segment hashes as well as chain links.
+
+##### The police handoff
+
+When the call ends, `replay` seals the record and sends a package to the address the operator supplied, via Resend:
+
+- The video segments, in order
+- The call transcript, both sides
+- The claim log, including every discard and every refusal
+- The chain, plus the standalone verifier that checks it without needing us
+
+The send itself is an event in the chain. A package that failed to send is visible rather than silent.
+
+Two audiences beyond the police:
+
+- **Detectives.** A tamper-evident record of what a camera saw and when, with a cryptographic account of what the system believed and why
+- **Accountability for the system itself.** If the agents got something wrong, the record shows which agent said what and on whose authority
 
 This is also where non-repudiation lives. The operator cannot verify us live, but an investigator can verify the record afterward, and swatting investigations are entirely post-hoc.
 
@@ -443,7 +628,7 @@ The 911 operator talks to our agent in plain English and the agent talks back. T
 What it is not is an ANS channel, because the far end is a person on a phone. The same is true of the user in the app.
 
 **So neither human can verify us, and we must not claim otherwise.**
-A voice asserting "this call is cryptographically verified" is worth exactly what a voice asserting "there is a fire" is worth.
+A voice asserting "this call is cryptographically verified" is worth exactly what a voice asserting "there is an intruder" is worth.
 
 ANS governs every machine hop behind those voices, which is where it belongs.
 
@@ -451,10 +636,12 @@ ANS governs every machine hop behind those voices, which is where it belongs.
 
 This is the submission, and it is the track owner's own model: client agent to server agent, his shopper-and-bank example.
 
-`master` is the client. The sensing agents are servers. `caller`, `guidance`, and `replay` are clients of `master` in turn.
+`master` is the client of `presence`, `intruder` and `vision`. `caller` and `replay` are clients of `master` in turn.
+
+**And `shutter` inverts it**, which is the case that makes the model concrete: there `master` is the client asking for an action, `shutter` is the server holding the thing worth protecting, and `shutter` issues the challenge because the verifier always does.
 
 Before anything reaches a human, its source is verified.
-The system is about to tell emergency services that a child is unresponsive in a back bedroom. If the agent that produced that claim is not who it says, or is running code that changed since it registered, this verification is the last thing standing between a compromised sensor and an armed response to someone's address.
+The system is about to tell emergency services that there is a stranger in someone's living room, and before that it is about to uncover a camera in that room. If the agent that produced the claim is not who it says, or is running code that changed since it registered, this verification is the last thing standing between a compromised sensor and both of those outcomes.
 
 Use the mechanisms rather than mentioning them:
 
@@ -494,7 +681,7 @@ It is also the right closing line: the moment a dispatch center can resolve an A
 
 The Infinite Impostor, from Zafar et al. 2026: an agent that interposes itself between two parties who already trust each other.
 
-Instantiated here as a compromised sensing agent between a real house and a real `master`.
+Instantiated here twice: a compromised sensing agent between a real house and a real `master`, and a compromised `master` between a real `intruder` verdict and a real camera shield.
 Every participant behaves correctly. The house is real, the emergency may be real, `caller` is doing its job faithfully.
 The only defect is that one source is not what it claims, and the cost is an armed response sent on fabricated evidence.
 The messages are indistinguishable from legitimate ones, which is the paper's point: detection-based defenses are finished, and only domain-anchored identity helps.
@@ -509,64 +696,85 @@ The track owner said this directly. Localhost does not count.
 
 **Fixing the broken deployment is the highest-priority open item.** Nothing else matters until agents answer at public ANSNames.
 
-Host them before they are finished. Nine empty agents reachable tonight beats nine complete agents on a laptop Sunday morning, because the deploy path is where the hours disappear.
+Host them before they are finished. Five empty agents reachable tonight beats five complete agents on a laptop Sunday morning, because the deploy path is where the hours disappear.
 
-All nine support A2A and MCP, consistent with the live agents at webmesh.ai.
+Seven is more to deploy than five, and that is a real cost rather than a footnote: seven hostnames, seven certificates, seven cards to keep current, and seven things that can be stale on the surface the judge inspects first.
+
+Two of the seven are cheap, though, and it is worth knowing which.
+`shutter` has one method and one refusal table. `vision` is the only one with an external API dependency.
+If the deploy runs short, the five that existed before the pivot are already built and card-stable; add `shutter` next, because it is small and it is the demo.
+
+All seven support A2A. **MCP is deliberately not implemented**; it is a second adapter over the same handlers and it buys presentation rather than capability. Roadmap, not this weekend.
 Each publishes an agent card, and the cards must be kept current. Public agents surface on GoDaddy's Trust Index, which the judge maintains, so a stale card is a visible defect on the most-inspected surface.
 
 ## The demo
 
 Two of them, carrying different claims. See `media/CLAUDE.md` for the split.
 
-**The video, recorded at home.** Live CSI, real walls, a real fall. The only honest venue for the physical claims.
+**The video, recorded at home.** Real walls, a real person walking in, a real servo pulling a real shield off a real lens. The only honest venue for the physical claims.
 
-**The live demo at judging.** This is the one the track is actually scored on, and it needs no hardware:
+**The live demo at judging.** This is the one the track is actually scored on, and most of it needs no hardware:
 the agents are hosted and reachable, so ANS verification, the agent cards on the Trust Index, the `fraud.webmesh.ai` probes, the refusal, the ElevenLabs call, and the operator question fan-out all run from a laptop on any network.
-Sensing input comes from replayed CSI captured at the house. Downstream agents cannot tell the difference.
 
-**Bring the Pi and router to the table anyway.** Not for the full pipeline, which the environment cannot support, but for one scoped live bit that does work in a crowded hall: movement.
-No calibration, no baseline, no walls. Someone waves a hand near the router and the signal visibly responds. A judge can try it themselves.
+**Bring the Pi, the servo and the camera to the table.**
+This is where the pivot pays off hardest. Before, the physical demo was a hand waving near a router and a graph twitching.
+Now it is an object that moves when a signature checks out and does not move when it does not, on the table, in front of the judge, repeatable on demand.
 
-This is not a consolation prize, and there is a principled reason it works: **motion sensing is environment-independent.** It needs no baseline at all, which is exactly why it survives a room we did not calibrate in.
-Counting and localization are the capabilities that need a reference, and they are the ones that stay in the video.
+Motion sensing is also environment-independent, needing no baseline at all, which is exactly why it survives a hall we did not calibrate in. That is what makes the trigger live rather than replayed.
 
-Worth knowing if a judge asks why you are not demoing the rest: a baseline captured in a hall decays as the hall fills, because bodies are reflectors and the static multipath structure you calibrated against stops existing. Occupancy also assumes a bounded space, and an open hall has no wall defining who is inside.
+Full sequence:
 
-Full sequence, as filmed:
+1. **Someone walks in.** `presence` reports motion in the living room. No registered device is associated. `intruder` returns an unaccounted verdict
+2. **`master` issues a shutter grant**, signed, bound to the nonce `shutter` just issued
+3. **`shutter` verifies it and the shield rotates ninety degrees.** This is the beat. It is physical, it is audible, and the judge is watching an object move because a certificate checked out
+4. **`vision` gets the attestation and opens its eyes.** Gemini Live starts narrating; the segment writer starts recording. The first description lands about three seconds after the person entered the room
+5. **The watch buzzes** and it carries the camera's first sentence, not a generic motion alert. The resident is looking at a description of a person in their living room within seconds
+6. **A human taps Start Incident on the watch.** This is the only thing that releases `caller` to dial, and saying so on stage is a feature, not an apology
+7. **`caller` dials.** ElevenLabs voice to a human operator, reporting only verified claims, driven by what the camera is currently seeing rather than a static summary
+8. **The operator asks a follow-up in plain English.** "What are they wearing? Are they still in the living room?" The question fans out as ANS-verified queries, live, and comes back as a spoken answer sourced from the current frame. This is the beat that shows ANS working during the call rather than before it
+9. **The resident watches the transcript on their phone** while `caller` tells them what to do. One agent, both audiences, one picture of the incident. Then they tap TAKE OVER and the agent goes silent mid-sentence
+10. **Near the end, `caller` asks the operator where to send the incident package**, reads the address back, and `replay` ships video, transcript, claim log and verifier via Resend as the call closes
+11. **Then run it again with a compromised agent, and show the shield staying shut.**
+    Build the attacker locally, in the thirteen shapes `fraud.webmesh.ai` uses. **His battery cannot be aimed at us** (no target parameter, hardwired to `supplier.webmesh.ai`, verified 2026-09-19), so we implement the probes rather than invoke them, and we say that plainly rather than implying we ran his suite.
+    Stage `underpay_valid_sig` against the shutter: a genuinely valid signature that must still be refused. It demonstrates the difference between authentication and authorization to a room, and with a camera shield as the target it lands on a non-technical judge instantly
+12. **Then the beat that is better than the refusal.** Point `agent.webmesh.ai verify_agent` at our seven hostnames, live, and let the judge's own verifier confirm our identity in front of him. It checks DNS, DNSSEC, TL proof, and our published cards, then sends a live A2A message. Preparation is entirely card work: `ans/CARD.md`
 
-1. `collapse` fires. Someone went down in the main bedroom and has not moved. The app raises an alert; **no call is placed.**
-2. The other sensing agents corroborate. **Keep the sensed claim to one resolved presence**, and take the headcount from the roster rather than the radio: two residents registered, both phones associated, and an occupant in the west bedroom breathing at 6 a minute. An exact sensed count of two or three is beyond a 1x1 link; see the counting limits under `agents/occupancy`.
-3. **A human taps Faint.** This is the only thing that releases `caller` to dial, and saying so on stage is a feature, not an apology.
-4. `master` classifies, verifies every source, discards what it cannot verify, and routes.
-5. `caller` dials. ElevenLabs voice to a human operator, reporting only verified claims - including the forty seconds that elapsed before anyone tapped.
-   The line that wins the demo is about **one** person: "an occupant in the west bedroom, down four minutes, breathing at six a minute." That needs exactly one resolved presence, which is what the hardware can give.
-6. The resident watches a live transcript on their phone while `guidance` tells them what to do.
-7. **The operator asks a follow-up in plain English.** "Is the child still breathing?" The question fans out as ANS-verified queries, live, and comes back as a spoken answer. This is the beat that shows ANS working during the call rather than before it.
-   Then **the resident taps TAKE OVER and the agent goes silent mid-sentence.** Five seconds of footage that answers the room's biggest doubt about this entire project: what if the AI says something wrong. A human starts the call, a human can take it, a human can end it. The agent only ever holds the microphone on loan.
-8. **Then run it again with a compromised sensing agent** and show the system refusing to escalate on its claims.
-   Build the attacker locally, in the thirteen shapes `fraud.webmesh.ai` uses. **His battery cannot be aimed at us** (no target parameter, hardwired to `supplier.webmesh.ai`, verified 2026-09-19), so we implement the probes rather than invoke them, and we say that plainly rather than implying we ran his suite.
-   Stage `underpay_valid_sig`: a genuinely valid signature that must still be refused. It demonstrates the difference between authentication and authorization to a room, and its Hawk Eye analogue lands on a non-technical judge immediately. Per-probe translations in `docs/fraud-13.md`.
-9. **Then the beat that is better than the refusal.** Point `agent.webmesh.ai verify_agent` at our nine hostnames, live, and let the judge's own verifier confirm our identity in front of him. It checks DNS, DNSSEC, TL proof, and our published cards, then sends a live A2A message. Preparation is entirely card work: `ans/CARD.md`.
+**Step 11 is the submission.** Steps 1 through 10 are the setup. Step 12 is the one a judge cannot argue with, because he wrote the verifier.
+Step 3 is what a room remembers. Step 8 is what makes the architecture legible.
 
-Step 8 is the submission. Steps 1 through 7 are the setup. Step 9 is the one a judge cannot argue with, because he wrote the verifier.
-Step 7 is what makes the architecture legible.
-
-**Step 3 is not a gap in the demo, it is a claim.** Say it out loud: Hawk Eye does not call 911 by itself, a person does.
+**Step 6 is not a gap in the demo, it is a claim.** Say it out loud: Hawk Eye does not call 911 by itself, a person does.
 Every other agent demo this weekend argues its agent deserves more autonomy. Ours draws the line in the one place where drawing it is obviously correct, and a judge who has spent the weekend hearing about agent sandbox breakout will notice.
-
-**Steps 4 through 9 are the live venue demo**, driven by replayed CSI. Steps 1 to 3 are the video's job, because they are the ones that need a real house.
 
 ## Build order
 
-1. **Fix the deployment.** Nine agents reachable with correct cards. Nothing else until this is done.
-2. `master` verification and discard logic, against fake sensing output.
-3. **Cards correct and `verify_agent` clean**, all nine. The surface the judge's own verifier inspects, and cheaper than everything below it. Checklist in `ans/CARD.md`.
-4. The refusal demo. Implement the thirteen probe shapes locally against `master` and record the verdicts, failures included, in `docs/fraud-13.md`. A documented failure with a stated reason is worth more than a claimed pass; these shapes were written to be failed by naive implementations.
-5. `caller` outbound, then the inbound question path.
-6. `biometrics` first among the sensing agents, because it is calibration-free and everything else consumes its personhood verdict. Then `collapse`, also calibration-free. Then `occupancy` and `intruder`, which need the rolling baseline.
-7. ElevenLabs voice.
-8. `guidance`, `replay`, `environment`.
-9. Real CSI wired in. **Last on purpose.** The agent layer must never block on the hardware.
+**`agents/TODO.md` is the work queue** and `TASKS.md` at the repo root is the team board.
+This is the summary, in dependency order rather than severity order.
+
+**Done and unaffected by the pivot:** the wire between agents (pull-only A2A, server-issued challenge, claims verified against each producer's published trust card); both cards per agent as byte-stable artifacts; the verification order's authentication and authorization halves, with the thirteen battery shapes and three challenge probes passing.
+
+1. **Deploy.** Agents reachable at public names. The hard track requirement,
+   and nothing below it is cheap until it is done
+2. **`shutter`, end to end**, with a stub GPIO backend and the full refusal
+   table. It is small, it is the demo, and it has no hardware dependency until
+   the last step
+3. **Register the domain, then the agents.** DNSSEC on
+4. **`vision` against a fixture video file**, no camera required. The claim
+   shape, the shutter gate, and the segment writer are all testable on a laptop
+5. **Real certificates.** `keys[].x5c` is not validated today, so we are Bronze.
+   DANE for Silver, a stapled receipt for Gold
+6. **Certificate drift detection.** The cheapest and most demonstrable use of
+   ANS available to us
+7. **Live Trust Index lookups**, plus a safety-dimension evidence producer.
+   The pivot makes this stronger: corroborating an agent's claim now means
+   comparing it against recorded footage a human can also check
+8. **Master's API for the hub**, so the app has a path to the real mesh
+9. **Wire the incident lifecycle.** `caller` to `master`, `replay` actually
+   called, the police handoff
+10. **The impostor, as a real process** rather than an in-process test, pointed
+    at `shutter`
+11. ElevenLabs voice, then the bridge
+12. **Real hardware last.** Servo on GPIO, camera on USB, CSI thresholds tuned.
+    **On purpose.** The agent layer must never block on the hardware
 
 ## Roadmap, not this weekend
 
