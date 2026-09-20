@@ -40,7 +40,7 @@
 | `vision/tests/test_yolo.py` | Real YOLO against real footage, marked `integration` |
 | `vision/tests/test_record.py` | Segment rotation and hashing |
 | `app/backend/hawkeye_backend/models/common.py` | Modified: three new camera `Source` values |
-| `app/backend/tests/test_models.py` | Modified: assert the new sources classify correctly |
+| `app/backend/tests/test_models.py` | Created: the classification map had no direct test |
 
 Files that change together live together. The hardware seams (`fixture.py`, `webcam.py`, `yolo_tracker.py`) are separate from the logic they feed (`lighting.py`, `track.py`), so every piece of logic is testable with no camera and no model weights.
 
@@ -148,11 +148,11 @@ git commit -m "Scaffold the vision package, with the detector as an optional ext
 
 **Files:**
 - Modify: `app/backend/hawkeye_backend/models/common.py`
-- Test: `app/backend/tests/test_models.py`
+- Test: `app/backend/tests/test_models.py` (CREATE: it does not exist, and nothing currently tests `classify_source`)
 
 - [ ] **Step 1: Write the failing test**
 
-Append to `app/backend/tests/test_models.py`:
+Create `app/backend/tests/test_models.py`. The honesty rule's classification map has no direct test today, so this file starts with one:
 
 ```python
 def test_camera_sources_classify_by_how_much_weight_they_bear():
