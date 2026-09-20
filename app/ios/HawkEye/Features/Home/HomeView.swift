@@ -261,7 +261,7 @@ struct HomeView: View {
         ZStack(alignment: .topTrailing) {
             Image(systemName: "bell.fill")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(Palette.inkMuted)
+                .foregroundStyle(Palette.ink.opacity(0.85))
                 .frame(width: 42, height: 42)
                 .glassPanel(cornerRadius: Radius.pill)
 

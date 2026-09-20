@@ -70,7 +70,7 @@ struct RadarTabBar: View {
                 Text("Back")
                     .font(.system(size: 11, weight: .medium))
             }
-            .foregroundStyle(Palette.inkMuted)
+            .foregroundStyle(Palette.ink.opacity(0.85))
             .frame(maxWidth: .infinity)
             .frame(minWidth: Hit.min, minHeight: Hit.min)
             .contentShape(Rectangle())
@@ -85,7 +85,7 @@ struct RadarTabBar: View {
         label: String
     ) -> some View {
         let isSelected = selection == tab
-        let tint = isSelected ? Palette.calm : Palette.inkMuted
+        let tint = isSelected ? Palette.calm : Palette.ink.opacity(0.85)
 
         return Button {
             withAnimation(Motion.snappy) {
@@ -122,7 +122,7 @@ struct RadarTabBar: View {
                 Text("House")
                     .font(.system(size: 11, weight: .medium))
             }
-            .foregroundStyle(Palette.inkMuted)
+            .foregroundStyle(Palette.ink.opacity(0.85))
             .frame(maxWidth: .infinity)
             .frame(minWidth: Hit.min, minHeight: Hit.min)
             .contentShape(Rectangle())

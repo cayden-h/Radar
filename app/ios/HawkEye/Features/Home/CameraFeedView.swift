@@ -19,7 +19,7 @@ struct CameraFeedView: View {
 
             Image(systemName: "video.fill")
                 .font(.system(size: 40, weight: .regular))
-                .foregroundStyle(Palette.inkFaint)
+                .foregroundStyle(Palette.ink.opacity(0.7))
         }
         // Grouped and labelled *before* the switch is overlaid on top, so
         // VoiceOver gets one element for the (decorative) feed placeholder
