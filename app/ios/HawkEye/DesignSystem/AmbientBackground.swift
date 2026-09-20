@@ -1,28 +1,43 @@
 import SwiftUI
 
-/// The backdrop behind every screen. Two elements, both quiet, both drawn
-/// from the same language the product already uses rather than invented for
-/// decoration:
+/// The backdrop behind every screen.
 ///
-/// 1. A sparse dot grid — the same motif `InteriorView` draws under the
-///    floor plan to represent the sensed space. Reusing it here instead of a
-///    soft gradient blob is the point: the one thing Hawk Eye actually does
-///    is read a field of RF reflections, so the chrome around the product
-///    is built from that, not from a stock "AI app" glow.
-/// 2. A pair of concentric rings pinned to one corner, like a single radar
-///    return. Static — nothing here pulses or drifts — because the
-///    background's job is to sit still and let the actual sensing data (the
-///    presences that *do* move) be the only thing in motion on screen.
+/// This used to be the flat `ground` colour under two quiet, static
+/// elements — a sensing-grid motif borrowed from `InteriorView` rather than
+/// a decorative glow, on the grounds that Hawk Eye's actual job is reading a
+/// field of RF reflections, not looking like an "AI app." That argument still
+/// holds for the grid and the rings below, which is why both survive
+/// unchanged. It did not survive contact with the "Aura" direction: a dark
+/// gradient against near-black cards read as no change at all, and a
+/// frosted-glass panel has nothing to look frosted *over* if nothing behind
+/// it varies. So there are now two additional, deliberately restrained
+/// elements:
 ///
-/// Both are low-opacity purple, matching the mascot, and neither competes
-/// with foreground content or costs anything semantically: nothing here
-/// means "danger" or "state," so it can never be confused with the palette
-/// that does.
+/// 1. A sparse dot grid, unchanged — see above.
+/// 2. A pair of concentric rings pinned to one corner, unchanged, static,
+///    like a single radar return.
+/// 3. **New:** two soft blurred fields of colour (`Palette.auraGlow` /
+///    `auraGlowSecondary`), one per top corner, low-opacity and never
+///    animated — the one concession to the Aura reference, sized to give
+///    the gradient and the glass panels in front of it something to
+///    actually read against.
 struct AmbientBackground: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 Palette.groundGradient
+
+                Circle()
+                    .fill(Palette.auraGlow.opacity(0.30))
+                    .frame(width: geo.size.width * 1.1)
+                    .position(x: geo.size.width * 0.08, y: geo.size.height * 0.02)
+                    .blur(radius: 70)
+
+                Circle()
+                    .fill(Palette.auraGlowSecondary.opacity(0.16))
+                    .frame(width: geo.size.width * 0.9)
+                    .position(x: geo.size.width * 1.02, y: geo.size.height * 0.34)
+                    .blur(radius: 80)
 
                 Canvas { context, size in
                     let spacing: CGFloat = 30

@@ -21,12 +21,12 @@ enum Palette {
     // MARK: Ground, as a gradient
 
     /// The dusk-toned three-stop gradient `AmbientBackground` paints instead
-    /// of a flat `ground` fill. Stays dark enough that every ink/state colour
-    /// above still reads at the same contrast it was tuned against — this is
-    /// a quieter version of `ground`, not a competing background.
-    static let duskTop = Color(hex: 0x150F24)
-    static let duskMid = Color(hex: 0x241A3E)
-    static let duskBase = Color(hex: 0x120C1E)
+    /// of a flat `ground` fill. Every ink/state colour above still reads at
+    /// the same contrast it was tuned against against the darkest stop —
+    /// the gradient only has to be visible, not loud.
+    static let duskTop = Color(hex: 0x3B2A68)
+    static let duskMid = Color(hex: 0x201638)
+    static let duskBase = Color(hex: 0x0B0813)
 
     static var groundGradient: LinearGradient {
         LinearGradient(
@@ -36,14 +36,23 @@ enum Palette {
         )
     }
 
+    /// Two soft, blurred fields of colour behind the dot grid — the thing
+    /// `AmbientBackground`'s own doc comment used to argue against, revised
+    /// because a gradient this dark against near-black cards was reading as
+    /// no change at all. Kept to two, kept low-opacity, and kept off the
+    /// state palette (`auraGlow` is decoration only, never a status).
+    static let auraGlow = Color(hex: 0x9B6BFF)
+    static let auraGlowSecondary = Color(hex: 0xFF8FC0)
+
     // MARK: Glass
 
     /// The border every frosted panel uses in place of `hairline` — see
     /// `View.glassPanel` in `Components.swift`.
     static let glassBorder = Color.white.opacity(0.12)
-    /// The faint purple cast tinting every frosted panel, so a blurred
-    /// material reads as *this* product's glass rather than any blur.
-    static let glassTint = calm.opacity(0.05)
+    /// A light, neutral grey wash over every frosted panel — deliberately
+    /// *not* tinted purple, so glass reads as glass and the brand colour
+    /// stays reserved for accents, state and the mascot.
+    static let glassTint = Color.white.opacity(0.09)
 
     // MARK: Ink
 

@@ -83,12 +83,28 @@ extension View {
                     .fill(Palette.glassTint)
             )
             .overlay(
+                // A brighter hairline along the top edge only, under the full
+                // border below — the "light catching the rim of the glass"
+                // cue that a single flat-opacity stroke can't give, and the
+                // detail that most reads as "glass" rather than "dark card."
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(
-                        tint == .clear ? Palette.glassBorder : tint.opacity(0.45),
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.28), Color.white.opacity(0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
                         lineWidth: 1
                     )
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        tint == .clear ? Palette.glassBorder : tint.opacity(0.5),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: .black.opacity(0.35), radius: 18, y: 10)
     }
 }
 

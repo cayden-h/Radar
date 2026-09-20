@@ -69,7 +69,8 @@ struct HomeView: View {
             // through around it rather than being papered over.
             RadarTabBar(
                 selection: $selectedTab,
-                onBack: { model.disconnectAndForget() }
+                onBack: { model.disconnectAndForget() },
+                onHousehold: { showingHousehold = true }
             )
         }
         .task { await client.refreshHousehold() }
@@ -170,6 +171,8 @@ struct HomeView: View {
 
             IncidentBar(client: client)
 
+            quickActions
+
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Space.gutter)
@@ -178,30 +181,33 @@ struct HomeView: View {
 
     // MARK: Header
 
+    /// Who's home, whether the hub is live, and whether anything's waiting
+    /// for them — the three facts worth a glance before anything else loads.
+    /// The wordmark moved off this screen entirely: it already did its job
+    /// on Connect, and repeating it here just to fill space was the reason
+    /// there was no room left for the resident's own name.
     private var header: some View {
         HStack(alignment: .center, spacing: Space.md) {
-            Wordmark(size: 28, breathing: false)
+            avatarBadge
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Hello, \(Config.residentName)")
+                    .font(TypeScale.heading)
+                    .foregroundStyle(Palette.ink)
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(client.link == .live ? Palette.calm : Palette.inkFaint)
+                        .frame(width: 6, height: 6)
+                    Text(hubName)
+                        .font(TypeScale.caption)
+                        .foregroundStyle(Palette.inkMuted)
+                }
+            }
 
             Spacer(minLength: Space.sm)
 
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(client.link == .live ? Palette.calm : Palette.inkFaint)
-                    .frame(width: 6, height: 6)
-                Text(hubName)
-                    .font(TypeScale.caption)
-                    .foregroundStyle(Palette.inkMuted)
-            }
-
-            Button { showingHousehold = true } label: {
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Palette.inkMuted)
-                    .frame(width: Hit.min * 0.5, height: Hit.min * 0.5)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Household")
+            notificationGlyph
         }
         .padding(.top, Space.sm)
         .overlay(alignment: .bottom) {
@@ -222,6 +228,84 @@ struct HomeView: View {
                     .offset(y: 18)
             }
         }
+    }
+
+    private var avatarBadge: some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [Palette.calm, Palette.collapse],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: 44, height: 44)
+            .overlay(
+                Text(Config.residentName.prefix(1))
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Palette.ground)
+            )
+            .accessibilityHidden(true)
+    }
+
+    /// A badge rather than a button: there is no notification inbox to open,
+    /// only the notices already rendered inline below. This says whether one
+    /// is waiting without pretending there is somewhere else to tap for it.
+    private var notificationGlyph: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "bell.fill")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(Palette.inkMuted)
+                .frame(width: 42, height: 42)
+                .glassPanel(cornerRadius: Radius.pill)
+
+            if !client.notices.isEmpty {
+                Circle()
+                    .fill(Palette.personUnexpected)
+                    .frame(width: 9, height: 9)
+                    .overlay(Circle().strokeBorder(Palette.duskBase, lineWidth: 1.5))
+                    .offset(x: 1, y: -1)
+            }
+        }
+        .accessibilityElement()
+        .accessibilityLabel(client.notices.isEmpty ? "No notices" : "\(client.notices.count) notices waiting")
+    }
+
+    // MARK: Quick actions
+
+    /// Two shortcuts into pages that already exist as tabs — this row is a
+    /// faster door into People and Videos, not a new feature. Placed above
+    /// the tab bar rather than the notices, since it's a hop-off point a
+    /// resident reaches for deliberately, not something raised at them.
+    private var quickActions: some View {
+        HStack(spacing: Space.sm) {
+            quickActionButton(title: "Log a\nvisitor") { selectedTab = .people }
+            quickActionButton(title: "Review\nlast clip") { selectedTab = .videos }
+        }
+    }
+
+    private func quickActionButton(title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: Space.sm) {
+                Text(title)
+                    .font(TypeScale.caption)
+                    .foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: Space.xs)
+
+                Image(systemName: "plus")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(Palette.surfaceRaised))
+            }
+            .padding(.horizontal, Space.md)
+            .frame(maxWidth: .infinity, minHeight: Hit.min + Space.md)
+        }
+        .buttonStyle(.pressable)
+        .glassPanel(cornerRadius: Radius.lg)
     }
 }
 
