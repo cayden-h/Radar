@@ -144,7 +144,7 @@ async def test_the_sms_names_the_room_and_the_local_time():
 
     body = httpx.QueryParams(captured[0].content.decode())["Body"]
     assert body == (
-        "Hawk Eye: unexpected person in the living room, 21:04.\nNot accounted for."
+        "Radar: unexpected person in the living room, 21:04.\nNot accounted for."
     )
 
 

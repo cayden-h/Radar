@@ -128,7 +128,7 @@ async def run(url: str, seconds: float, show_state: bool) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Watch the Hawk Eye hub event stream.")
+    parser = argparse.ArgumentParser(description="Watch the Radar hub event stream.")
     parser.add_argument("--url", default="ws://127.0.0.1:8787/v1/stream")
     parser.add_argument("--seconds", type=float, default=60.0)
     parser.add_argument(

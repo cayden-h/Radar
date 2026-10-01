@@ -1,6 +1,6 @@
 # agents/
 
-The seven ANS-registered agents behind Hawk Eye. All of them live on the user side, inside the home.
+The seven ANS-registered agents behind Radar. All of them live on the user side, inside the home.
 This is the GoDaddy track submission. Everything else supports it.
 
 Read the root `CLAUDE.md` first, then `docs/PIVOT.md` if you have prior context on this repo. `agents/README.md` is how to run them; this file is the contract.
@@ -783,7 +783,7 @@ Full sequence:
 **Step 11 is the submission.** Steps 1 through 10 are the setup. Step 12 is the one a judge cannot argue with, because he wrote the verifier.
 Step 3 is what a room remembers. Step 8 is what makes the architecture legible.
 
-**Step 6 is not a gap in the demo, it is a claim.** Say it out loud: Hawk Eye does not call 911 by itself, a person does.
+**Step 6 is not a gap in the demo, it is a claim.** Say it out loud: Radar does not call 911 by itself, a person does.
 Every other agent demo this weekend argues its agent deserves more autonomy. Ours draws the line in the one place where drawing it is obviously correct, and a judge who has spent the weekend hearing about agent sandbox breakout will notice.
 
 ## Build order

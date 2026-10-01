@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Hawk Eye. This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Radar. This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Status
 
@@ -32,7 +32,7 @@ What exists right now:
 
 ## What we are building
 
-**Hawk Eye. A home that watches only when it has a reason to, and can prove to 911 that it had one.**
+**Radar. A home that watches only when it has a reason to, and can prove to 911 that it had one.**
 
 A Raspberry Pi on the home WiFi reads Channel State Information and notices that something moved.
 It checks that motion against the registered devices in the house.
@@ -48,7 +48,7 @@ When the call ends, everything the incident produced is sealed and emailed to th
 
 **One incident type: Intrusion.** Fire was cut with the simulated gas sensor. Faint was cut earlier the same day.
 
-### Hawk Eye never calls 911 on its own
+### Radar never calls 911 on its own
 
 Settled before the pivot, and the pivot strengthens it.
 
@@ -61,7 +61,7 @@ What the agents do is make sure that **when a human does make that call, the dis
 
 ### The two human boundaries
 
-Hawk Eye talks to two people, and to neither of them over ANS.
+Radar talks to two people, and to neither of them over ANS.
 
 - **The 911 operator**, by phone, in plain English, both directions.
 - **The resident**, on the watch and in the phone app: the narration as it arrives, a live transcript of the call, a way to add context mid-incident, and instructions pushed back as the operator says things.
@@ -321,7 +321,7 @@ From the track briefing, in his framing rather than the spec's:
 
 Action items from the briefing, not optional background. All three were written 2026-09-19 and survive the pivot with light edits.
 
-1. `docs/fraud-13.md` - the 13 attacks at fraud.webmesh.ai, each translated into its Hawk Eye analogue. **The battery cannot be aimed at our agents** (no target parameter; hardwired to `supplier.webmesh.ai`, verified 2026-09-19), so we implement the shapes rather than invoke the suite. All thirteen implemented and passing in `app/backend/tests/`
+1. `docs/fraud-13.md` - the 13 attacks at fraud.webmesh.ai, each translated into its Radar analogue. **The battery cannot be aimed at our agents** (no target parameter; hardwired to `supplier.webmesh.ai`, verified 2026-09-19), so we implement the shapes rather than invoke the suite. All thirteen implemented and passing in `app/backend/tests/`
 2. `docs/geo.md` - GEO, and an opinion on the crawler tradeoff he raised without giving one
 3. `docs/threat-landscape.md` - current agent attacks, OSI coverage, OWASP ASI01-10, MAESTRO, sandbox breakout. The centerpiece of the three
 

@@ -168,7 +168,7 @@ Save this as `sensor/tools/trafficgen.sh` (create the directory if it does not e
 
 ```sh
 #!/bin/sh
-# Hawk Eye traffic generator.
+# Radar traffic generator.
 # Keeps frames crossing the monitored channel so the Pi has something to measure.
 # Usage: sudo ./trafficgen.sh start [gateway]
 #        sudo ./trafficgen.sh stop

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Hawk Eye wordmark. The mascot and the name.
+/// The Radar wordmark. The mascot and the name.
 ///
 /// The glyph is `Assets.xcassets/Mascot`, sized off the same `size` parameter
 /// every call site already passes, so swapping the drawn aperture glyph for

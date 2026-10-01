@@ -6,7 +6,7 @@ Written 2026-09-19.
 The track owner flagged this explicitly and there is a live `seo.webmesh.ai` agent, so it is clearly on his mind.
 He also raised the crawler tradeoff without giving a recommendation, which means an opinion is worth having.
 
-This is the assigned item with the weakest direct tie to Hawk Eye.
+This is the assigned item with the weakest direct tie to Radar.
 It is still worth the hour, because the connection that does exist is a real one and it is not the obvious one.
 Section 5 is the part that matters to us.
 

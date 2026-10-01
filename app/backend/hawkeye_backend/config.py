@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     mode: Mode = "simulated"
 
     # Identity of this hub, surfaced on GET /v1/hub.
-    hub_name: str = "Hawk Eye Hub"
+    hub_name: str = "Radar Hub"
     site_id: str = "site-demo-01"
 
     # TODO(ans): replace with the ANSName actually registered through GoDaddy for
@@ -282,7 +282,7 @@ class Settings(BaseSettings):
     # **An unverified domain accepts the send, returns a message id, and
     # delivers nothing**, so the chain records a success that did not happen.
     # Nothing in an API response distinguishes that case; verify by hand, once.
-    courier_from: str = "Hawk Eye <hawkeye@cayden.tech>"
+    courier_from: str = "Radar <hawkeye@cayden.tech>"
 
     # Fallback destination for the automatic send on seal. The real path is an
     # address a 911 operator gives on the call, which arrives on the request

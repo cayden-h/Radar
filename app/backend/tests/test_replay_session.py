@@ -154,7 +154,7 @@ def test_a_human_tap_opens_a_record(recorder: ReplayRecorder) -> None:
 
 
 def test_a_system_raise_opens_nothing(recorder: ReplayRecorder) -> None:
-    """Hawk Eye never dials on its own, so there is no call to record.
+    """Radar never dials on its own, so there is no call to record.
 
     Settled 2026-09-19. `assert_human_released` enforces the same boundary on
     the dialing path; this is the recorder's half of it.
@@ -600,7 +600,7 @@ def test_a_walking_presence_is_not_dragged_back_by_jitter() -> None:
 
 
 def test_the_burglary_detection_raises_no_incident() -> None:
-    """Hawk Eye never dials on its own, and an intruder is where that bites hardest.
+    """Radar never dials on its own, and an intruder is where that bites hardest.
 
     Detecting a stranger in the house is the case where the pull toward dialing
     automatically is strongest. A false positive sends armed responders to a

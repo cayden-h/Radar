@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Hawk Eye's colour palette. Dark-first and deliberately narrow.
+/// Radar's colour palette. Dark-first and deliberately narrow.
 ///
 /// The rule the palette enforces: colour means state, never decoration.
 /// Anything that is not carrying state is a grey.

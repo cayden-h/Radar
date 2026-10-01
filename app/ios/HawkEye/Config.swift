@@ -57,7 +57,7 @@ enum Config {
     /// running against a hosted instance directly.
     static let fallbackBaseURL = URL(string: "https://hub.hawkeye.ai")!
 
-    /// The Bonjour service type Hawk Eye hubs advertise.
+    /// The Bonjour service type Radar hubs advertise.
     /// Must match the `NSBonjourServices` entry in the Info.plist exactly or
     /// `NWBrowser` returns nothing and fails silently.
     static let bonjourServiceType = "_hawkeye._tcp"
@@ -155,7 +155,7 @@ enum Config {
     /// In mock mode, how long after connecting the scripted detection fires.
     /// Set to `nil` to disable it and drive the demo from the buttons only.
     ///
-    /// **It raises an alert, not a call.** Hawk Eye never dials 911 on its own;
+    /// **It raises an alert, not a call.** Radar never dials 911 on its own;
     /// a human tap is what releases `agents/caller`. The detection is what makes
     /// the tap informed: by the time the resident presses a button, the system
     /// already knows who is in the house, in which room, and whether it expected

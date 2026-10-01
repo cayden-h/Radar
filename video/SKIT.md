@@ -1,11 +1,11 @@
-# Hawk Eye - the skit
+# Radar - the skit
 
 The Devpost / demo video.
 Target runtime 2:45.
 One continuous narrative, no narrator, no title cards until the end.
 
 The whole piece is built so that the last twenty seconds re-frame everything before them.
-Everything up to the closing beat is Hawk Eye working.
+Everything up to the closing beat is Radar working.
 The closing beat is what happens without it.
 
 ---
@@ -13,7 +13,7 @@ The closing beat is what happens without it.
 ## The spine
 
 A house. An intruder. A resident hiding in a closet who never says a word out loud.
-Hawk Eye is the only thing in the house that can speak.
+Radar is the only thing in the house that can speak.
 
 ---
 
@@ -289,7 +289,7 @@ Use four of them. Four is unbearable already.
 White text on black, one line, no logo animation.
 
 ```
-Hawk Eye
+Radar
 a house that watches only when it has a reason to,
 and can prove to 911 that it had one
 ```

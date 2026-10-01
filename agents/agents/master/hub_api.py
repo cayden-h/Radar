@@ -29,7 +29,7 @@ made with a human behind it.
 
 **It never dials.** `POST /a2a/start-call` calls `MasterAgent.release_for_call`,
 which raises on anything not raised by a person. The hub holds an independent
-copy of the same guard. Two processes, two checks, same rule: Hawk Eye never
+copy of the same guard. Two processes, two checks, same rule: Radar never
 calls 911 on its own.
 """
 

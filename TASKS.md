@@ -1,6 +1,6 @@
 # TASKS.md
 
-The Hawk Eye work board, rebuilt for the 2026-09-19 camera pivot.
+The Radar work board, rebuilt for the 2026-09-19 camera pivot.
 
 **This is not a per-person assignment sheet.** It is a dependency-ordered queue that three people pull from.
 Read `docs/PIVOT.md` first, then the root `CLAUDE.md`, then this.

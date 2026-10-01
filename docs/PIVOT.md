@@ -7,7 +7,7 @@ Read it once. Then read the root `CLAUDE.md`, which describes the system as it i
 
 ## What changed, in one paragraph
 
-Hawk Eye was a WiFi-sensing system that inferred people, breathing and responsiveness from Channel State Information, and told a 911 operator about them.
+Radar was a WiFi-sensing system that inferred people, breathing and responsiveness from Channel State Information, and told a 911 operator about them.
 It is now a camera system that WiFi sensing gates.
 CSI has two jobs left: **something moved**, and **is a registered device attached to that motion**.
 When motion is not accounted for by a device on the household roster, a servo pulls a physical shield off a camera lens and the camera starts seeing.
@@ -67,7 +67,7 @@ This matters more than the cuts, because it is where the project's value is conc
 
 ## The rule that did not change
 
-**Hawk Eye never calls 911 on its own.**
+**Radar never calls 911 on its own.**
 
 The pivot makes this easier to hold rather than harder.
 The only thing that happens automatically is a shutter opening, which is a privacy decision with a privacy-sized consequence.

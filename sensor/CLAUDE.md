@@ -1,6 +1,6 @@
 # sensor/
 
-Hawk Eye's sensing layer. Raspberry Pi 4B CSI capture and the small answer it produces.
+Radar's sensing layer. Raspberry Pi 4B CSI capture and the small answer it produces.
 
 **Read `docs/PIVOT.md` before this file if you have prior context on this repo.**
 On 2026-09-19 this layer was demoted. It used to be the project's primary sensor and it is now its trigger.
@@ -416,7 +416,7 @@ A system that sees through walls without a camera is not less sensitive than a c
 The privacy argument is only honest if identity verification is real.
 
 We should declare `dataEgressPolicy: LOCAL_ONLY` on the agent cards, because it is true: inference runs here, on the Pi.
-That is the strongest safety-dimension claim Hawk Eye can make honestly to the Trust Index, and it costs nothing because we were going to do it anyway. See `ans/CLAUDE.md`.
+That is the strongest safety-dimension claim Radar can make honestly to the Trust Index, and it costs nothing because we were going to do it anyway. See `ans/CLAUDE.md`.
 
 ## The ingest path is this project's real attack surface
 

@@ -1,6 +1,6 @@
 # app/
 
-The Hawk Eye Apple apps. The resident's side of an incident.
+The Radar Apple apps. The resident's side of an incident.
 
 Two targets after the 2026-09-19 pivot:
 
@@ -32,7 +32,7 @@ With one type there is nothing to choose, which is the right shape for a control
 
 One tap raises the incident to `agents/master`, which classifies, verifies, and routes.
 
-**This is the only path to a phone call.** Hawk Eye never calls 911 on its own. A human tap is what releases `agents/caller` to dial.
+**This is the only path to a phone call.** Radar never calls 911 on its own. A human tap is what releases `agents/caller` to dial.
 
 ### What happens without a tap
 
@@ -423,7 +423,7 @@ The app is Connect, then Main. There is no third stage, no onboarding, and no se
 iOS does not let a third-party app enumerate nearby SSIDs. That needs the `NEHotspotHelper` entitlement, which Apple grants only to MFi hotspot vendors on request, and which we do not have.
 `NEHotspotNetwork` reports only the network already joined, and only with Location permission.
 
-So discovery is Bonjour: the phone is already on the home WiFi, and `NWBrowser` finds Hawk Eye hubs advertising `_hawkeye._tcp` on it.
+So discovery is Bonjour: the phone is already on the home WiFi, and `NWBrowser` finds Radar hubs advertising `_hawkeye._tcp` on it.
 This requires both `NSLocalNetworkUsageDescription` and an `NSBonjourServices` entry naming the exact service type; missing either produces no results and no error, which is the most common way this fails silently. Both are in the Info.plist section of `project.yml`.
 
 The Connect screen says the honest thing in its footer rather than implying a WiFi scan. An iOS-literate judge will check.

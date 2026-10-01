@@ -1,4 +1,4 @@
-"""The five ANS-registered agents behind Hawk Eye.
+"""The five ANS-registered agents behind Radar.
 
 One subpackage per agent, named exactly as `agents/CLAUDE.md` names it, so
 `agents/people` in the prose is `agents.people` in the code and there is no

@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// This used to be the flat `ground` colour under two quiet, static
 /// elements — a sensing-grid motif borrowed from `InteriorView` rather than
-/// a decorative glow, on the grounds that Hawk Eye's actual job is reading a
+/// a decorative glow, on the grounds that Radar's actual job is reading a
 /// field of RF reflections, not looking like an "AI app." That argument still
 /// holds for the grid and the rings below, which is why both survive
 /// unchanged. It did not survive contact with the "Aura" direction: a dark

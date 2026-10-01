@@ -188,10 +188,10 @@ class ResendCourier:
             "You gave this address to the caller during the call, and it was read "
             "back to you for confirmation."
             if provenance == "operator_supplied"
-            else "This address is configured on the Hawk Eye hub, not supplied on the call."
+            else "This address is configured on the Radar hub, not supplied on the call."
         )
         return (
-            f"Hawk Eye incident record {record.incident_id}\n"
+            f"Radar incident record {record.incident_id}\n"
             f"Sealed: {sealed}\n"
             f"Entries: {len(record.entries)}\n\n"
             f"{origin}\n\n"
@@ -215,7 +215,7 @@ class ResendCourier:
         payload = {
             "from": self._from,
             "to": [to],
-            "subject": f"Hawk Eye incident record {record.incident_id}",
+            "subject": f"Radar incident record {record.incident_id}",
             "text": self._body(record, to, provenance),
             "attachments": [{"filename": name, "content": b64encode(bundle).decode("ascii")}],
         }

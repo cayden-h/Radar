@@ -119,7 +119,7 @@ Practical consequence for a 36-hour build: **stop editing cards by hand after Sa
 
 ### 4. Attest the dispatch address, without publishing it
 
-This is the `payto_binding_check` analogue and it is the most important binding in Hawk Eye. His probe fetches the supplier's payTo address and checks whether it is attested in the signed card, because an unattested payTo can redirect settlement.
+This is the `payto_binding_check` analogue and it is the most important binding in Radar. His probe fetches the supplier's payTo address and checks whether it is attested in the signed card, because an unattested payTo can redirect settlement.
 
 Ours redirects an armed response instead.
 

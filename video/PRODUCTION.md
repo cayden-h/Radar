@@ -9,7 +9,7 @@ rule for which is not aesthetic.
 
 ## The rule
 
-**Anything that is a claim about what Hawk Eye does gets shot or rendered by the real thing.
+**Anything that is a claim about what Radar does gets shot or rendered by the real thing.
 Everything else can be generated.**
 
 A judge cannot tell a generated hallway from a real one and does not care.

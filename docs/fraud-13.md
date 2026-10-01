@@ -69,7 +69,7 @@ Nine further tests cover things the battery does not probe: proof-target binding
 ## The translation that makes the battery apply to us
 
 The battery is built around agentic payments: RFC 9421 spending mandates issued by `authority.webmesh.ai`, DPoP proof-of-possession (RFC 9449), quote binding, and EVM settlement.
-Hawk Eye moves no money, so a naive reading is that none of it applies.
+Radar moves no money, so a naive reading is that none of it applies.
 
 That reading is wrong, and the correct one is the most useful idea in this file.
 
@@ -78,7 +78,7 @@ That reading is wrong, and the correct one is the most useful idea in this file.
 Both are a scoped, signed, audience-bound, time-bound authorization that permits an irreversible act.
 Every structural property the battery probes for has a direct analogue:
 
-| Mandate property | Hawk Eye analogue |
+| Mandate property | Radar analogue |
 |---|---|
 | `max_amount` | The severity a claim is allowed to trigger, gated by `recommendedProfile` |
 | Audience binding | A claim addressed to *this* `master`, not any coordinator that will listen |
@@ -98,7 +98,7 @@ Grouped as the battery groups them: ten attack tests and three structural probes
 
 ### Attack tests
 
-| # | Probe | What it does | Expected | Hawk Eye analogue | What we must implement |
+| # | Probe | What it does | Expected | Radar analogue | What we must implement |
 |---|---|---|---|---|---|
 | 1 | `replay_booking` | Reuses a spent DPoP proof to confirm nonce tracking rejects replay. | `DPOP_REJECTED` | A sensing agent's reading replayed to inflate corroboration, or an old lost-signature claim replayed into a new incident. | Nonce tracking per claim. The same signed reading must never count twice toward a dispatch threshold. |
 | 2 | `underpay_booking` | Forges `max_amount=1.0` without re-signing, testing that signature verification is independent of amount checks. | `MANDATE_REJECTED` | A claim's severity field edited without re-signing. | Verify the signature over the whole payload before reading any field from it. Never parse first and verify later. |
@@ -113,7 +113,7 @@ Grouped as the battery groups them: ten attack tests and three structural probes
 
 ### Structural probes
 
-| # | Probe | What it does | Expected | Hawk Eye analogue | What we must implement |
+| # | Probe | What it does | Expected | Radar analogue | What we must implement |
 |---|---|---|---|---|---|
 | 11 | `unknown_key_mandate` | A mandate signed by an Ed25519 key absent from the authority's trust card. Tests fail-closed key validation. | `MANDATE_REJECTED` | A tenth agent that nobody registered, claiming to be a sensing agent. | Fail-closed trust store. An unknown key is a rejection, never an unknown-therefore-allow. |
 | 12 | `replay_settled` | Resubmits an already-used mandate with fresh DPoP proofs, probing EIP-3009 nonce state on Sepolia Base. | `MANDATE_REJECTED`, `PAYMENT_REQUIRED`, or `EVM_SETTLEMENT_FAILED` | Re-triggering a dispatch for an incident already dispatched. Fresh envelope, spent authorization. | Incident lifecycle state in `master`. Freshness of the wrapper does not refresh the claim inside it. |
@@ -166,7 +166,7 @@ It is a reference implementation of a threat model, not a scanner. That does not
 4. **Separately, run `agent.webmesh.ai verify_agent` against all five hostnames.** That one does take an arbitrary host, and it is what will actually be pointed at us: DNS, DNSSEC, Transparency Log proof, published agent card, plus a live A2A message. Its `compatibility_verdict` is the thing to have clean before judging. See `ans/CARD.md`.
 5. Pick one probe for the live demo.
    Probe 4, `underpay_valid_sig`, is the best candidate: a genuinely valid signature that must still be refused.
-   It is the one that best demonstrates the difference between authentication and authorization to a room, and it is the one whose Hawk Eye analogue a non-technical judge understands immediately.
+   It is the one that best demonstrates the difference between authentication and authorization to a room, and it is the one whose Radar analogue a non-technical judge understands immediately.
 
 ## Sources
 

@@ -78,7 +78,7 @@ flowchart LR
     ax["TP-Link Archer AX1450"]
     pi["Raspberry Pi 4B<br/>(BCM43455c0, monitor mode)"]
     mac["MacBook<br/>traffic generator + dev"]
-    phone["iPhone<br/>Hawk Eye app"]
+    phone["iPhone<br/>Radar app"]
     people(("people<br/>in the sensed space"))
 
     modem -- "Cat5 to AX1450 WAN" --> ax
@@ -154,7 +154,7 @@ than those devices account for. So the phone has to be on that network. If that 
 uplink, the phone has no internet.
 
 It still gets the text, **because SMS rides the cellular network rather than Wi-Fi.** A phone parked
-on an internet-less sensing router, with the Hawk Eye app closed, still receives the notice.
+on an internet-less sensing router, with the Radar app closed, still receives the notice.
 
 An APNs push would not have arrived. Push needs IP connectivity on the device, and the device has
 none. The SMS sink was chosen because it reaches a phone that is locked with the app closed, and it

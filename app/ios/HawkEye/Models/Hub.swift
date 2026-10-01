@@ -1,6 +1,6 @@
 import Foundation
 
-/// A Hawk Eye hub discovered on the local network.
+/// A Radar hub discovered on the local network.
 ///
 /// IMPORTANT, and this is a constraint rather than a design choice:
 /// **this is not a list of WiFi networks.** iOS does not let a third-party app
@@ -10,7 +10,7 @@ import Foundation
 /// network you are already joined to, and only with Location permission.
 ///
 /// So the honest mechanism is the one implemented here: the phone is already on
-/// the home WiFi, and we browse Bonjour for Hawk Eye hubs advertising
+/// the home WiFi, and we browse Bonjour for Radar hubs advertising
 /// `_hawkeye._tcp` on that network. The Connect screen is "which of your hubs",
 /// not "which WiFi network".
 struct Hub: Sendable, Hashable, Identifiable {

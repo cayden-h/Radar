@@ -108,7 +108,7 @@ def _readme(record: ReplayRecord, exported_at: datetime) -> str:
         if any(entry.kind == "courier" for entry in record.entries)
         else "Nothing was written after the seal.\n"
     )
-    return f"""HAWK EYE INCIDENT RECORD
+    return f"""RADAR INCIDENT RECORD
 ========================
 
 Incident      {record.incident_id}
@@ -187,7 +187,7 @@ README.txt    this file
 
 def _chain_txt(record: ReplayRecord) -> str:
     lines = [
-        f"# Hawk Eye incident {record.incident_id}",
+        f"# Radar incident {record.incident_id}",
         f"# {record.site_address}",
         f"# root {record.root_hash}",
         "#",

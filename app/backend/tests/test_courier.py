@@ -65,7 +65,7 @@ async def test_the_bundle_goes_out_as_a_zip_that_opens():
         return httpx.Response(200, json={"id": "re_123"})
 
     courier = ResendCourier(
-        api_key="k", from_address="Hawk Eye <a@b.test>", client=_transport(handler)
+        api_key="k", from_address="Radar <a@b.test>", client=_transport(handler)
     )
     record = _sealed_session().to_record()
     receipt = await courier.send(record, to=TO, provenance="operator_supplied")

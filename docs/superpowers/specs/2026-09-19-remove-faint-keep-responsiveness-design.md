@@ -92,5 +92,5 @@ Acceptance: `cd agents && python -m pytest -q`, `cd app/backend && python -m pyt
 ## Explicitly out of scope
 
 - Any new sensing capability. Respiration already exists; nothing here measures anything new.
-- The `SYSTEM` raise path and `assert_human_released`. Hawk Eye still never dials on its own, and that is untouched.
+- The `SYSTEM` raise path and `assert_human_released`. Radar still never dials on its own, and that is untouched.
 - The gas sensor's simulated status. It stays simulated and stays labeled.

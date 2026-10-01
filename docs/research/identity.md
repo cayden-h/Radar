@@ -5,7 +5,7 @@ that sounds like it identifies a person.
 
 ## The rule
 
-**Hawk Eye tracks presences, not identities.**
+**Radar tracks presences, not identities.**
 Identity, where it exists at all, comes from **devices the resident chose to put on their own network** - never from the body.
 
 This is a technical limit and a product position, and they happen to agree.

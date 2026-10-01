@@ -8,7 +8,7 @@ adult in the main bedroom, that signature stops being resolvable, and
 `respiration_lost_s` starts climbing and does not reset while the CO reading
 rises. The transition is the signal; a presence that never resolved a signature
 carries no information. That is expressed purely in interior state. **No
-incident is created and nothing is dialled.** Hawk Eye never calls 911 on its
+incident is created and nothing is dialled.** Radar never calls 911 on its
 own; settled 2026-09-19.
 
 Then, and only if a human taps a button, the call: corroboration from a second
@@ -753,7 +753,7 @@ class SimulatedMasterClient:
         then its signature stops resolving, `respiration_lost_s` starts
         climbing and does not reset, and `environment.co_ppm` rises.
 
-        Either way the system notices and then waits. Hawk Eye never calls 911
+        Either way the system notices and then waits. Radar never calls 911
         on its own; settled 2026-09-19. What a detection buys is an informed
         tap, not a dispatch.
         """

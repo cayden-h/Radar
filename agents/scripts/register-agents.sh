@@ -24,7 +24,7 @@
 #
 # Credentials live in ~/.hawkeye-ans.env, outside the repo. The private keys
 # under agents/.ans/ are gitignored and must stay that way: the identity key
-# IS the agent, and anything holding it can speak as a verified Hawk Eye agent.
+# IS the agent, and anything holding it can speak as a verified Radar agent.
 #
 # Each agent gets its own host, because ANS publishes _ans.<host> and
 # _ans-badge.<host> per registration and seven agents on one host would collide.

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove the Faint incident type and all fall detection from Hawk Eye, and promote the existing `people.respiration_lost` claim into the primary signal that tells a 911 dispatcher whether to expect a response from an occupant.
+**Goal:** Remove the Faint incident type and all fall detection from Radar, and promote the existing `people.respiration_lost` claim into the primary signal that tells a 911 dispatcher whether to expect a response from an occupant.
 
 **Architecture:** Three incident types become two (Burglary, Fire). `agents/people/collapse.py` is deleted outright. The responsiveness answer is carried by `people.respiration_lost`, a claim that already exists and already reports seconds since a breathing signature was last resolvable on a presence that previously had one - the *transition* is the defensible signal, where a presence that never had a signature is not. `agents/master/classify.py` pairs that claim with the gas reading to keep the two-independent-modalities Fire verdict, and `agents/caller` speaks it with its limits attached.
 

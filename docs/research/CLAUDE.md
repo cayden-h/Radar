@@ -22,7 +22,7 @@ Everything here was checked against a primary or near-primary source during that
 
 If you read nothing else here:
 
-1. **Responders arrive knowing nothing about who is inside.** Not how many people, not which rooms, not whether any of them can answer. Hawk Eye tells them: which rooms hold a presence, and how long since a breathing signature that was resolvable there stopped being resolvable. **That is a measurement and a clock, and it is never a finding that somebody has stopped breathing.**
+1. **Responders arrive knowing nothing about who is inside.** Not how many people, not which rooms, not whether any of them can answer. Radar tells them: which rooms hold a presence, and how long since a breathing signature that was resolvable there stopped being resolvable. **That is a measurement and a clock, and it is never a finding that somebody has stopped breathing.**
 
    This replaced the long lie on 2026-09-19. Those were fall statistics, fall detection was cut, and a headline the system cannot measure is not a headline. The figures are kept in `incidents.md` under the cut incident type, because a scope cut you cannot explain is a scope cut you cannot defend.
 
@@ -33,7 +33,7 @@ If you read nothing else here:
 Together these say the same thing: **by the time anyone calls, the information that decides the outcome is already unavailable to them.**
 Which rooms hold someone. Whether they are breathing. How long since a signature that was there went missing.
 
-Note that Hawk Eye does not call 911 itself; that was settled 2026-09-19 and the framing above reflects it.
+Note that Radar does not call 911 itself; that was settled 2026-09-19 and the framing above reflects it.
 These figures argue for the *information*, not for autonomy. Do not let the pitch drift back into implying the system dials on its own.
 
 ## How this feeds the rest of the repo

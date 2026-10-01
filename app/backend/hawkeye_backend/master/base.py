@@ -27,7 +27,7 @@ class MasterUnavailable(RuntimeError):
 class AutonomousDialRefused(RuntimeError):
     """Something tried to put a SYSTEM-raised incident on the dialing path.
 
-    Hawk Eye never calls 911 on its own; settled 2026-09-19. Detections from
+    Radar never calls 911 on its own; settled 2026-09-19. Detections from
     `agents/people` and `agents/master` surface as interior state a
     person acts on, and a human tap is what releases `agents/caller` to dial.
 
@@ -61,7 +61,7 @@ def assert_human_released(incident: Incident) -> None:
         raise AutonomousDialRefused(
             f"incident {incident.incident_id} was raised by "
             f"{incident.raised_by.value!r} and must not reach the dialing path. "
-            "Hawk Eye never calls 911 on its own (settled 2026-09-19); a detection "
+            "Radar never calls 911 on its own (settled 2026-09-19); a detection "
             "surfaces as interior state and a human tap releases the call."
         )
 
@@ -119,7 +119,7 @@ class MasterClient(Protocol):
         independent copy of the guard `agents/master.release_for_call` holds
         on the agents side: `app/backend` is a separate deployable process
         that talks to master only over HTTP/A2A, so it cannot rely on that
-        in-process check reaching across the network boundary. Hawk Eye
+        in-process check reaching across the network boundary. Radar
         never calls 911 on its own; settled 2026-09-19.
         """
         ...

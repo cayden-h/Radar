@@ -30,7 +30,7 @@ import Observation
 ///   had a signature and no longer have one, never that anyone stopped
 ///   breathing: shallow breathing degrades to exactly the same reading.
 ///
-/// The detection raises an alert, never a call. Hawk Eye does not dial 911 on
+/// The detection raises an alert, never a call. Radar does not dial 911 on
 /// its own.
 ///
 /// Everything it emits is shaped exactly like `app/backend`'s wire format, built
@@ -846,7 +846,7 @@ final class MockHawkEyeClient: HawkEyeClienting {
     /// The detection fires with nobody pressing anything, and it raises an
     /// **alert, not a call.**
     ///
-    /// Hawk Eye does not dial 911 on its own; a human tap releases
+    /// Radar does not dial 911 on its own; a human tap releases
     /// `agents/caller`. What the detection buys is an informed tap.
     ///
     /// For `.fire`: the presence keeps its position, its respiration goes to

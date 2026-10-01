@@ -129,7 +129,7 @@ class TwilioSink:
         """
         local = notice.raised_at.astimezone(self._tz).strftime("%H:%M")
         where = f" in the {notice.room.lower()}" if notice.room else ""
-        return f"Hawk Eye: unexpected person{where}, {local}.\nNot accounted for."
+        return f"Radar: unexpected person{where}, {local}.\nNot accounted for."
 
     async def deliver(self, notice: Notice) -> None:
         async with self._lock:

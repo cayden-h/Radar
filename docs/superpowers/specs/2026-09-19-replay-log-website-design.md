@@ -60,7 +60,7 @@ Both are chains and both catch the same edits; a record written by one simply do
 `ReplayRecorder` holds sessions by incident id and decides what opens, appends, and seals.
 
 - `IncidentEvent`, phase `raised`, `raised_by == USER` opens a session.
-  A `SYSTEM` raise does not: Hawk Eye never dials on its own, so there is nothing to record.
+  A `SYSTEM` raise does not: Radar never dials on its own, so there is nothing to record.
 - `VerificationEvent`, `TranscriptEvent`, `InstructionEvent`, `ContextEvent`, `NoticeEvent` each append one entry.
 - `StateEvent` appends a `frame` entry carrying every presence's zone, position, state, vitals and `still_down_s`, plus calibration, environment, and the `rf` block.
 - `IncidentEvent` whose `call_state == ended` seals the session.

@@ -1,4 +1,4 @@
-/* Hawk Eye replay console.
+/* Radar replay console.
    One page: a table of the video segments vision/ writes. Desktop-dense on
    purpose, read at a desk rather than glanced at in a panic; the iOS app makes
    the opposite tradeoffs. Nothing here is loaded from a CDN, because venue

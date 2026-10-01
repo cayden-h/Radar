@@ -5,7 +5,7 @@ It will rotate that shield out of the way for exactly one reason: a grant from
 `master` that it can verify. Spec and reasoning: `shutter/CLAUDE.md`.
 
 **This is the smallest agent in the project and the most important one for the
-pitch.** Everything else in Hawk Eye is software claiming things about software.
+pitch.** Everything else in Radar is software claiming things about software.
 This one is a physical object that moves, on stage, because a signature checked
 out - and, more to the point, one that stays put when a signature does not.
 """

@@ -13,7 +13,7 @@ Research, the pitch, the agent roster, and the Devpost writeup.
 | `hardware/` | **Written 2026-09-19.** Step-by-step guides for every hardware item, the hookup geometry, and a bring-up checklist. `hardware/README.md` is the index. |
 | `notion-backup/` | Pre-write snapshots of the shared Notion page, taken before anything is appended to it. |
 | `research/` | **Verified background, written 2026-09-19.** Incident statistics, per-agent domain briefs, footage licensing. Every figure sourced. Start there. Updated 2026-09-19 for the two-type roster; the cut type's figures are kept as history rather than deleted. |
-| `fraud-13.md` | **Written 2026-09-19.** The 13 attacks at fraud.webmesh.ai, each mapped to its Hawk Eye analogue. Results column fills in once the agents are reachable. |
+| `fraud-13.md` | **Written 2026-09-19.** The 13 attacks at fraud.webmesh.ai, each mapped to its Radar analogue. Results column fills in once the agents are reachable. |
 | `geo.md` | **Written 2026-09-19.** Generative Engine Optimization, plus an opinion on the crawler tradeoff. |
 | `threat-landscape.md` | **Written 2026-09-19.** Agent attacks, OSI, OWASP ASI01-10, MAESTRO, sandbox breakout. The centerpiece of the three. |
 | `pitch.md` | Not written. |
@@ -83,7 +83,7 @@ Run it Saturday, record all thirteen verdicts verbatim including failures, and f
 
 ### 2. GEO, Generative Engine Optimization
 
-`docs/geo.md`. The weakest of the three ties to Hawk Eye, written because it was assigned, and the connection that does exist is not the obvious one.
+`docs/geo.md`. The weakest of the three ties to Radar, written because it was assigned, and the connection that does exist is not the obvious one.
 
 GEO is usually filed as a marketing problem. Filed correctly it is an **identity and provenance problem**: retrieval works on textual features alone because a retrieved document carries no verifiable statement of who wrote it or whether it has changed since. That is the same unbacked application-layer claim as a self-asserted `User-Agent` header.
 
@@ -95,7 +95,7 @@ On the crawler tradeoff he raised without a recommendation, the file takes a pos
 
 `docs/threat-landscape.md`. The centerpiece of the three, and the one to read if only one gets read.
 
-Covers OWASP ASI01-ASI10 each mapped to a concrete Hawk Eye defense, MAESTRO's seven layers, OSI coverage, the 2026 sandbox-breakout incidents, and a ranked defense stack ordered by value per hour of work rather than architectural elegance.
+Covers OWASP ASI01-ASI10 each mapped to a concrete Radar defense, MAESTRO's seven layers, OSI coverage, the 2026 sandbox-breakout incidents, and a ranked defense stack ordered by value per hour of work rather than architectural elegance.
 
 Three things in it change how we build:
 
@@ -140,7 +140,7 @@ The line that ties them together, matching Slide 6's format:
 
 Then the turn, which is the whole reason this project is on this track: those failures cost money. Ours costs an armed response sent to a real address.
 
-Open on the lost breathing signature, then the tap. Hawk Eye does not call 911 by itself and the pitch should say so early, before a judge wonders.
+Open on the lost breathing signature, then the tap. Radar does not call 911 by itself and the pitch should say so early, before a judge wonders.
 
 Keep the education budget near zero.
 Everyone in the room already understands what a 911 call is, and everyone has heard of swatting.
@@ -162,7 +162,7 @@ Together: **by the time a human calls, the information that decides the outcome 
 The fall statistics used to lead this section and no longer can: fall detection was cut on 2026-09-19 and the system does not measure time on the floor.
 They are kept, sourced and marked as history, in `research/incidents.md`, because a judge who asks why we dropped the strongest-sounding numbers deserves the numbers and the answer together.
 
-That is the argument for Hawk Eye, and it is stronger than anything in the ANS material because a judge feels it immediately.
+That is the argument for Radar, and it is stronger than anything in the ANS material because a judge feels it immediately.
 
 **It is not an argument for autonomy, and we did not build autonomy.** Settled 2026-09-19: a person taps, and only then does the system call. Say that out loud early. Every other agent demo this weekend argues its agent deserves more trust; drawing the line here, in front of a judge who has spent the weekend hearing about sandbox breakout, is a stronger position than the one we gave up.
 

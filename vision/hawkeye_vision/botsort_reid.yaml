@@ -1,4 +1,4 @@
-# BoT-SORT for Hawk Eye, with two deliberate changes from the ultralytics
+# BoT-SORT for Radar, with two deliberate changes from the ultralytics
 # default at ultralytics/cfg/trackers/botsort.yaml.
 #
 # 1. with_reid is True. The default ships it off. ReID is what keeps a track

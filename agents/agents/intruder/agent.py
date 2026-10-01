@@ -185,7 +185,7 @@ class IntruderAgent(Agent):
                 field="intruder.unexpected_presence",
                 value="true",
                 # ACTIONABLE, not DISPATCHABLE. This agent informs; it does not
-                # dial, and nothing in Hawk Eye does. A human tap is what
+                # dial, and nothing in Radar does. A human tap is what
                 # releases agents/caller. Capped further when the personhood
                 # verdict underneath it was not verified.
                 severity_ceiling=(

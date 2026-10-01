@@ -51,7 +51,7 @@ final class ScreenshotTour: XCTestCase {
         sleep(16)
         shoot("04-approaching")
 
-        // 4. Raise the incident by hand. Hawk Eye does not dial on its own.
+        // 4. Raise the incident by hand. Radar does not dial on its own.
         //    SwiftUI wraps the label in a button, so match on contained text.
         let burglary = app.buttons.containing(.staticText, identifier: "Burglary").firstMatch
         XCTAssertTrue(burglary.waitForExistence(timeout: 10), "no Burglary button")

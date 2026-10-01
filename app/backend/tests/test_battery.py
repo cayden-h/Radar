@@ -6,7 +6,7 @@ See docs/fraud-13.md. So we implement the shapes rather than invoke the suite,
 and this file is the evidence.
 
 Each test is named for its probe. The docstring says what the probe does and what
-its Hawk Eye analogue is, so the mapping is readable without the research doc.
+its Radar analogue is, so the mapping is readable without the research doc.
 
 Every one of these must be BLOCKED. A passing test here means a rejection there.
 """

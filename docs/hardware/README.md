@@ -1,6 +1,6 @@
 # docs/hardware/
 
-Hawk Eye hardware guides.
+Radar hardware guides.
 Written for someone with no prior context who has to make the CSI capture path work, possibly at 2am.
 
 Read `sensor/CLAUDE.md` for why the capture path is shaped this way.

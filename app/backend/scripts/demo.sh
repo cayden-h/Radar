@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Boot the Hawk Eye hub in simulated mode and run the scripted incident end to end.
+# Boot the Radar hub in simulated mode and run the scripted incident end to end.
 #
 # Needs no Raspberry Pi, no router, no agents, and no network beyond loopback.
 #

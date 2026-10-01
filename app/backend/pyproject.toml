@@ -1,7 +1,7 @@
 [project]
 name = "hawkeye-backend"
 version = "0.1.0"
-description = "Hawk Eye app-facing edge. The iOS app talks to this; this talks to agents/master."
+description = "Radar app-facing edge. The iOS app talks to this; this talks to agents/master."
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",

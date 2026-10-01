@@ -1,4 +1,4 @@
-# Hawk Eye, iOS
+# Radar, iOS
 
 The resident's side of an incident.
 Read `app/CLAUDE.md` for what the app is for, and the root `CLAUDE.md` for the project.
@@ -78,7 +78,7 @@ discovered over Bonjour. The mock path is kept rather than deleted, because the
 root `CLAUDE.md` requires a recorded fallback for anything demoed live.
 
 The one-word test for which path you are on: the Connect screen lists
-**"Hawk Eye Hub"** live, from the hub's TXT record, and **"Home"** on mocks.
+**"Radar Hub"** live, from the hub's TXT record, and **"Home"** on mocks.
 
 `HawkEye/Config.swift` holds one flag:
 
@@ -101,7 +101,7 @@ It runs the whole demo:
 
   **This is mock data and is richer than a 1x1 radio delivers.** Two people within about a metre merge into one, and an exact sensed headcount is not available. Live, the count is sourced from device association against the roster and the radio answers which room and whether a presence is breathing. Do not let the mock set expectations for what the hardware claims on camera; see the counting limits under `agents/people`.
 - A detection lands after `Config.mockDetectionAfter` (14 seconds by default) and **raises an alert, not a call.**
-  Hawk Eye never dials 911 on its own; a human tap is what releases `agents/caller`.
+  Radar never dials 911 on its own; a human tap is what releases `agents/caller`.
   Set the constant to `nil` to disable the detection and drive everything from the buttons.
 - A scripted two-way 911 call plays out in the transcript once a human taps, with guidance arriving alongside it and the ANS verification feed including a claim that is refused.
 
@@ -245,7 +245,7 @@ iOS does not let a third-party app enumerate nearby SSIDs.
 That requires the `NEHotspotHelper` entitlement, which Apple grants only to MFi hotspot vendors on request and which we do not have.
 `NEHotspotNetwork` reports only the network the device has already joined, and only with Location permission.
 
-So the app does the honest thing: the phone is already on the home WiFi, and it browses Bonjour for Hawk Eye hubs on that network.
+So the app does the honest thing: the phone is already on the home WiFi, and it browses Bonjour for Radar hubs on that network.
 The footer on the Connect screen says this in one line, because a user who expects a WiFi list will otherwise be confused, and because a judge who knows iOS will check.
 
 ## Wire format

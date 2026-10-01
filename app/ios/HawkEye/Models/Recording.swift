@@ -4,7 +4,7 @@ import Foundation
 /// timestamped together against one timeline.
 ///
 /// **Front-end only, for now.** There is no camera and no microphone in this
-/// system — Hawk Eye senses through CSI, per the root `CLAUDE.md` — so what
+/// system — Radar senses through CSI, per the root `CLAUDE.md` — so what
 /// this screen calls "video" is the interior view's activity plus the call
 /// transcript, not a camera feed. Nothing here is wired to a capture
 /// pipeline, storage, or a backend yet; `Recording.samples` below is the

@@ -1,6 +1,6 @@
 # Raspberry Pi 4B
 
-The only device in Hawk Eye that measures anything.
+The only device in Radar that measures anything.
 Everything in `agents/` consumes what comes off this board.
 
 Read `sensor/CLAUDE.md` before starting.

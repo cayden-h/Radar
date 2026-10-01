@@ -17,7 +17,7 @@ Plus the replay console's three reads, which the iOS app does not use:
 
 Plus POST /v1/demo/run, which drives the scripted detection in simulated mode and
 404s in live mode. It exists so scripts/demo.sh has something to hit. It stops at
-the detection: Hawk Eye never calls 911 on its own (settled 2026-09-19), so the
+the detection: Radar never calls 911 on its own (settled 2026-09-19), so the
 call runs only once a person taps, and `?simulate_human_tap=true` is the explicit
 opt-in that stands in for that person.
 """
@@ -748,7 +748,7 @@ async def post_demo_run(
     The detection is expressed purely in interior state: the presence goes to
     `confirmed_still` with no resolvable breathing signature, `respiration_lost_s`
     climbs, the CO reading rises. No incident
-    is created and no call is placed, because Hawk Eye never calls 911 on its
+    is created and no call is placed, because Radar never calls 911 on its
     own (settled 2026-09-19). The system notices and waits for a human tap.
 
     `?simulate_human_tap=true` additionally raises the incident type that matches

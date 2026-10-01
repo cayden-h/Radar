@@ -142,7 +142,7 @@ Create `app/backend/hawkeye_backend/models/notice.py`:
 "surface here as alerts... An alert is information a person acts on. It is not a
 call." An unexpected person is the clearest case of it.
 
-This is on-thesis rather than a departure from it. Hawk Eye never calls 911 on
+This is on-thesis rather than a departure from it. Radar never calls 911 on
 its own; the sensing agents detect, classify and *inform*, and a human decides
 whether emergency services are needed. A notice is the inform step made to
 actually arrive somewhere.
@@ -781,7 +781,7 @@ async def test_the_sms_names_the_room_and_the_local_time():
 
     body = httpx.QueryParams(captured[0].content.decode())["Body"]
     assert body == (
-        "Hawk Eye: unexpected person in the living room, 21:04.\nNot accounted for."
+        "Radar: unexpected person in the living room, 21:04.\nNot accounted for."
     )
 
 
@@ -979,7 +979,7 @@ class TwilioSink:
         """
         local = notice.raised_at.astimezone(self._tz).strftime("%H:%M")
         where = f" in the {notice.room.lower()}" if notice.room else ""
-        return f"Hawk Eye: unexpected person{where}, {local}.\nNot accounted for."
+        return f"Radar: unexpected person{where}, {local}.\nNot accounted for."
 
     async def deliver(self, notice: Notice) -> None:
         async with self._lock:
@@ -2019,7 +2019,7 @@ cd app/backend && HAWKEYE_MODE=simulated HAWKEYE_SIM_AUTOSTART=true .venv/bin/py
 Expected on the phone, roughly ten seconds in:
 
 ```
-Sent from your Twilio trial account - Hawk Eye: unexpected person in the living room, 21:04.
+Sent from your Twilio trial account - Radar: unexpected person in the living room, 21:04.
 Not accounted for.
 ```
 

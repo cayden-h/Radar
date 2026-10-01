@@ -1,4 +1,4 @@
-# Hawk Eye, watchOS
+# Radar, watchOS
 
 The actor.
 It gets the notification, it is where an incident is started, and it holds nothing.

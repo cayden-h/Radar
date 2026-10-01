@@ -1,6 +1,6 @@
 # Swapping mocks for real parts
 
-Hawk Eye runs end to end today with no Pi, no router, no agents and no network.
+Radar runs end to end today with no Pi, no router, no agents and no network.
 That is deliberate: the demo must never depend on hardware being alive.
 
 This file is the switchboard.
@@ -81,7 +81,7 @@ The mock path is kept rather than deleted: the root `CLAUDE.md` requires a recor
 
 **To go back to mocks:** set `useMocks = true`. Nothing else.
 
-**Verify which one you are on:** the Connect screen lists **"Hawk Eye Hub"** on the live path, which is `HAWKEYE_HUB_NAME` from the hub's Bonjour TXT record. The mock advertises **"Home"**. That one word is the whole test.
+**Verify which one you are on:** the Connect screen lists **"Radar Hub"** on the live path, which is `HAWKEYE_HUB_NAME` from the hub's Bonjour TXT record. The mock advertises **"Home"**. That one word is the whole test.
 
 **The gap that used to bite you is closed.** `app/backend/hawkeye_backend/discovery.py` registers `_hawkeye._tcp` on startup and withdraws it on shutdown, so the Connect screen finds real hubs.
 Two things about it are worth knowing before you debug it:
@@ -92,8 +92,8 @@ Two things about it are worth knowing before you debug it:
 Confirm it from the Mac rather than from the app:
 
 ```sh
-dns-sd -L "Hawk Eye Hub" _hawkeye._tcp local.
-#  name=Hawk Eye Hub ans=hub.hawkeye.invalid host=10.0.0.11 port=8787 site=site-demo-01 mode=live
+dns-sd -L "Radar Hub" _hawkeye._tcp local.
+#  name=Radar Hub ans=hub.hawkeye.invalid host=10.0.0.11 port=8787 site=site-demo-01 mode=live
 ```
 
 **The camera view is wired as of 2026-09-20.** `CameraFeedView` was a static `video.fill` glyph - "no computer-vision pipeline is wired up, this is the honest placeholder for one" - while `cameraFrame` was already being decoded off the stream and discarded.

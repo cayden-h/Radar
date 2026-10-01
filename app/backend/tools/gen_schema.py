@@ -361,7 +361,7 @@ INSTRUCTION = Instruction(
 )
 
 HUB = HubStatus(
-    hub_name="Hawk Eye Hub",
+    hub_name="Radar Hub",
     hub_ansname="hub.hawkeye.invalid",
     master_ansname="master.hawkeye.invalid",
     site_id="site-demo-01",
@@ -531,7 +531,7 @@ def main() -> None:
                 at=T0,
                 incident_id=None,
                 payload=HelloEvent(
-                    hub_name="Hawk Eye Hub",
+                    hub_name="Radar Hub",
                     hub_ansname="hub.hawkeye.invalid",
                     mode="simulated",
                     stream_protocol_version=1,

@@ -119,7 +119,7 @@ capture operator email          force-send the record:
 ```
 HAWKEYE_COURIER=resend
 HAWKEYE_RESEND_API_KEY=re_…
-HAWKEYE_COURIER_FROM=Hawk Eye <hawkeye@cayden.tech>
+HAWKEYE_COURIER_FROM=Radar <hawkeye@cayden.tech>
 HAWKEYE_COURIER_TO=tringuyen7379@gmail.com
 HAWKEYE_COURIER_DELAY_S=5.0
 HAWKEYE_COURIER_AUTO_SEND_ON_SEAL=false

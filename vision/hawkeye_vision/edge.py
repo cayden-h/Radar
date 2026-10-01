@@ -331,7 +331,7 @@ async def pump(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Push camera frames to the Hawk Eye hub.")
+    parser = argparse.ArgumentParser(description="Push camera frames to the Radar hub.")
     parser.add_argument(
         "--hub", default=os.environ.get("HAWKEYE_HUB_URL", "ws://hawkeye-hub.local:8787")
     )

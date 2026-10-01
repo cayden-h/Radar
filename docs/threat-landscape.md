@@ -11,11 +11,11 @@ The briefing asked for three things: the most common attacks against agents happ
 Agent sandbox breakout was flagged as the specific concern the track owner hears from governments and industry, so it gets its own section.
 
 This file is not a literature review.
-Every section ends with what Hawk Eye actually does about it, and the honest line for the things we do not defend against.
+Every section ends with what Radar actually does about it, and the honest line for the things we do not defend against.
 
 ## The one-paragraph threat model
 
-Hawk Eye's threat is the **Infinite Impostor** (Zafar et al., 2026): an agent that interposes itself between two parties who already trust each other.
+Radar's threat is the **Infinite Impostor** (Zafar et al., 2026): an agent that interposes itself between two parties who already trust each other.
 Instantiated here, it is a compromised sensing agent sitting between a real house and a real `master`.
 Every participant behaves correctly, the house is real, `caller` does its job faithfully, and the only defect is that one source is not what it claims.
 The cost is an armed response dispatched to a real address on fabricated evidence.
@@ -86,7 +86,7 @@ Note that the Trust Index spec's `safetySignals.guardrailCertification.standard`
 The agentic list is not yet an enum value.
 That is a small, real, defensible observation to raise with the track owner.
 
-| ID | Risk | How it lands on Hawk Eye | What we do |
+| ID | Risk | How it lands on Radar | What we do |
 |---|---|---|---|
 | ASI01 | Agent Goal Hijack | The 911 operator is an unauthenticated natural-language input directly into `caller`. An attacker who reaches that channel can try to redirect the call. | `caller` treats operator speech as data, never as instruction. An operator question may trigger a verified query; it may never change what `caller` trusts. |
 | ASI02 | Tool Misuse and Exploitation | `caller` holds the only tool that touches the outside world: placing a phone call. | Exactly one agent holds it, and it only fires on a `master`-classified incident with verified corroboration. |
@@ -99,7 +99,7 @@ That is a small, real, defensible observation to raise with the track owner.
 | ASI09 | Human-Agent Trust Exploitation | The highest-severity risk in this project. A confident synthesized voice telling a dispatcher a child is unresponsive is an armed response. | `caller` speaks only verified claims, says what it discarded, and must be able to say "I don't know." We do **not** claim the operator can verify us. |
 | ASI10 | Rogue Agents | A sensing agent that keeps its certificate but changes its code. | Version-bound certificates plus the Agent Integrity Monitor. Drift is detectable; that detection is the demo. |
 
-ASI09 is where Hawk Eye differs from every other project on this track.
+ASI09 is where Radar differs from every other project on this track.
 Elsewhere ASI09 costs money. Here it costs someone a police response to their front door.
 
 ## 3. MAESTRO, and the fact that ANS already did the mapping
@@ -112,7 +112,7 @@ It is CSA-led and complementary to the OWASP list, not a joint effort.
 The track owner's own project has already done this mapping.
 Speaking his layer vocabulary back to him is free credibility, and contradicting it is a way to lose an argument we did not need to have.
 
-| Layer | MAESTRO name | ANS mechanism (from their MAESTRO.md) | Hawk Eye position |
+| Layer | MAESTRO name | ANS mechanism (from their MAESTRO.md) | Radar position |
 |---|---|---|---|
 | 1 | Foundation Models | Not protected directly. Trust Index `safety` scores model provenance, guardrail certification, enclave attestation. | Our sensing agents are signal processing, not LLMs. `caller` and `guidance` are the LLM surface, and they are the two that talk to humans. |
 | 2 | Data Operations | JWS message integrity. `dataEgressPolicy` of `LOCAL_ONLY` / `RESTRICTED` / `OPEN`, attestable via TEE. | Strong card to play. Interior occupancy of a private home is about as sensitive as telemetry gets, and our inference genuinely runs on-device. We should declare `LOCAL_ONLY`. |
@@ -125,7 +125,7 @@ Speaking his layer vocabulary back to him is free credibility, and contradicting
 Two ANS mechanisms worth stealing for the demo because they are cheap and they look like engineering rather than slideware:
 
 - **Status Tokens** (marked `[PROPOSED]` in their doc). A SCITT receipt proves an agent *was* registered; it says nothing about whether it has since been revoked. The Status Token is a short-lived COSE_Sign1 from the RA asserting ACTIVE / DEPRECATED / REVOKED, stapled to the Trust Card. Same idea as OCSP stapling. When it is absent or expired, the verifier falls back to Silver. For a system that re-verifies on every operator question, this is exactly the right primitive.
-- **Suppression before revocation.** The AIM publishes a finding, the RA requires corroborating reports from multiple independent monitors, and suppression (reversible removal from discovery) precedes revocation (permanent). Hawk Eye should mirror this: `master` suppresses a drifting sensing agent's claims immediately and logs it, rather than trying to revoke anything mid-incident.
+- **Suppression before revocation.** The AIM publishes a finding, the RA requires corroborating reports from multiple independent monitors, and suppression (reversible removal from discovery) precedes revocation (permanent). Radar should mirror this: `master` suppresses a drifting sensing agent's claims immediately and logs it, rather than trying to revoke anything mid-incident.
 
 ## 4. Sandbox breakout, the concern he named
 
@@ -140,7 +140,7 @@ The common thread, and the line to use: **all three came from inside the labs, a
 These were the most instrumented agent environments on earth and the containment failure was found afterward, by review.
 That is an argument for tamper-evident post-hoc records, which is exactly what SCITT gives you and exactly what `agents/replay` is for.
 
-### Hawk Eye's honest exposure here
+### Radar's honest exposure here
 
 We should state this rather than wait for it.
 

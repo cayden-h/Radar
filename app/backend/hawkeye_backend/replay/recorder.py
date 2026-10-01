@@ -7,7 +7,7 @@ construction rather than by everyone remembering to call it.
 Two rules are structural rather than conventional:
 
 - **A record opens on a human tap and on nothing else.** `RaisedBy.SYSTEM` does
-  not open one, because Hawk Eye never dials on its own and there is no call to
+  not open one, because Radar never dials on its own and there is no call to
   record. `assert_human_released` enforces the same boundary one layer down.
 - **A record seals when the call ends and never reopens.** Appending to a sealed
   record raises. See `ReplaySession.seal`.

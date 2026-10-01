@@ -8,13 +8,13 @@ See `docs/PIVOT.md`.
 Researched 2026-09-19. Every figure here was verified during that session; sources are linked inline.
 Use these numbers in the pitch, the Devpost page, and the video. Do not round them upward.
 
-Hawk Eye covers **Fire** and **Burglary**.
+Radar covers **Fire** and **Burglary**.
 It covered a third, **Faint**, until 2026-09-19. That section is kept below, as history, and it is marked as history.
 Read the synthesis at the bottom of each section; the raw numbers matter less than what they imply about the product.
 
 **The headline is responsiveness.**
 Responders arriving at a building do not know who is inside or whether those people can answer.
-Hawk Eye tells them: which rooms hold a presence, and how long since a breathing signature that was there stopped being resolvable.
+Radar tells them: which rooms hold a presence, and how long since a breathing signature that was there stopped being resolvable.
 That is a narrower claim than the one this file used to lead with, and unlike that one it survives contact with what the radio can actually measure.
 
 ---
@@ -141,7 +141,7 @@ Do not present burglary as a growing crisis; it is not. Present it as the case t
 The interesting figure is that **daytime residential burglaries outnumber nighttime ones**, 216,601 to 174,053.
 Burglars prefer empty houses, which means the dangerous cases are the minority where someone is home and the burglar did not expect it.
 
-That is precisely the scenario Hawk Eye addresses and existing systems do not:
+That is precisely the scenario Radar addresses and existing systems do not:
 a motion sensor tells you something is moving; it cannot tell responding officers **where the intruder is and where the resident is, as separately tracked presences.**
 
 That distinction is the demo, and it is why burglary stays in the roster despite being the weaker of the two on raw numbers.
@@ -158,6 +158,6 @@ Not an incident type we cover. It is the threat model for `agents/caller`.
 
 Sources: [The Hill on the FBI database](https://thehill.com/blogs/blog-briefing-room/4075617-fbi-launches-national-swatting-database-amid-rising-incidents/), [NBC News](https://www.nbcnews.com/news/us-news/fbi-formed-national-database-track-prevent-swatting-rcna91722)
 
-**How to use it:** swatting motivates the problem. It is not something Hawk Eye prevents.
+**How to use it:** swatting motivates the problem. It is not something Radar prevents.
 The honest claim is attribution after the fact, via `agents/replay` and the SCITT log. See `agents/CLAUDE.md`.
 The fact that the FBI only began counting in 2023 is itself a useful point: the baseline is unmeasured because nobody could attribute these calls.

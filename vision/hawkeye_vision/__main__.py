@@ -124,7 +124,7 @@ def _run(
                 )
             continue
 
-        cv2.imshow("Hawk Eye vision", overlaid)
+        cv2.imshow("Radar vision", overlaid)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             return
 

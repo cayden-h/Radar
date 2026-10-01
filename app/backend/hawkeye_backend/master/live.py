@@ -189,7 +189,7 @@ class LiveMasterClient:
     ) -> Incident:
         # The hub forwards taps, and only taps. master owns the mesh side of
         # this, but the hub refuses to be the thing that asks it to dial without
-        # a human: Hawk Eye never calls 911 on its own, settled 2026-09-19.
+        # a human: Radar never calls 911 on its own, settled 2026-09-19.
         if raised_by is not RaisedBy.USER:
             raise AutonomousDialRefused(
                 f"the hub will not forward a {raised_by.value!r}-raised incident to master. "
@@ -219,7 +219,7 @@ class LiveMasterClient:
         # Same guard as raise_incident above, and for the same reason: this
         # process cannot lean on agents/master's in-process
         # `release_for_call` check across the network boundary, so it holds
-        # its own copy. Hawk Eye never calls 911 on its own, settled
+        # its own copy. Radar never calls 911 on its own, settled
         # 2026-09-19.
         if incident.raised_by is not RaisedBy.USER:
             raise AutonomousDialRefused(

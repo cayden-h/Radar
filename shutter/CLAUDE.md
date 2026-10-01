@@ -6,7 +6,7 @@ It holds one GPIO pin, one TowerPro SG92R micro servo, and an opaque shield moun
 It will rotate that shield out of the way for exactly one reason: a grant from `master` that it can verify.
 
 **This is the smallest agent in the project and the most important one for the pitch.**
-Everything else in Hawk Eye is software claiming things about software. This one is a physical object that moves, on stage, in front of the judge, because a signature checked out.
+Everything else in Radar is software claiming things about software. This one is a physical object that moves, on stage, in front of the judge, because a signature checked out.
 
 Read the root `CLAUDE.md` and `docs/PIVOT.md` first. `agents/CLAUDE.md` is the mesh contract this agent lives inside.
 

@@ -7,7 +7,7 @@
     "incident_id": null,
     "payload": {
       "kind": "hello",
-      "hub_name": "Hawk Eye Hub",
+      "hub_name": "Radar Hub",
       "hub_ansname": "hub.hawkeye.invalid",
       "mode": "simulated",
       "stream_protocol_version": 1,

@@ -1,4 +1,4 @@
-/* Hawk Eye replay console.
+/* Radar replay console.
  *
  * Vanilla, no build, no CDN.
  *

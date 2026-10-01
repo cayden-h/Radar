@@ -2,7 +2,7 @@
   "$note": "GET /v1/hub response.",
   "$generated_by": "tools/gen_schema.py",
   "example": {
-    "hub_name": "Hawk Eye Hub",
+    "hub_name": "Radar Hub",
     "hub_ansname": "hub.hawkeye.invalid",
     "master_ansname": "master.hawkeye.invalid",
     "site_id": "site-demo-01",

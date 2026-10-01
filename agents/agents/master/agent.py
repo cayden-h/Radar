@@ -676,7 +676,7 @@ class MasterAgent(Agent):
             raise AutonomousDialRefused(
                 f"incident {self._incident.incident_id} was raised by "
                 f"{self._incident.raised_by.value!r} and must not reach the dialing path. "
-                "Hawk Eye never calls 911 on its own; a detection surfaces as interior state "
+                "Radar never calls 911 on its own; a detection surfaces as interior state "
                 "and a human tap releases the call."
             )
         self._incident.released_for_call = True

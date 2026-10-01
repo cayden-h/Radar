@@ -14,7 +14,7 @@
 - **Fail soft on the call loop.** Nothing in the orchestrator's send path may raise into the WebSocket handler; log and swallow. A dropped 911 call causes a dispatch; a lost email does not.
 - **Provenance stays honest.** The fixed demo send goes out as `configured` (empty `to`, backend uses `settings.courier_to`). The operator send goes out as `operator_supplied` (non-empty `to`). Never label the fixed address `operator_supplied`.
 - Default values must preserve existing behavior: `force` defaults `False`, `courier_auto_send_on_seal` defaults `True`.
-- The `.env` for the demo lives at `app/backend/.env` (gitignored) and already contains: `HAWKEYE_COURIER=resend`, `HAWKEYE_RESEND_API_KEY=…`, `HAWKEYE_COURIER_FROM=Hawk Eye <hawkeye@cayden.tech>`, `HAWKEYE_COURIER_TO=tringuyen7379@gmail.com`, `HAWKEYE_COURIER_DELAY_S=5.0`, `HAWKEYE_COURIER_AUTO_SEND_ON_SEAL=false`.
+- The `.env` for the demo lives at `app/backend/.env` (gitignored) and already contains: `HAWKEYE_COURIER=resend`, `HAWKEYE_RESEND_API_KEY=…`, `HAWKEYE_COURIER_FROM=Radar <hawkeye@cayden.tech>`, `HAWKEYE_COURIER_TO=tringuyen7379@gmail.com`, `HAWKEYE_COURIER_DELAY_S=5.0`, `HAWKEYE_COURIER_AUTO_SEND_ON_SEAL=false`.
 
 ## File Structure
 

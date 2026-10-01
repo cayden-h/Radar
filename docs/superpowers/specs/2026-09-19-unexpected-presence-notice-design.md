@@ -21,7 +21,7 @@ alerts... An alert is information a person acts on. It is not a call."
 An unexpected person is the clearest case of it.
 
 This is on-thesis rather than a departure from it.
-Hawk Eye never calls 911 on its own; the sensing agents detect, classify and **inform**, and a human
+Radar never calls 911 on its own; the sensing agents detect, classify and **inform**, and a human
 decides whether emergency services are needed.
 A notice is the inform step made to actually arrive somewhere.
 
@@ -167,7 +167,7 @@ class NoticeEvent(BaseModel):
 ### The SMS body
 
 ```
-Hawk Eye: unexpected person in the living room, 21:04.
+Radar: unexpected person in the living room, 21:04.
 Not accounted for.
 ```
 

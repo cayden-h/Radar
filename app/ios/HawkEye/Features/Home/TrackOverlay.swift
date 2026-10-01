@@ -16,7 +16,7 @@ import SwiftUI
 ///
 /// ## What a box may and may not say
 ///
-/// **A green box is not recognition.** Nothing in Hawk Eye identifies anybody:
+/// **A green box is not recognition.** Nothing in Radar identifies anybody:
 /// the name on a box is what a resident typed after looking at the picture, and
 /// the sheet says so out loud rather than leaving it to be inferred. See
 /// `app/backend/hawkeye_backend/edge/vouch.py`.
@@ -142,7 +142,7 @@ struct VouchSheet: View {
                 // must not come away believing the house now recognises anyone.
                 Text(
                     "This only applies while they are on camera, and it is not recognition - "
-                    + "Hawk Eye cannot identify anyone. It stops this person being counted as "
+                    + "Radar cannot identify anyone. It stops this person being counted as "
                     + "unaccounted for, and it never places a call."
                 )
                 .font(.system(size: 13))

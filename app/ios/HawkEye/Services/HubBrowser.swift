@@ -2,7 +2,7 @@ import Foundation
 import Network
 import Observation
 
-/// Discovers Hawk Eye hubs on the network the phone is already joined to.
+/// Discovers Radar hubs on the network the phone is already joined to.
 ///
 /// Read `Hub` for why this is a list of hubs and not a list of WiFi SSIDs.
 /// The one-line version: enumerating nearby SSIDs from a third-party iOS app

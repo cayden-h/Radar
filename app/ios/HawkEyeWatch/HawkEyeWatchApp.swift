@@ -1,7 +1,7 @@
 import SwiftUI
 import WatchKit
 
-/// Hawk Eye on the wrist.
+/// Radar on the wrist.
 ///
 /// The actor, not the record. It gets the notification and it is where an
 /// incident is started; the footage, the transcript, the roster and the sealed

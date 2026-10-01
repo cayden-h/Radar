@@ -27,7 +27,7 @@ class IncidentType(StrEnum):
 class RaisedBy(StrEnum):
     """Who raised it.
 
-    USER is the only path to a call. Hawk Eye never dials 911 on its own;
+    USER is the only path to a call. Radar never dials 911 on its own;
     settled 2026-09-19. A human tap is what releases `agents/caller` to dial,
     and `agents/people` and `agents/master` surface their detections as
     interior state the resident acts on rather than as a call.

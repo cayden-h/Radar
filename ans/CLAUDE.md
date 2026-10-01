@@ -9,7 +9,7 @@ Shared plumbing for everything in `agents/`.
 
 Read the root `CLAUDE.md` first.
 
-**Then read `docs/threat-landscape.md`.** It maps Hawk Eye onto OWASP ASI01-10 and MAESTRO, and it ranks every mechanism named below by what it buys us per hour of work.
+**Then read `docs/threat-landscape.md`.** It maps Radar onto OWASP ASI01-10 and MAESTRO, and it ranks every mechanism named below by what it buys us per hour of work.
 The single most useful thing found while writing it: the ANS registry repo ships its own [`MAESTRO.md`](https://github.com/agentnameservice/ans-registry/blob/main/MAESTRO.md), a full threat analysis of the ANS architecture by the people who built it.
 Read that before designing anything here. Speaking the track owner's own layer vocabulary back to him is free; contradicting it is a way to lose an argument we did not need to have.
 
@@ -82,7 +82,7 @@ Read it before writing a card. The short version is that the card, not the fraud
 Two fields are worth filling in deliberately rather than by default.
 
 - **`dataEgressPolicy: LOCAL_ONLY`.** The enum is `LOCAL_ONLY`, `RESTRICTED`, `OPEN`. Our inference genuinely runs on the Pi, and interior occupancy of a private home is about as sensitive as telemetry gets. This is the strongest safety-dimension claim we can make honestly, and it is true today rather than aspirational.
-- **`safetySignals.guardrailCertification`.** The `standard` enum currently accepts `OWASP_LLM_TOP10`, `AISI_2026_SAFE`, or `CUSTOM`. The 2026 agentic list (ASI01-ASI10) is not yet a value. Our `docs/threat-landscape.md` maps Hawk Eye against it, so `CUSTOM` plus a `standardUri` is the honest encoding. **This is also a small, real, specific observation to raise with the track owner**, which is worth more in a judging conversation than a compliment.
+- **`safetySignals.guardrailCertification`.** The `standard` enum currently accepts `OWASP_LLM_TOP10`, `AISI_2026_SAFE`, or `CUSTOM`. The 2026 agentic list (ASI01-ASI10) is not yet a value. Our `docs/threat-landscape.md` maps Radar against it, so `CUSTOM` plus a `standardUri` is the honest encoding. **This is also a small, real, specific observation to raise with the track owner**, which is worth more in a judging conversation than a compliment.
 
 What we must not do is fill in `enclaveAttestation`. We have no TEE. Scoring zero there is correct and we should say why.
 

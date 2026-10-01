@@ -1,7 +1,7 @@
 [project]
 name = "hawkeye-agents"
 version = "0.1.0"
-description = "The nine ANS-registered agents behind Hawk Eye."
+description = "The nine ANS-registered agents behind Radar."
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",

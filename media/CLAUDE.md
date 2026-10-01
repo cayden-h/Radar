@@ -35,7 +35,7 @@ Follow the demo sequence in `agents/CLAUDE.md`. In order:
 
 1. **The lost breathing signature.** Open here, silent. `people` had a signature in the bedroom and no longer does, and the clock starts from the last resolvable frame. The app raises an alert; no call is placed.
    **Do not stage a fall and do not let the edit imply one.** Fall detection was cut on 2026-09-19 and the system does not detect one. The subject lies down and goes still; the claim on screen is about breathing, not about falling.
-2. **A hand reaches for the phone and taps Fire.** Hawk Eye does not call 911 by itself, and the video should make that unmistakable rather than leaving it to the voiceover.
+2. **A hand reaches for the phone and taps Fire.** Radar does not call 911 by itself, and the video should make that unmistakable rather than leaving it to the voiceover.
 3. Sensing agents corroborating, on screen, with confidence.
    **Do not put an exact sensed headcount on screen.** A 1x1 link cannot deliver it, and a judge who knows RF will ask. Show one resolved presence plus a roster-sourced "2 residents registered, both devices present". Counting limits are under `agents/people`.
    If two people must appear in frame, stage them in opposite corners or either side of a wall with one moving. Two people within a metre of each other read as one.

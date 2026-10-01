@@ -1,4 +1,4 @@
-# Hawk Eye Vision: Phase A, the camera path Implementation Plan
+# Radar Vision: Phase A, the camera path Implementation Plan
 
 **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1498,7 +1498,7 @@ Append to `.gitignore` at the repo root:
 Create `vision/hawkeye_vision/botsort_reid.yaml`:
 
 ```yaml
-# BoT-SORT for Hawk Eye, with two deliberate changes from the ultralytics
+# BoT-SORT for Radar, with two deliberate changes from the ultralytics
 # default at ultralytics/cfg/trackers/botsort.yaml.
 #
 # 1. with_reid is True. The default ships it off. ReID is what keeps a track
@@ -2612,7 +2612,7 @@ def main() -> None:
                     )
                 continue
 
-            cv2.imshow("Hawk Eye vision", draw(frame.image, book, mode, luminance))
+            cv2.imshow("Radar vision", draw(frame.image, book, mode, luminance))
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
     finally:

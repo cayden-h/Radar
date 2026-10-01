@@ -201,9 +201,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     app = FastAPI(
-        title="Hawk Eye hub",
+        title="Radar hub",
         version=__version__,
-        summary="The app-facing edge of the Hawk Eye agent mesh.",
+        summary="The app-facing edge of the Radar agent mesh.",
         description=(
             "The iOS app never talks to the five agents directly. It talks to this service, "
             "which talks to agents/master. That keeps the ANS-verified agent-to-agent mesh "

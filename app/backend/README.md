@@ -4,7 +4,7 @@
 What is stale below: the two-scenario demo runner (Fire is cut), the CO and respiration fields in the state payload, and the three-state person classification. The state payload gains a shield state and a narration line instead.
 `docs/PIVOT.md` is the record and `TASKS.md` T01 is the deletion.
 
-The app-facing edge of the Hawk Eye agent mesh.
+The app-facing edge of the Radar agent mesh.
 
 Read the root `CLAUDE.md` and `app/CLAUDE.md` first.
 
@@ -77,7 +77,7 @@ serves every route as usual.
 ```sh
 uv pip install -e ".[discovery]"
 dns-sd -B _hawkeye._tcp local.          # is anything advertising
-dns-sd -L "Hawk Eye Hub" _hawkeye._tcp local.   # what its TXT record says
+dns-sd -L "Radar Hub" _hawkeye._tcp local.   # what its TXT record says
 ```
 
 A hub with no non-loopback address advertises nothing, deliberately: a phone
@@ -192,7 +192,7 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_MODE` | `simulated` | `simulated` or `live`. The one switch. |
 | `HAWKEYE_HOST` | `0.0.0.0` | Bind address. |
 | `HAWKEYE_PORT` | `8787` | Bind port. |
-| `HAWKEYE_HUB_NAME` | `Hawk Eye Hub` | Shown on the Connect screen. |
+| `HAWKEYE_HUB_NAME` | `Radar Hub` | Shown on the Connect screen. |
 | `HAWKEYE_HUB_ANSNAME` | `hub.hawkeye.invalid` | The ANSName the hub is anchored to. Placeholder; see TODOs. |
 | `HAWKEYE_MASTER_ANSNAME` | `master.hawkeye.invalid` | Placeholder; see TODOs. |
 | `HAWKEYE_SITE_ID` | `site-demo-01` | One resident, hardcoded. |
@@ -215,7 +215,7 @@ Every setting is an environment variable prefixed `HAWKEYE_`.
 | `HAWKEYE_TWILIO_MAX_PER_INSTANCE` | `5` | Hard cap for the life of the sink. |
 | `HAWKEYE_COURIER` | `off` | `off` or `resend`. Who mails a **sealed** record to the responding department. See the courier below. |
 | `HAWKEYE_RESEND_API_KEY` | empty | Resend dashboard. Held as a `SecretStr`, so it cannot reach a log or a repr. |
-| `HAWKEYE_COURIER_FROM` | `Hawk Eye <hawkeye@cayden.tech>` | The From address. **Its domain must be verified in Resend**, or sends are accepted and delivered nowhere. |
+| `HAWKEYE_COURIER_FROM` | `Radar <hawkeye@cayden.tech>` | The From address. **Its domain must be verified in Resend**, or sends are accepted and delivered nowhere. |
 | `HAWKEYE_COURIER_TO` | empty | Fallback destination for the automatic send on seal, recorded as `configured`. Empty means that send is skipped. |
 | `HAWKEYE_MOTION_CONSOLE_URL` | `http://localhost:8766/index.html` | Where `/motion` redirects. Empty drops the route. |
 | `HAWKEYE_SITE_TIMEZONE` | `America/New_York` | Renders the local time in an SMS. |
@@ -435,7 +435,7 @@ Full example: [`schema/hub.json`](schema/hub.json). Abridged:
 
 ```json
 {
-  "hub_name": "Hawk Eye Hub",
+  "hub_name": "Radar Hub",
   "hub_ansname": "hub.hawkeye.invalid",
   "master_ansname": "master.hawkeye.invalid",
   "site_id": "site-demo-01",
@@ -660,7 +660,7 @@ The decision follows the `recommendedProfile` table from `agents/CLAUDE.md`:
 The resident raises an incident from the app. One tap.
 
 **This is the only path to a call.**
-Hawk Eye never calls 911 on its own; settled 2026-09-19.
+Radar never calls 911 on its own; settled 2026-09-19.
 The agents still sense continuously, and what they find surfaces on the stream as interior state the app renders as an alert: the presence's respiration goes to no signature, `respiration_lost_s` climbs and does not reset, the CO reading rises.
 An alert is information a person acts on. It is not a call.
 

@@ -1414,7 +1414,7 @@ async def _receive(socket) -> None:  # noqa: ANN001 - websockets client protocol
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Push camera frames to the Hawk Eye hub.")
+    parser = argparse.ArgumentParser(description="Push camera frames to the Radar hub.")
     parser.add_argument("--hub", default=os.environ.get("HAWKEYE_HUB_URL", "ws://hawkeye-hub.local:8787"))
     parser.add_argument("--token", default=os.environ.get("HAWKEYE_EDGE_TOKEN", ""))
     parser.add_argument("--edge-id", default=os.environ.get("HAWKEYE_EDGE_ID", "pi-01"))
@@ -2074,12 +2074,12 @@ Create `app/web/live/index.html`:
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hawk Eye live</title>
+    <title>Radar live</title>
     <link rel="stylesheet" href="live.css" />
   </head>
   <body>
     <header>
-      <h1>Hawk Eye</h1>
+      <h1>Radar</h1>
       <p id="hub" class="muted">Connecting…</p>
     </header>
 

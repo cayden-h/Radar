@@ -5,7 +5,7 @@
 Run commands below gain `python -m agents shutter --port 8106` and `python -m agents vision --port 8107`, and `HAWKEYE_PEERS` must list them.
 See `docs/PIVOT.md` and `agents/CLAUDE.md`.
 
-The five ANS-registered agents behind Hawk Eye.
+The five ANS-registered agents behind Radar.
 
 `CLAUDE.md` in this directory is the contract and the reasoning.
 `TODO.md` is the work queue: what is unfinished, in dependency order.
